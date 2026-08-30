@@ -7,6 +7,18 @@ namespace BettingAI.Services;
 public class FootballDataService
 {
     private readonly HttpClient _httpClient;
+    
+    // Supported leagues: Ligue 1 (53), La Liga (61), Serie A (135), Bundesliga (78), Premier League (39), MLS (253)
+    private static readonly List<int> SupportedLeagueIds = new() { 53, 61, 135, 78, 39, 253 };
+    private static readonly Dictionary<int, string> LeagueNames = new()
+    {
+        { 53, "Ligue 1" },
+        { 61, "La Liga" },
+        { 135, "Serie A" },
+        { 78, "Bundesliga" },
+        { 39, "Premier League" },
+        { 253, "MLS" }
+    };
 
     public FootballDataService(HttpClient httpClient)
     {
@@ -57,9 +69,10 @@ public class FootballDataService
                         var homeTeam = fixture.GetProperty("home").GetProperty("name").GetString();
                         var awayTeam = fixture.GetProperty("away").GetProperty("name").GetString();
 
-                        Console.WriteLine($"  League {leagueId}: {homeTeam} vs {awayTeam}");
+                        var leagueName = LeagueNames.ContainsKey(leagueId) ? LeagueNames[leagueId] : $"League {leagueId}";
+                        Console.WriteLine($"  {leagueName} ({leagueId}): {homeTeam} vs {awayTeam}");
 
-                        if (leagueId != 53) continue;
+                        if (!SupportedLeagueIds.Contains(leagueId)) continue;
 
                         // 🔥 GET EXACT UTC TIME
                         var utcTimeStr = fixture.GetProperty("status")
@@ -98,7 +111,7 @@ public class FootballDataService
                         });
                     }
 
-                    Console.WriteLine($"✓ Filtered to {matches.Count} valid Ligue 1 matches");
+                    Console.WriteLine($"✓ Filtered to {matches.Count} valid matches from {SupportedLeagueIds.Count} supported leagues");
                 }
             }
 
