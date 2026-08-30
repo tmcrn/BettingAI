@@ -61,6 +61,10 @@ public class BetSettlementService
                 {
                     await _discord.NotifyBetWonAsync(bet);
                 }
+                else
+                {
+                    await _discord.NotifyBetLostAsync(bet);
+                }
             }
         }
 

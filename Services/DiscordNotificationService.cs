@@ -59,6 +59,25 @@ public class DiscordNotificationService
         }
     });
 
+    public Task NotifyBetLostAsync(Bet bet) => SendAsync(new
+    {
+        embeds = new[]
+        {
+            new
+            {
+                title = "❌ Pari perdu",
+                color = 0xe74c3c, // rouge
+                fields = new object[]
+                {
+                    new { name = "Match", value = $"{bet.HomeTeam} vs {bet.AwayTeam}", inline = false },
+                    new { name = "Type", value = bet.BetType ?? "?", inline = true },
+                    new { name = "Mise perdue", value = $"{bet.Stake:0.00}€", inline = true }
+                },
+                timestamp = DateTime.UtcNow.ToString("o")
+            }
+        }
+    });
+
     private async Task SendAsync(object payload)
     {
         if (string.IsNullOrWhiteSpace(_webhookUrl)) return; // Discord non configuré

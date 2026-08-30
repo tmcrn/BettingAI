@@ -61,6 +61,7 @@ public class RecordMatchResultEndpoint : Endpoint<RecordMatchResultRequest, Reco
             {
                 bet.Result = "LOSS";
                 bet.Winnings = 0;
+                await _discord.NotifyBetLostAsync(bet);
             }
         }
 
