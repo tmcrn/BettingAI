@@ -7,17 +7,17 @@ namespace BettingAI.Services;
 public class FootballDataService
 {
     private readonly HttpClient _httpClient;
-    
-    // Supported leagues: Ligue 1 (53), La Liga (61), Serie A (135), Bundesliga (78), Premier League (39), MLS (253)
-    private static readonly List<int> SupportedLeagueIds = new() { 53, 61, 135, 78, 39, 253 };
+
+    // Supported leagues: Ligue 1 (53), Ligue 2 (110), La Liga (87), Serie A (55), Bundesliga (54), Premier League (39)
+    private static readonly List<int> SupportedLeagueIds = new() { 53, 110, 87, 55, 54, 39 };
     private static readonly Dictionary<int, string> LeagueNames = new()
     {
         { 53, "Ligue 1" },
-        { 61, "La Liga" },
-        { 135, "Serie A" },
-        { 78, "Bundesliga" },
-        { 39, "Premier League" },
-        { 253, "MLS" }
+        { 110, "Ligue 2" },
+        { 87, "La Liga" },
+        { 55, "Serie A" },
+        { 54, "Bundesliga" },
+        { 39, "Premier League" }
     };
 
     public FootballDataService(HttpClient httpClient)
@@ -35,86 +35,88 @@ public class FootballDataService
             _httpClient.DefaultRequestHeaders.Add("x-rapidapi-host", "free-api-live-football-data.p.rapidapi.com");
             _httpClient.DefaultRequestHeaders.Add("x-rapidapi-key", apiKey);
 
-            var response = await _httpClient.GetAsync(
-                "https://free-api-live-football-data.p.rapidapi.com/football-current-live"
-            );
-
-            var content = await response.Content.ReadAsStringAsync();
-
-            Console.WriteLine("===== API RESPONSE =====");
-            Console.WriteLine(content);
-            Console.WriteLine("===== END =====");
-
-            if (!response.IsSuccessStatusCode)
-            {
-                Console.WriteLine($"Free API Error: {response.StatusCode}");
-                return new List<FootballMatch>();
-            }
-
-            var doc = JsonDocument.Parse(content);
             var matches = new List<FootballMatch>();
             var now = DateTime.UtcNow;
 
-            if (doc.RootElement.TryGetProperty("response", out var respObj))
+            // Fetch matches for today + tomorrow (24h window)
+            var dates = new[] { now.ToString("yyyyMMdd"), now.AddDays(1).ToString("yyyyMMdd") };
+
+            foreach (var date in dates)
             {
-                Console.WriteLine($"✓ Found 'response' object");
+                var response = await _httpClient.GetAsync(
+                    $"https://free-api-live-football-data.p.rapidapi.com/football-get-matches-by-date?date={date}"
+                );
 
-                if (respObj.TryGetProperty("live", out var liveArray))
+                var content = await response.Content.ReadAsStringAsync();
+
+                Console.WriteLine($"===== API RESPONSE ({date}) =====");
+                Console.WriteLine(content.Substring(0, Math.Min(200, content.Length)));
+                Console.WriteLine("===== END =====");
+
+                if (!response.IsSuccessStatusCode)
                 {
-                    Console.WriteLine($"✓ Found 'live' array with {liveArray.GetArrayLength()} items");
+                    Console.WriteLine($"Free API Error: {response.StatusCode}");
+                    continue;
+                }
 
-                    foreach (var fixture in liveArray.EnumerateArray())
+                var doc = JsonDocument.Parse(content);
+
+                if (doc.RootElement.TryGetProperty("response", out var respObj))
+                {
+                    Console.WriteLine($"✓ Found 'response' object for {date}");
+
+                    if (respObj.TryGetProperty("matches", out var matchesArray))
                     {
-                        var leagueId = fixture.GetProperty("leagueId").GetInt32();
-                        var homeTeam = fixture.GetProperty("home").GetProperty("name").GetString();
-                        var awayTeam = fixture.GetProperty("away").GetProperty("name").GetString();
+                        Console.WriteLine($"✓ Found 'matches' array with {matchesArray.GetArrayLength()} items");
 
-                        var leagueName = LeagueNames.ContainsKey(leagueId) ? LeagueNames[leagueId] : $"League {leagueId}";
-                        Console.WriteLine($"  {leagueName} ({leagueId}): {homeTeam} vs {awayTeam}");
-
-                        if (!SupportedLeagueIds.Contains(leagueId)) continue;
-
-                        // 🔥 GET EXACT UTC TIME
-                        var utcTimeStr = fixture.GetProperty("status")
-                            .GetProperty("utcTime").GetString();
-                        var matchTime = DateTime.Parse(utcTimeStr ?? DateTime.Now.ToString());
-
-                        // 🔥 GET MATCH STATUS
-                        var liveTimeShort = fixture.GetProperty("status")
-                            .GetProperty("liveTime").GetProperty("short").GetString();
-
-                        // 🔥 ONLY BET IF MATCH NOT STARTED OR WITHIN 30 MIN
-                        var timeUntilKickoff = matchTime - now;
-                        var isMatchStarted = fixture.GetProperty("status")
-                            .GetProperty("started").GetBoolean();
-
-                        Console.WriteLine($"    UTC: {matchTime:HH:mm:ss}");
-                        Console.WriteLine($"    Status: {liveTimeShort}");
-                        Console.WriteLine($"    Time until kickoff: {timeUntilKickoff.TotalMinutes:F0} min");
-
-                        // ⚠️ SKIP if match already started
-                        if (isMatchStarted)
+                        foreach (var fixture in matchesArray.EnumerateArray())
                         {
-                            Console.WriteLine($"    ❌ SKIP: Match already started");
-                            continue;
+                            var leagueId = fixture.GetProperty("leagueId").GetInt32();
+                            var homeTeam = fixture.GetProperty("home").GetProperty("name").GetString();
+                            var awayTeam = fixture.GetProperty("away").GetProperty("name").GetString();
+
+                            var leagueName = LeagueNames.ContainsKey(leagueId) ? LeagueNames[leagueId] : $"League {leagueId}";
+                            Console.WriteLine($"  {leagueName} ({leagueId}): {homeTeam} vs {awayTeam}");
+
+                            if (!SupportedLeagueIds.Contains(leagueId)) continue;
+
+                            // 🔥 GET EXACT UTC TIME
+                            var utcTimeStr = fixture.GetProperty("status")
+                                .GetProperty("utcTime").GetString();
+                            var matchTime = DateTime.Parse(utcTimeStr ?? DateTime.Now.ToString());
+
+                            // 🔥 GET MATCH STATUS
+                            var statusObj = fixture.GetProperty("status");
+                            var isFinished = statusObj.GetProperty("finished").GetBoolean();
+
+                            Console.WriteLine($"    UTC: {matchTime:HH:mm:ss}");
+                            Console.WriteLine($"    Status: {(isFinished ? "FINISHED" : "SCHEDULED")}");
+
+                            // ⚠️ SKIP if match already finished
+                            if (isFinished)
+                            {
+                                Console.WriteLine($"    ❌ SKIP: Match finished");
+                                continue;
+                            }
+
+                            matches.Add(new FootballMatch
+                            {
+                                Id = fixture.GetProperty("id").GetInt32().ToString(),
+                                HomeTeam = homeTeam,
+                                AwayTeam = awayTeam,
+                                UtcDate = matchTime,
+                                Status = "SCHEDULED",
+                                HomeScore = fixture.GetProperty("home").GetProperty("score").GetInt32(),
+                                AwayScore = fixture.GetProperty("away").GetProperty("score").GetInt32()
+                            });
                         }
 
-                        matches.Add(new FootballMatch
-                        {
-                            Id = fixture.GetProperty("id").GetInt32().ToString(),
-                            HomeTeam = homeTeam,
-                            AwayTeam = awayTeam,
-                            UtcDate = matchTime,
-                            Status = liveTimeShort ?? "SCHEDULED",
-                            HomeScore = fixture.GetProperty("home").GetProperty("score").GetInt32(),
-                            AwayScore = fixture.GetProperty("away").GetProperty("score").GetInt32()
-                        });
+                        Console.WriteLine($"✓ Processed {date}: found matches from supported leagues");
                     }
-
-                    Console.WriteLine($"✓ Filtered to {matches.Count} valid matches from {SupportedLeagueIds.Count} supported leagues");
                 }
             }
 
+            Console.WriteLine($"✓ Total valid matches from 24h window: {matches.Count}");
             return matches.OrderBy(m => m.UtcDate).ToList();
         }
         catch (Exception ex)
