@@ -11,8 +11,16 @@ public class FootballDataService
     private readonly string _apiKey;
     private readonly string _baseUrl;
 
-    // The 5 major leagues, as football-data.org competition codes.
-    private const string Competitions = "PL,PD,SA,BL1,FL1"; // Premier League, La Liga, Serie A, Bundesliga, Ligue 1
+    // The 5 major leagues, as football-data.org competition codes. The
+    // /v4/matches endpoint's `competitions` filter wants numeric competition
+    // ids (undocumented here, and not worth guessing wrong again like the
+    // Sofascore team-name matching did) - so instead we don't filter
+    // server-side at all and match each fixture's competition.code
+    // client-side, which the docs do confirm as string codes like "PL".
+    private static readonly HashSet<string> SupportedCompetitionCodes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "PL", "PD", "SA", "BL1", "FL1" // Premier League, La Liga, Serie A, Bundesliga, Ligue 1
+    };
 
     // Shared across instances (this service is registered per-request via
     // AddHttpClient). football-data.org's free tier has no hard monthly cap,
@@ -95,7 +103,7 @@ public class FootballDataService
 
             var dateFrom = now.ToString("yyyy-MM-dd");
             var dateTo = now.AddDays(1).ToString("yyyy-MM-dd");
-            var url = $"{_baseUrl}/matches?dateFrom={dateFrom}&dateTo={dateTo}&competitions={Competitions}";
+            var url = $"{_baseUrl}/matches?dateFrom={dateFrom}&dateTo={dateTo}";
 
             var doc = await GetAsync(url);
             if (doc == null) return matches;
@@ -104,6 +112,9 @@ public class FootballDataService
 
             foreach (var fixture in matchesArray.EnumerateArray())
             {
+                var competitionCode = fixture.GetProperty("competition").TryGetProperty("code", out var codeEl) ? codeEl.GetString() : null;
+                if (competitionCode == null || !SupportedCompetitionCodes.Contains(competitionCode)) continue;
+
                 var status = fixture.GetProperty("status").GetString();
                 if (status == "FINISHED" || status == "CANCELLED" || status == "POSTPONED") continue;
 
