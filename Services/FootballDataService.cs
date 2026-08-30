@@ -37,6 +37,7 @@ public class FootballDataService
 
             var matches = new List<FootballMatch>();
             var now = DateTime.UtcNow;
+            var windowEnd = now.AddHours(24);
 
             // Fetch matches for today + tomorrow (24h window)
             var dates = new[] { now.ToString("yyyyMMdd"), now.AddDays(1).ToString("yyyyMMdd") };
@@ -49,10 +50,6 @@ public class FootballDataService
 
                 var content = await response.Content.ReadAsStringAsync();
 
-                Console.WriteLine($"===== API RESPONSE ({date}) =====");
-                Console.WriteLine(content.Substring(0, Math.Min(200, content.Length)));
-                Console.WriteLine("===== END =====");
-
                 if (!response.IsSuccessStatusCode)
                 {
                     Console.WriteLine($"Free API Error: {response.StatusCode}");
@@ -63,41 +60,29 @@ public class FootballDataService
 
                 if (doc.RootElement.TryGetProperty("response", out var respObj))
                 {
-                    Console.WriteLine($"✓ Found 'response' object for {date}");
-
                     if (respObj.TryGetProperty("matches", out var matchesArray))
                     {
-                        Console.WriteLine($"✓ Found 'matches' array with {matchesArray.GetArrayLength()} items");
-
                         foreach (var fixture in matchesArray.EnumerateArray())
                         {
                             var leagueId = fixture.GetProperty("leagueId").GetInt32();
                             var homeTeam = fixture.GetProperty("home").GetProperty("name").GetString();
                             var awayTeam = fixture.GetProperty("away").GetProperty("name").GetString();
 
-                            var leagueName = LeagueNames.ContainsKey(leagueId) ? LeagueNames[leagueId] : $"League {leagueId}";
-                            Console.WriteLine($"  {leagueName} ({leagueId}): {homeTeam} vs {awayTeam}");
-
                             if (!SupportedLeagueIds.Contains(leagueId)) continue;
 
-                            // 🔥 GET EXACT UTC TIME
-                            var utcTimeStr = fixture.GetProperty("status")
-                                .GetProperty("utcTime").GetString();
+                            // Get exact UTC time
+                            var utcTimeStr = fixture.GetProperty("status").GetProperty("utcTime").GetString();
                             var matchTime = DateTime.Parse(utcTimeStr ?? DateTime.Now.ToString());
 
-                            // 🔥 GET MATCH STATUS
+                            // Get match status
                             var statusObj = fixture.GetProperty("status");
                             var isFinished = statusObj.GetProperty("finished").GetBoolean();
 
-                            Console.WriteLine($"    UTC: {matchTime:HH:mm:ss}");
-                            Console.WriteLine($"    Status: {(isFinished ? "FINISHED" : "SCHEDULED")}");
+                            // SKIP if match already finished
+                            if (isFinished) continue;
 
-                            // ⚠️ SKIP if match already finished
-                            if (isFinished)
-                            {
-                                Console.WriteLine($"    ❌ SKIP: Match finished");
-                                continue;
-                            }
+                            // SKIP if match is outside 24h window
+                            if (matchTime < now || matchTime > windowEnd) continue;
 
                             matches.Add(new FootballMatch
                             {
@@ -110,18 +95,15 @@ public class FootballDataService
                                 AwayScore = fixture.GetProperty("away").GetProperty("score").GetInt32()
                             });
                         }
-
-                        Console.WriteLine($"✓ Processed {date}: found matches from supported leagues");
                     }
                 }
             }
 
-            Console.WriteLine($"✓ Total valid matches from 24h window: {matches.Count}");
             return matches.OrderBy(m => m.UtcDate).ToList();
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"❌ Erreur: {ex.Message}");
+            Console.WriteLine($"Error: {ex.Message}");
             return new List<FootballMatch>();
         }
     }
