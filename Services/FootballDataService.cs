@@ -132,8 +132,8 @@ public class FootballDataService
                     AwayTeam = fixture.GetProperty("awayTeam").GetProperty("name").GetString(),
                     UtcDate = matchTime,
                     Status = "SCHEDULED",
-                    HomeScore = GetScoreOrZero(fullTime, "homeTeam"),
-                    AwayScore = GetScoreOrZero(fullTime, "awayTeam")
+                    HomeScore = GetScoreOrZero(fullTime, "home"),
+                    AwayScore = GetScoreOrZero(fullTime, "away")
                 });
             }
 
@@ -163,8 +163,8 @@ public class FootballDataService
             return new MatchStatus
             {
                 Finished = status == "FINISHED",
-                HomeScore = GetScoreOrZero(fullTime, "homeTeam"),
-                AwayScore = GetScoreOrZero(fullTime, "awayTeam")
+                HomeScore = GetScoreOrZero(fullTime, "home"),
+                AwayScore = GetScoreOrZero(fullTime, "away")
             };
         }
         catch (Exception ex)
