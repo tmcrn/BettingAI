@@ -1,5 +1,6 @@
 using BettingAI.Models;
 using BettingAI.Data;
+using BettingAI.Services;
 using FastEndpoints;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -25,11 +26,13 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
 {
     private readonly BettingContext _context;
     private readonly HttpClient _httpClient;
+    private readonly DiscordNotificationService _discord;
 
-    public DecideBetsEndpoint(BettingContext context, HttpClient httpClient)
+    public DecideBetsEndpoint(BettingContext context, HttpClient httpClient, DiscordNotificationService discord)
     {
         _context = context;
         _httpClient = httpClient;
+        _discord = discord;
     }
 
     public override void Configure()
@@ -194,6 +197,8 @@ REMEMBER: Start with [ immediately. No preamble. No markdown. Just JSON.";
 
                     if (betsArray != null && betsArray.Count > 0)
                     {
+                        var savedBets = new List<Bet>();
+
                         foreach (var bet in betsArray)
                         {
                             // The AI echoes back the index-based id we sent it. Resolve it against
@@ -220,10 +225,16 @@ REMEMBER: Start with [ immediately. No preamble. No markdown. Just JSON.";
                                 MatchUtcDate = sourceMatch?.UtcDate
                             };
                             _context.Bets.Add(dbBet);
+                            savedBets.Add(dbBet);
                         }
                         await _context.SaveChangesAsync(ct);
                         bets = betsArray;
                         debugLog.Add($"SAVED {bets.Count} bets");
+
+                        foreach (var savedBet in savedBets)
+                        {
+                            await _discord.NotifyBetPlacedAsync(savedBet);
+                        }
 
                         // Update learning
                         await _httpClient.PostAsJsonAsync(

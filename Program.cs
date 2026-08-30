@@ -13,6 +13,7 @@ builder.Services.AddScoped<OddsScraperService>();
 builder.Services.AddScoped<BetSettlementService>();
 builder.Services.AddHttpClient();
 builder.Services.AddHttpClient<FootballDataService>();
+builder.Services.AddHttpClient<DiscordNotificationService>();
 
 // 🎯 Auto-corrige les paris PENDING toutes les 15min (vérifie le score réel,
 // marque WIN/LOSS, met à jour le LearningNotebook) - c'est ce qui permet à

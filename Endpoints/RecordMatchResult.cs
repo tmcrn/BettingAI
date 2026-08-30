@@ -23,11 +23,13 @@ public class RecordMatchResultEndpoint : Endpoint<RecordMatchResultRequest, Reco
 {
     private readonly BettingContext _context;
     private readonly BetSettlementService _settlementService;
+    private readonly DiscordNotificationService _discord;
 
-    public RecordMatchResultEndpoint(BettingContext context, BetSettlementService settlementService)
+    public RecordMatchResultEndpoint(BettingContext context, BetSettlementService settlementService, DiscordNotificationService discord)
     {
         _context = context;
         _settlementService = settlementService;
+        _discord = discord;
     }
 
     public override void Configure()
@@ -53,6 +55,7 @@ public class RecordMatchResultEndpoint : Endpoint<RecordMatchResultRequest, Reco
                 bet.Result = "WIN";
                 bet.Winnings = bet.Stake * 2;  // Cotes simples : x2
                 totalWinnings += bet.Winnings.Value;
+                await _discord.NotifyBetWonAsync(bet);
             }
             else
             {

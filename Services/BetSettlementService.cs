@@ -14,11 +14,13 @@ public class BetSettlementService
 
     private readonly BettingContext _context;
     private readonly FootballDataService _footballDataService;
+    private readonly DiscordNotificationService _discord;
 
-    public BetSettlementService(BettingContext context, FootballDataService footballDataService)
+    public BetSettlementService(BettingContext context, FootballDataService footballDataService, DiscordNotificationService discord)
     {
         _context = context;
         _footballDataService = footballDataService;
+        _discord = discord;
     }
 
     public async Task<int> SettlePendingBetsAsync(CancellationToken ct = default)
@@ -54,6 +56,11 @@ public class BetSettlementService
                 bet.Result = won ? "WIN" : "LOSS";
                 bet.Winnings = won ? bet.Stake * 2 : 0;
                 settledCount++;
+
+                if (won)
+                {
+                    await _discord.NotifyBetWonAsync(bet);
+                }
             }
         }
 
