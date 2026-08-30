@@ -1,5 +1,6 @@
 using BettingAI.Models;
 using Microsoft.Extensions.Configuration;
+using System.Globalization;
 using System.Text.Json;
 
 namespace BettingAI.Services;
@@ -10,37 +11,39 @@ public class FootballDataService
     private readonly string _apiKey;
     private readonly string _baseUrl;
 
+    // The 5 major leagues, as football-data.org competition codes.
+    private const string Competitions = "PL,PD,SA,BL1,FL1"; // Premier League, La Liga, Serie A, Bundesliga, Ligue 1
+
     // Shared across instances (this service is registered per-request via
-    // AddHttpClient) so repeated calls - our own 30min cron cycle chief among
-    // them - don't burn through the free API quota for data that hasn't
-    // changed. Footballdata.io's free plan is 2,000 requests/MONTH, so this
-    // still needs to be measured in hours, not minutes. Static + lock since
-    // multiple requests can hit this concurrently.
-    private static readonly Dictionary<string, (DateTime FetchedAt, string Content)> _dateCache = new();
+    // AddHttpClient). football-data.org's free tier has no hard monthly cap,
+    // just 10 requests/minute, so a short cache is enough here - mainly to
+    // avoid tripping that limit during back-to-back manual tests or an
+    // overlapping cron + settlement cycle.
+    private static readonly Dictionary<string, (DateTime FetchedAt, string Content)> _cache = new();
     private static readonly object _cacheLock = new();
-    private static readonly TimeSpan CacheTtl = TimeSpan.FromHours(6);
+    private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(5);
 
     public FootballDataService(HttpClient httpClient, IConfiguration configuration)
     {
         _httpClient = httpClient;
         _apiKey = configuration["FootballData:ApiKey"] ?? "";
-        _baseUrl = configuration["FootballData:BaseUrl"]?.TrimEnd('/') ?? "https://footballdata.io/api/v1";
+        _baseUrl = configuration["FootballData:BaseUrl"]?.TrimEnd('/') ?? "https://api.football-data.org/v4";
     }
 
     private void SetupHeaders()
     {
         _httpClient.DefaultRequestHeaders.Clear();
-        _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {_apiKey}");
+        _httpClient.DefaultRequestHeaders.Add("X-Auth-Token", _apiKey);
     }
 
-    // Fetches (or reuses a cached copy of) the raw fixtures payload for one
-    // date. On an API failure (rate limit included), falls back to a stale
-    // cached copy rather than giving up entirely.
-    private async Task<JsonDocument?> GetFixturesByDateAsync(string date)
+    // Fetches (or reuses a cached copy of) a GET request's raw body. On an
+    // API failure (rate limit included), falls back to a stale cached copy
+    // rather than giving up entirely.
+    private async Task<JsonDocument?> GetAsync(string url)
     {
         lock (_cacheLock)
         {
-            if (_dateCache.TryGetValue(date, out var cached) && DateTime.UtcNow - cached.FetchedAt < CacheTtl)
+            if (_cache.TryGetValue(url, out var cached) && DateTime.UtcNow - cached.FetchedAt < CacheTtl)
             {
                 return JsonDocument.Parse(cached.Content);
             }
@@ -48,17 +51,17 @@ public class FootballDataService
 
         SetupHeaders();
 
-        var response = await _httpClient.GetAsync($"{_baseUrl}/fixtures?date={date}");
+        var response = await _httpClient.GetAsync(url);
 
         if (!response.IsSuccessStatusCode)
         {
-            Console.WriteLine($"Footballdata.io API Error: {response.StatusCode}");
+            Console.WriteLine($"football-data.org API error: {response.StatusCode} for {url}");
 
             lock (_cacheLock)
             {
-                if (_dateCache.TryGetValue(date, out var stale))
+                if (_cache.TryGetValue(url, out var stale))
                 {
-                    Console.WriteLine($"  ⚠️ Using stale cached data for {date} ({DateTime.UtcNow - stale.FetchedAt:g} old) due to API error");
+                    Console.WriteLine($"  ⚠️ Using stale cached data ({DateTime.UtcNow - stale.FetchedAt:g} old) due to API error");
                     return JsonDocument.Parse(stale.Content);
                 }
             }
@@ -68,26 +71,19 @@ public class FootballDataService
 
         var content = await response.Content.ReadAsStringAsync();
 
-        // Surface quota usage so we notice getting close to the monthly cap
-        // before it silently starts failing again.
-        try
-        {
-            var meta = JsonDocument.Parse(content).RootElement.GetProperty("meta");
-            if (meta.TryGetProperty("requests_remaining", out var remaining) &&
-                meta.TryGetProperty("requests_limit", out var limit))
-            {
-                Console.WriteLine($"  📊 Footballdata.io quota: {remaining.GetInt32()}/{limit.GetInt32()} requests remaining");
-            }
-        }
-        catch { /* meta shape not guaranteed, quota logging is best-effort */ }
-
         lock (_cacheLock)
         {
-            _dateCache[date] = (DateTime.UtcNow, content);
+            _cache[url] = (DateTime.UtcNow, content);
         }
 
         return JsonDocument.Parse(content);
     }
+
+    private static DateTime ParseUtcDate(string utcDateStr) =>
+        DateTime.Parse(utcDateStr, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal);
+
+    private static int GetScoreOrZero(JsonElement fullTime, string side) =>
+        fullTime.TryGetProperty(side, out var val) && val.ValueKind != JsonValueKind.Null ? val.GetInt32() : 0;
 
     public async Task<List<FootballMatch>> GetUpcomingMatchesAsync()
     {
@@ -97,40 +93,37 @@ public class FootballDataService
             var now = DateTime.UtcNow;
             var windowEnd = now.AddHours(24);
 
-            // Fetch matches for today + tomorrow (24h window)
-            var dates = new[] { now.ToString("yyyy-MM-dd"), now.AddDays(1).ToString("yyyy-MM-dd") };
+            var dateFrom = now.ToString("yyyy-MM-dd");
+            var dateTo = now.AddDays(1).ToString("yyyy-MM-dd");
+            var url = $"{_baseUrl}/matches?dateFrom={dateFrom}&dateTo={dateTo}&competitions={Competitions}";
 
-            foreach (var date in dates)
+            var doc = await GetAsync(url);
+            if (doc == null) return matches;
+
+            if (!doc.RootElement.TryGetProperty("matches", out var matchesArray)) return matches;
+
+            foreach (var fixture in matchesArray.EnumerateArray())
             {
-                var doc = await GetFixturesByDateAsync(date);
-                if (doc == null) continue;
+                var status = fixture.GetProperty("status").GetString();
+                if (status == "FINISHED" || status == "CANCELLED" || status == "POSTPONED") continue;
 
-                if (!doc.RootElement.TryGetProperty("data", out var dataObj)) continue;
-                if (!dataObj.TryGetProperty("matches", out var matchesArray)) continue;
+                var matchTime = ParseUtcDate(fixture.GetProperty("utcDate").GetString()!);
 
-                foreach (var fixture in matchesArray.EnumerateArray())
+                // SKIP if match is outside 24h window
+                if (matchTime < now || matchTime > windowEnd) continue;
+
+                var fullTime = fixture.GetProperty("score").GetProperty("fullTime");
+
+                matches.Add(new FootballMatch
                 {
-                    var isFinished = fixture.GetProperty("status").GetString() == "complete";
-                    if (isFinished) continue; // SKIP if match already finished
-
-                    var matchTime = DateTimeOffset.FromUnixTimeSeconds(fixture.GetProperty("date_unix").GetInt64()).UtcDateTime;
-
-                    // SKIP if match is outside 24h window
-                    if (matchTime < now || matchTime > windowEnd) continue;
-
-                    // The free plan is already capped server-side to 5 leagues
-                    // (meta.league_limit), so no client-side league filter needed here.
-                    matches.Add(new FootballMatch
-                    {
-                        Id = fixture.GetProperty("match_id").GetInt64().ToString(),
-                        HomeTeam = fixture.GetProperty("home_team").GetProperty("team_name").GetString(),
-                        AwayTeam = fixture.GetProperty("away_team").GetProperty("team_name").GetString(),
-                        UtcDate = matchTime,
-                        Status = "SCHEDULED",
-                        HomeScore = fixture.GetProperty("score").GetProperty("home").GetInt32(),
-                        AwayScore = fixture.GetProperty("score").GetProperty("away").GetInt32()
-                    });
-                }
+                    Id = fixture.GetProperty("id").GetInt32().ToString(),
+                    HomeTeam = fixture.GetProperty("homeTeam").GetProperty("name").GetString(),
+                    AwayTeam = fixture.GetProperty("awayTeam").GetProperty("name").GetString(),
+                    UtcDate = matchTime,
+                    Status = "SCHEDULED",
+                    HomeScore = GetScoreOrZero(fullTime, "homeTeam"),
+                    AwayScore = GetScoreOrZero(fullTime, "awayTeam")
+                });
             }
 
             return matches.OrderBy(m => m.UtcDate).ToList();
@@ -142,43 +135,26 @@ public class FootballDataService
         }
     }
 
-    // Looks up the real final result of a match by its real API id, searching
-    // around the match's kickoff date. Used to settle PENDING bets once a
-    // match should be over.
+    // Looks up the real final result of a match by its real API id. Used to
+    // settle PENDING bets once a match should be over. referenceDate isn't
+    // needed for the lookup itself (football-data.org has a direct
+    // by-id endpoint) but is kept for interface compatibility.
     public async Task<MatchStatus?> GetMatchStatusAsync(string matchId, DateTime referenceDate)
     {
         try
         {
-            var dates = new[] { referenceDate.ToString("yyyy-MM-dd"), referenceDate.AddDays(1).ToString("yyyy-MM-dd") };
+            var doc = await GetAsync($"{_baseUrl}/matches/{matchId}");
+            if (doc == null) return null;
 
-            foreach (var date in dates)
+            var status = doc.RootElement.GetProperty("status").GetString();
+            var fullTime = doc.RootElement.GetProperty("score").GetProperty("fullTime");
+
+            return new MatchStatus
             {
-                var doc = await GetFixturesByDateAsync(date);
-                if (doc == null) continue;
-
-                if (!doc.RootElement.TryGetProperty("data", out var dataObj)) continue;
-                if (!dataObj.TryGetProperty("matches", out var matchesArray)) continue;
-
-                foreach (var fixture in matchesArray.EnumerateArray())
-                {
-                    var id = fixture.GetProperty("match_id").GetInt64().ToString();
-                    if (id != matchId) continue;
-
-                    var isFinished = fixture.GetProperty("status").GetString() == "complete";
-                    var homeScore = fixture.GetProperty("score").GetProperty("home").GetInt32();
-                    var awayScore = fixture.GetProperty("score").GetProperty("away").GetInt32();
-
-                    return new MatchStatus
-                    {
-                        Finished = isFinished,
-                        HomeScore = homeScore,
-                        AwayScore = awayScore
-                    };
-                }
-            }
-
-            // Not found (too early, wrong date, or API doesn't carry it anymore)
-            return null;
+                Finished = status == "FINISHED",
+                HomeScore = GetScoreOrZero(fullTime, "homeTeam"),
+                AwayScore = GetScoreOrZero(fullTime, "awayTeam")
+            };
         }
         catch (Exception ex)
         {
