@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Betting AI - Système de Paris Intelligent</title>
+    <style>
+    * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+    }
+    
+    body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        background: #f5f5f5;
+        color: #333;
+        padding: 20px;
+    }
+    
+    .container {
+        max-width: 1400px;
+        margin: 0 auto;
+    }
+    
+    header {
+        margin-bottom: 40px;
+        border-bottom: 2px solid #ddd;
+        padding-bottom: 20px;
+    }
+    
+    h1 {
+        font-size: 2.5em;
+        margin-bottom: 10px;
+        color: #000;
+    }
+    
+    .subtitle {
+        color: #666;
+        font-size: 0.95em;
+    }
+    
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 15px;
+        margin-bottom: 40px;
+    }
+    
+    .stat-card {
+        background: #fff;
+        padding: 20px;
+        border-radius: 8px;
+        border: 1px solid #ddd;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    
+    .stat-card h3 {
+        font-size: 0.85em;
+        color: #666;
+        text-transform: uppercase;
+        margin-bottom: 10px;
+        letter-spacing: 1px;
+        font-weight: 600;
+    }
+    
+    .stat-card .value {
+        font-size: 2em;
+        font-weight: bold;
+        color: #000;
+    }
+    
+    .section-title {
+        font-size: 1.4em;
+        margin-bottom: 20px;
+        padding-bottom: 15px;
+        border-bottom: 2px solid #ddd;
+        color: #000;
+    }
+    
+    .tickets-container {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+        gap: 20px;
+        margin-bottom: 40px;
+    }
+    
+    .ticket {
+        background: #fff;
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        border: 1px solid #ddd;
+    }
+    
+    .ticket-header {
+        background: #000;
+        color: #fff;
+        padding: 15px;
+    }
+    
+    .ticket-match {
+        font-size: 1.1em;
+        font-weight: bold;
+        margin-bottom: 5px;
+    }
+    
+    .ticket-time {
+        font-size: 0.85em;
+        opacity: 0.8;
+    }
+    
+    .ticket-body {
+        padding: 15px;
+    }
+    
+    .ticket-bet-type {
+        display: inline-block;
+        background: #eee;
+        color: #333;
+        padding: 6px 12px;
+        border-radius: 4px;
+        font-size: 0.85em;
+        font-weight: bold;
+        margin-bottom: 15px;
+    }
+    
+    .ticket-info {
+        margin-bottom: 15px;
+    }
+    
+    .ticket-info-row {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 8px;
+        font-size: 0.95em;
+    }
+    
+    .ticket-info-label {
+        color: #666;
+    }
+    
+    .ticket-info-value {
+        font-weight: bold;
+        color: #000;
+    }
+    
+    .ticket-reasoning {
+        background: #f9f9f9;
+        padding: 12px;
+        border-radius: 4px;
+        border-left: 3px solid #999;
+        font-size: 0.9em;
+        line-height: 1.5;
+        margin-bottom: 15px;
+    }
+    
+    .ticket-reasoning-title {
+        color: #333;
+        font-weight: bold;
+        margin-bottom: 8px;
+    }
+    
+    .ticket-params {
+        background: #f9f9f9;
+        padding: 12px;
+        border-radius: 4px;
+        border-left: 3px solid #666;
+        font-size: 0.85em;
+    }
+    
+    .ticket-params-title {
+        color: #333;
+        font-weight: bold;
+        margin-bottom: 8px;
+    }
+    
+    .param-item {
+        margin-bottom: 6px;
+        color: #555;
+    }
+    
+    .status-badge {
+        display: inline-block;
+        padding: 6px 12px;
+        border-radius: 4px;
+        font-size: 0.8em;
+        font-weight: bold;
+        margin-top: 10px;
+    }
+    
+    .status-pending {
+        background: #fff3cd;
+        color: #333;
+    }
+    
+    .status-win {
+        background: #d4edda;
+        color: #333;
+    }
+    
+    .status-loss {
+        background: #f8d7da;
+        color: #333;
+    }
+    
+    .button-group {
+        display: flex;
+        gap: 15px;
+        margin-bottom: 30px;
+    }
+    
+    button {
+        padding: 12px 24px;
+        background: #000;
+        color: #fff;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 1em;
+        font-weight: bold;
+        transition: background 0.2s;
+    }
+    
+    button:hover {
+        background: #333;
+    }
+    
+    .learning-notebook {
+        background: #fff;
+        padding: 20px;
+        border-radius: 8px;
+        border: 1px solid #ddd;
+        margin-bottom: 40px;
+        font-size: 0.95em;
+        line-height: 1.8;
+        white-space: pre-wrap;
+        font-family: monospace;
+        color: #333;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    
+    .empty-state {
+        text-align: center;
+        padding: 40px;
+        color: #999;
+        background: #fff;
+        border-radius: 8px;
+        border: 1px solid #ddd;
+    }
+</style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>⚔️ BETTING AI - Système Intelligent</h1>
+            <p class="subtitle">Décisions basées sur 150+ paramètres statistiques • Apprentissage en temps réel</p>
+        </header>
+        
+        <div class="button-group">
+            <button onclick="refreshData()">🔄 Rafraîchir</button>
+            <button onclick="decideBets()">🤖 Demander Décision IA</button>
+        </div>
+        
+        <div class="stats-grid">
+            <div class="stat-card">
+                <h3>💰 Portefeuille</h3>
+                <div class="value" id="balance">-</div>
+            </div>
+            <div class="stat-card">
+                <h3>Misé</h3>
+                <div class="value" id="staked">-</div>
+            </div>
+            <div class="stat-card win">
+                <h3>✓ Gains</h3>
+                <div class="value" id="winnings">-</div>
+            </div>
+            <div class="stat-card">
+                <h3>Victoires</h3>
+                <div class="value" id="wonBets">-</div>
+            </div>
+            <div class="stat-card">
+                <h3>📊 Taux Réussite</h3>
+                <div class="value" id="winRate">-</div>
+            </div>
+            <div class="stat-card">
+                <h3>⏳ En Attente</h3>
+                <div class="value" id="pendingBets">-</div>
+            </div>
+        </div>
+        
+        <div class="section-title">
+            🎯 TICKETS EN COURS
+        </div>
+        <div class="tickets-container" id="ticketsContainer">
+            <div class="empty-state">
+                <p>Pas de paris pour le moment</p>
+            </div>
+        </div>
+        
+        <div class="section-title">
+            🧠 MÉMOIRE D'APPRENTISSAGE
+        </div>
+        <div class="learning-notebook" id="learningNotebook">
+            <p>Chargement...</p>
+        </div>
+    </div>
+    
+    <script>
+        async function refreshData() {
+            try {
+                // Portfolio
+                const portfolioRes = await fetch('/api/portfolio');
+                const portfolio = await portfolioRes.json();
+                
+                document.getElementById('balance').textContent = `${portfolio.currentBalance.toFixed(2)}€`;
+                document.getElementById('staked').textContent = `${portfolio.totalStaked.toFixed(2)}€`;
+                document.getElementById('winnings').textContent = `+${portfolio.totalWinnings.toFixed(2)}€`;
+                document.getElementById('wonBets').textContent = `${portfolio.wonBets}/${portfolio.totalBets}`;
+                document.getElementById('winRate').textContent = `${(portfolio.winRate * 100).toFixed(1)}%`;
+                document.getElementById('pendingBets').textContent = `${portfolio.pendingBets}`;
+                
+                // Learning Notebook
+                const learningRes = await fetch('/api/learning-notebook');
+                const learning = await learningRes.json();
+                document.getElementById('learningNotebook').textContent = learning.formattedLearning;
+                
+                // Tickets
+                const container = document.getElementById('ticketsContainer');
+                if (portfolio.recentBets.length === 0) {
+                    container.innerHTML = '<div class="empty-state"><p>Pas de paris enregistrés</p></div>';
+                    return;
+                }
+                
+                container.innerHTML = portfolio.recentBets.map(bet => `
+                    <div class="ticket">
+                        <div class="ticket-header">
+                            <div class="ticket-match">${bet.match}</div>
+                            <div class="ticket-time">${bet.betType}</div>
+                        </div>
+                        <div class="ticket-body">
+                            <div class="ticket-bet-type">${bet.betType}</div>
+                            
+                            <div class="ticket-info">
+                                <div class="ticket-info-row">
+                                    <span class="ticket-info-label">Mise:</span>
+                                    <span class="ticket-info-value">${bet.stake.toFixed(2)}€</span>
+                                </div>
+                                <div class="ticket-info-row">
+                                    <span class="ticket-info-label">Gains:</span>
+                                    <span class="ticket-info-value">${bet.winnings ? bet.winnings.toFixed(2) + '€' : '-'}</span>
+                                </div>
+                            </div>
+                            
+                            <div class="ticket-confidence">
+                                <div style="display: flex; justify-content: space-between;">
+                                    <span style="color: #f39c12; font-weight: bold;">Confiance IA</span>
+                                    <span style="color: #f39c12; font-weight: bold;">-</span>
+                                </div>
+                                <div class="confidence-bar">
+                                    <div class="confidence-fill" style="width: 0%"></div>
+                                </div>
+                            </div>
+                            
+                            <div class="ticket-reasoning">
+                                <div class="ticket-reasoning-title">Raison IA:</div>
+                                Pari basé sur analyse statistique (xG, forme, H2H)
+                            </div>
+                            
+                            <div class="ticket-params">
+                                <div class="ticket-params-title">Paramètres utilisés:</div>
+                                <div class="param-item">📊 <strong>xG</strong> (Expected Goals)</div>
+                                <div class="param-item">📈 <strong>Form</strong> (Forme équipe)</div>
+                                <div class="param-item">🏆 <strong>H2H</strong> (Confrontations)</div>
+                                <div class="param-item">⚡ <strong>Fatigue</strong> (Matchs cette semaine)</div>
+                            </div>
+                            
+                            <span class="status-badge status-${bet.result.toLowerCase()}">${bet.result}</span>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (error) {
+                console.error('Erreur:', error);
+                alert('Erreur de chargement');
+            }
+        }
+        
+        async function decideBets() {
+            alert('Fonction démo - appelle /api/decide-bets avec les matchs du jour');
+            // À implémenter : affiche un formulaire pour décider
+        }
+        
+        // Charge au démarrage
+        refreshData();
+        setInterval(refreshData, 10000); // Refresh auto toutes les 10 sec
+    </script>
+</body>
+</html>
