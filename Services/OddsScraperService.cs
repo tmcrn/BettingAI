@@ -86,12 +86,8 @@ public class OddsScraperService
 
                 var name = entity.GetProperty("name").GetString() ?? "";
 
-                bool hasHome = name.Contains("Rennais", StringComparison.OrdinalIgnoreCase) ||
-                              name.Contains("Rennes", StringComparison.OrdinalIgnoreCase) ||
-                              name.Contains("Monaco", StringComparison.OrdinalIgnoreCase);
-                bool hasAway = name.Contains("Le Mans", StringComparison.OrdinalIgnoreCase) ||
-                              name.Contains("Le-Mans", StringComparison.OrdinalIgnoreCase) ||
-                              name.Contains("Marseille", StringComparison.OrdinalIgnoreCase);
+                bool hasHome = ContainsTeamName(name, homeTeam);
+                bool hasAway = ContainsTeamName(name, awayTeam);
 
                 if (hasHome && hasAway && !name.Contains("U19") && !name.Contains("Women"))
                 {
@@ -109,6 +105,24 @@ public class OddsScraperService
             Console.WriteLine($"  ❌ Search error: {ex.Message}");
             return null;
         }
+    }
+
+    // Sofascore's event name doesn't always match the football-data team name
+    // exactly (e.g. "Roma" vs "AS Roma"), so fall back to the team's most
+    // distinctive word instead of requiring an exact substring match.
+    private static bool ContainsTeamName(string haystack, string? teamName)
+    {
+        if (string.IsNullOrWhiteSpace(teamName)) return false;
+
+        if (haystack.Contains(teamName, StringComparison.OrdinalIgnoreCase)) return true;
+
+        var significantWord = teamName
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .OrderByDescending(w => w.Length)
+            .FirstOrDefault();
+
+        return significantWord != null && significantWord.Length > 3 &&
+            haystack.Contains(significantWord, StringComparison.OrdinalIgnoreCase);
     }
 
     private async Task<Dictionary<string, decimal>?> GetMatchOdds(string matchId)
