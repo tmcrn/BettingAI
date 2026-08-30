@@ -23,13 +23,16 @@ public class FootballDataService
     private const string ApiKey = "1c30d5045emsh23b3584f2aa6cd3p17ed3ejsn6b9d95be77f3";
 
     // Shared across instances (this service is registered per-request via
-    // AddHttpClient) so repeated calls - e.g. our own 30min cron cycle, or
-    // several manual tests in a row - don't burn through the free API quota
-    // for data that hasn't changed. Static + lock since multiple requests
-    // can hit this concurrently.
+    // AddHttpClient) so repeated calls - our own 30min cron cycle chief among
+    // them - don't burn through the free API quota for data that hasn't
+    // changed. The RapidAPI Basic plan here is capped at 100 requests/MONTH
+    // (hard limit): at 2 requests per fetch, a 30min cron blows that in about
+    // a day without caching. A 24h TTL keeps it to ~1 real fetch/day (~60
+    // requests/month), leaving headroom for settlement lookups on other
+    // dates. Static + lock since multiple requests can hit this concurrently.
     private static readonly Dictionary<string, (DateTime FetchedAt, string Content)> _dateCache = new();
     private static readonly object _cacheLock = new();
-    private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(10);
+    private static readonly TimeSpan CacheTtl = TimeSpan.FromHours(24);
 
     public FootballDataService(HttpClient httpClient)
     {
