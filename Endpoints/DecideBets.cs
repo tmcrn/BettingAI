@@ -196,9 +196,14 @@ REMEMBER: Start with [ immediately. No preamble. No markdown. Just JSON.";
                     {
                         foreach (var bet in betsArray)
                         {
+                            // The AI echoes back the index-based id we sent it. Resolve it against
+                            // the original request to recover the real match id + kickoff time,
+                            // otherwise settlement can never look the match back up later.
+                            var sourceMatch = req.Matches.FirstOrDefault(m => m.Id == bet.MatchId);
+
                             var dbBet = new Bet
                             {
-                                MatchId = bet.MatchId,
+                                MatchId = sourceMatch?.RealMatchId ?? bet.MatchId,
                                 HomeTeam = bet.HomeTeam,
                                 AwayTeam = bet.AwayTeam,
                                 BetType = bet.Type,
@@ -206,7 +211,8 @@ REMEMBER: Start with [ immediately. No preamble. No markdown. Just JSON.";
                                 Stake = bet.Stake,
                                 Confidence = bet.Confidence ?? 0,
                                 Reasoning = bet.Reasoning,
-                                Result = "PENDING"
+                                Result = "PENDING",
+                                MatchUtcDate = sourceMatch?.UtcDate
                             };
                             _context.Bets.Add(dbBet);
                         }

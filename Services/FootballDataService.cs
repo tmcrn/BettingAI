@@ -20,20 +20,25 @@ public class FootballDataService
         { 39, "Premier League" }
     };
 
+    private const string ApiKey = "1c30d5045emsh23b3584f2aa6cd3p17ed3ejsn6b9d95be77f3";
+
     public FootballDataService(HttpClient httpClient)
     {
         _httpClient = httpClient;
+    }
+
+    private void SetupHeaders()
+    {
+        _httpClient.DefaultRequestHeaders.Clear();
+        _httpClient.DefaultRequestHeaders.Add("x-rapidapi-host", "free-api-live-football-data.p.rapidapi.com");
+        _httpClient.DefaultRequestHeaders.Add("x-rapidapi-key", ApiKey);
     }
 
     public async Task<List<FootballMatch>> GetUpcomingMatchesAsync()
     {
         try
         {
-            var apiKey = "1c30d5045emsh23b3584f2aa6cd3p17ed3ejsn6b9d95be77f3";
-
-            _httpClient.DefaultRequestHeaders.Clear();
-            _httpClient.DefaultRequestHeaders.Add("x-rapidapi-host", "free-api-live-football-data.p.rapidapi.com");
-            _httpClient.DefaultRequestHeaders.Add("x-rapidapi-key", apiKey);
+            SetupHeaders();
 
             var matches = new List<FootballMatch>();
             var now = DateTime.UtcNow;
@@ -107,4 +112,64 @@ public class FootballDataService
             return new List<FootballMatch>();
         }
     }
+
+    // Looks up the real final result of a match by its real API id, searching
+    // around the match's kickoff date. Used to settle PENDING bets once a
+    // match should be over.
+    public async Task<MatchStatus?> GetMatchStatusAsync(string matchId, DateTime referenceDate)
+    {
+        try
+        {
+            SetupHeaders();
+
+            var dates = new[] { referenceDate.ToString("yyyyMMdd"), referenceDate.AddDays(1).ToString("yyyyMMdd") };
+
+            foreach (var date in dates)
+            {
+                var response = await _httpClient.GetAsync(
+                    $"https://free-api-live-football-data.p.rapidapi.com/football-get-matches-by-date?date={date}"
+                );
+
+                if (!response.IsSuccessStatusCode) continue;
+
+                var content = await response.Content.ReadAsStringAsync();
+                var doc = JsonDocument.Parse(content);
+
+                if (!doc.RootElement.TryGetProperty("response", out var respObj)) continue;
+                if (!respObj.TryGetProperty("matches", out var matchesArray)) continue;
+
+                foreach (var fixture in matchesArray.EnumerateArray())
+                {
+                    var id = fixture.GetProperty("id").GetInt32().ToString();
+                    if (id != matchId) continue;
+
+                    var isFinished = fixture.GetProperty("status").GetProperty("finished").GetBoolean();
+                    var homeScore = fixture.GetProperty("home").GetProperty("score").GetInt32();
+                    var awayScore = fixture.GetProperty("away").GetProperty("score").GetInt32();
+
+                    return new MatchStatus
+                    {
+                        Finished = isFinished,
+                        HomeScore = homeScore,
+                        AwayScore = awayScore
+                    };
+                }
+            }
+
+            // Not found (too early, wrong date, or API doesn't carry it anymore)
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error fetching match status for {matchId}: {ex.Message}");
+            return null;
+        }
+    }
+}
+
+public class MatchStatus
+{
+    public bool Finished { get; set; }
+    public int HomeScore { get; set; }
+    public int AwayScore { get; set; }
 }

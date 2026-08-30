@@ -15,4 +15,5 @@ public class Bet
     public decimal? Odds { get; set; }
     public string? Result { get; set; }  // "WIN", "LOSS", "PENDING"
     public decimal? Winnings { get; set; }
+    public DateTime? MatchUtcDate { get; set; }  // Kickoff time - used to know when to check the real result
 }
