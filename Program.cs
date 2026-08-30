@@ -10,8 +10,14 @@ builder.Services.AddDbContext<BettingContext>(options =>
     options.UseSqlite("Data Source=betting.db"));  // ← FIX: Ajoute SQLite
 
 builder.Services.AddScoped<OddsScraperService>();
+builder.Services.AddScoped<BetSettlementService>();
 builder.Services.AddHttpClient();
 builder.Services.AddHttpClient<FootballDataService>();
+
+// 🎯 Auto-corrige les paris PENDING toutes les 15min (vérifie le score réel,
+// marque WIN/LOSS, met à jour le LearningNotebook) - c'est ce qui permet à
+// l'IA de réellement apprendre de ses résultats, sans dépendre d'un cron externe.
+builder.Services.AddHostedService<AutoSettlementBackgroundService>();
 
 // ⚡ FASTENDPOINTS
 builder.Services.AddFastEndpoints();

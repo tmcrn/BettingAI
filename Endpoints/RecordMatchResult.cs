@@ -1,4 +1,5 @@
 using BettingAI.Data;
+using BettingAI.Services;
 using FastEndpoints;
 using Microsoft.EntityFrameworkCore;
 
@@ -21,10 +22,12 @@ public class RecordMatchResultResponse
 public class RecordMatchResultEndpoint : Endpoint<RecordMatchResultRequest, RecordMatchResultResponse>
 {
     private readonly BettingContext _context;
+    private readonly BetSettlementService _settlementService;
 
-    public RecordMatchResultEndpoint(BettingContext context)
+    public RecordMatchResultEndpoint(BettingContext context, BetSettlementService settlementService)
     {
         _context = context;
+        _settlementService = settlementService;
     }
 
     public override void Configure()
@@ -43,20 +46,7 @@ public class RecordMatchResultEndpoint : Endpoint<RecordMatchResultRequest, Reco
 
         foreach (var bet in bets)
         {
-            var won = false;
-
-            if (bet.BetType == "HOME_WIN" && req.Result == "HOME_WIN")
-                won = true;
-            else if (bet.BetType == "AWAY_WIN" && req.Result == "AWAY_WIN")
-                won = true;
-            else if (bet.BetType == "DRAW" && req.Result == "DRAW")
-                won = true;
-            else if (bet.BetType == "BOTH_TEAMS_SCORE" && req.HomeScore > 0 && req.AwayScore > 0)
-                won = true;
-            else if (bet.BetType == "OVER_GOALS" && (req.HomeScore + req.AwayScore) > 2.5m)
-                won = true;
-            else if (bet.BetType == "UNDER_GOALS" && (req.HomeScore + req.AwayScore) < 2.5m)
-                won = true;
+            var won = BetSettlementService.DetermineOutcome(bet.BetType, req.Result ?? "", req.HomeScore, req.AwayScore);
 
             if (won)
             {
@@ -72,6 +62,11 @@ public class RecordMatchResultEndpoint : Endpoint<RecordMatchResultRequest, Reco
         }
 
         await _context.SaveChangesAsync(ct);
+
+        if (bets.Count > 0)
+        {
+            await _settlementService.RefreshLearningNotebookAsync(ct);
+        }
 
         await Send.OkAsync(new RecordMatchResultResponse
         {

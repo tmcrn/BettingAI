@@ -103,7 +103,8 @@ public class AutoDecideBetsEndpoint : Endpoint<EmptyRequest, AutoDecideResponse>
                 currentBalance = balance,
                 matches = matchesWithOdds.Select((m, index) => new  // ← index!
                 {
-                    id = index.ToString(),  // ← "0", "1", "2"... au lieu du vrai ID
+                    id = index.ToString(),  // ← "0", "1", "2"... pour que l'IA le retrouve de façon fiable
+                    realMatchId = (string)m.Id,  // ← vrai ID, conservé pour le règlement automatique
                     homeTeam = m.HomeTeam,
                     awayTeam = m.AwayTeam,
                     utcDate = m.UtcDate
