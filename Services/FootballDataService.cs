@@ -22,6 +22,15 @@ public class FootballDataService
 
     private const string ApiKey = "1c30d5045emsh23b3584f2aa6cd3p17ed3ejsn6b9d95be77f3";
 
+    // Shared across instances (this service is registered per-request via
+    // AddHttpClient) so repeated calls - e.g. our own 30min cron cycle, or
+    // several manual tests in a row - don't burn through the free API quota
+    // for data that hasn't changed. Static + lock since multiple requests
+    // can hit this concurrently.
+    private static readonly Dictionary<string, (DateTime FetchedAt, string Content)> _dateCache = new();
+    private static readonly object _cacheLock = new();
+    private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(10);
+
     public FootballDataService(HttpClient httpClient)
     {
         _httpClient = httpClient;
@@ -34,12 +43,55 @@ public class FootballDataService
         _httpClient.DefaultRequestHeaders.Add("x-rapidapi-key", ApiKey);
     }
 
+    // Fetches (or reuses a cached copy of) the raw matches-by-date payload
+    // for one date. On an API failure (rate limit included), falls back to
+    // a stale cached copy rather than giving up entirely.
+    private async Task<JsonDocument?> GetMatchesByDateAsync(string date)
+    {
+        lock (_cacheLock)
+        {
+            if (_dateCache.TryGetValue(date, out var cached) && DateTime.UtcNow - cached.FetchedAt < CacheTtl)
+            {
+                return JsonDocument.Parse(cached.Content);
+            }
+        }
+
+        SetupHeaders();
+
+        var response = await _httpClient.GetAsync(
+            $"https://free-api-live-football-data.p.rapidapi.com/football-get-matches-by-date?date={date}"
+        );
+
+        if (!response.IsSuccessStatusCode)
+        {
+            Console.WriteLine($"Free API Error: {response.StatusCode}");
+
+            lock (_cacheLock)
+            {
+                if (_dateCache.TryGetValue(date, out var stale))
+                {
+                    Console.WriteLine($"  ⚠️ Using stale cached data for {date} ({DateTime.UtcNow - stale.FetchedAt:g} old) due to API error");
+                    return JsonDocument.Parse(stale.Content);
+                }
+            }
+
+            return null;
+        }
+
+        var content = await response.Content.ReadAsStringAsync();
+
+        lock (_cacheLock)
+        {
+            _dateCache[date] = (DateTime.UtcNow, content);
+        }
+
+        return JsonDocument.Parse(content);
+    }
+
     public async Task<List<FootballMatch>> GetUpcomingMatchesAsync()
     {
         try
         {
-            SetupHeaders();
-
             var matches = new List<FootballMatch>();
             var now = DateTime.UtcNow;
             var windowEnd = now.AddHours(24);
@@ -49,19 +101,8 @@ public class FootballDataService
 
             foreach (var date in dates)
             {
-                var response = await _httpClient.GetAsync(
-                    $"https://free-api-live-football-data.p.rapidapi.com/football-get-matches-by-date?date={date}"
-                );
-
-                var content = await response.Content.ReadAsStringAsync();
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    Console.WriteLine($"Free API Error: {response.StatusCode}");
-                    continue;
-                }
-
-                var doc = JsonDocument.Parse(content);
+                var doc = await GetMatchesByDateAsync(date);
+                if (doc == null) continue;
 
                 if (doc.RootElement.TryGetProperty("response", out var respObj))
                 {
@@ -120,20 +161,12 @@ public class FootballDataService
     {
         try
         {
-            SetupHeaders();
-
             var dates = new[] { referenceDate.ToString("yyyyMMdd"), referenceDate.AddDays(1).ToString("yyyyMMdd") };
 
             foreach (var date in dates)
             {
-                var response = await _httpClient.GetAsync(
-                    $"https://free-api-live-football-data.p.rapidapi.com/football-get-matches-by-date?date={date}"
-                );
-
-                if (!response.IsSuccessStatusCode) continue;
-
-                var content = await response.Content.ReadAsStringAsync();
-                var doc = JsonDocument.Parse(content);
+                var doc = await GetMatchesByDateAsync(date);
+                if (doc == null) continue;
 
                 if (!doc.RootElement.TryGetProperty("response", out var respObj)) continue;
                 if (!respObj.TryGetProperty("matches", out var matchesArray)) continue;
