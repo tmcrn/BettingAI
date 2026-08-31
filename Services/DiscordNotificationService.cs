@@ -18,6 +18,29 @@ public class DiscordNotificationService
         _webhookUrl = configuration["Discord:WebhookUrl"];
     }
 
+    // Fired when a cycle actually had real matches/odds to look at but ended
+    // with zero bets - so the user knows the system is alive and checked,
+    // not silently dead. Deliberately NOT fired when the window was simply
+    // empty (nothing to check), to avoid pinging every 45min for nothing.
+    public Task NotifyNoActionAsync(string reason, int matchesFound, int matchesWithOdds) => SendAsync(new
+    {
+        embeds = new[]
+        {
+            new
+            {
+                title = "🔍 Cycle terminé - aucun pari",
+                color = 0x95a5a6, // gris
+                fields = new object[]
+                {
+                    new { name = "Matchs trouvés (fenêtre)", value = matchesFound.ToString(), inline = true },
+                    new { name = "Avec cotes réelles", value = matchesWithOdds.ToString(), inline = true },
+                    new { name = "Raison", value = reason, inline = false }
+                },
+                timestamp = DateTime.UtcNow.ToString("o")
+            }
+        }
+    });
+
     public Task NotifyBetPlacedAsync(Bet bet) => SendAsync(new
     {
         embeds = new[]

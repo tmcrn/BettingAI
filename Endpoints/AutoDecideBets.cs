@@ -32,12 +32,14 @@ public class AutoDecideBetsEndpoint : Endpoint<AutoDecideBetsRequest, AutoDecide
     private readonly HttpClient _httpClient;
     private readonly OddsScraperService _scraper;
     private readonly BettingContext _db;
+    private readonly DiscordNotificationService _discord;
 
-    public AutoDecideBetsEndpoint(HttpClient httpClient, OddsScraperService scraper, BettingContext db)
+    public AutoDecideBetsEndpoint(HttpClient httpClient, OddsScraperService scraper, BettingContext db, DiscordNotificationService discord)
     {
         _httpClient = httpClient;
         _scraper = scraper;
         _db = db;
+        _discord = discord;
     }
 
     public override void Configure()
@@ -91,6 +93,10 @@ public class AutoDecideBetsEndpoint : Endpoint<AutoDecideBetsRequest, AutoDecide
 
             if (matchesWithOdds.Count == 0)
             {
+                await _discord.NotifyNoActionAsync(
+                    "Aucune cote réelle publiée pour l'instant sur les matchs trouvés (trop tôt avant le coup d'envoi)",
+                    upcomingMatches.Count,
+                    0);
                 await Send.OkAsync(new AutoDecideResponse
                 {
                     Success = false,
@@ -183,6 +189,14 @@ public class AutoDecideBetsEndpoint : Endpoint<AutoDecideBetsRequest, AutoDecide
                         });
                     }
                 }
+            }
+
+            if (bets.Count == 0)
+            {
+                await _discord.NotifyNoActionAsync(
+                    "Cotes réelles disponibles, mais aucun pari ne remplissait les critères de value de l'IA",
+                    upcomingMatches.Count,
+                    matchesWithOdds.Count);
             }
 
             await Send.OkAsync(new AutoDecideResponse
