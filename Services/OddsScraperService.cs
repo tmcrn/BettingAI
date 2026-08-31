@@ -139,8 +139,8 @@ public class OddsScraperService
 
             if (!response.IsSuccessStatusCode)
             {
-                Console.WriteLine($"  ⚠️ No odds available yet (match pas approché)");
-                return GenerateDefaultOdds();
+                Console.WriteLine($"  ⚠️ No odds available yet (match pas approché) - skipping this match rather than betting on fake data");
+                return null;
             }
 
             var content = await response.Content.ReadAsStringAsync();
@@ -153,7 +153,7 @@ public class OddsScraperService
             if (!doc.RootElement.TryGetProperty("odds", out var oddsElement))
             {
                 Console.WriteLine("  ❌ No 'odds' property");
-                return GenerateDefaultOdds();
+                return null;
             }
 
             foreach (var bookmaker in oddsElement.EnumerateArray())
@@ -181,23 +181,12 @@ public class OddsScraperService
                 }
             }
 
-            return odds.Count > 0 ? odds : GenerateDefaultOdds();
+            return odds.Count > 0 ? odds : null;
         }
         catch (Exception ex)
         {
             Console.WriteLine($"  ❌ Odds error: {ex.Message}");
-            return GenerateDefaultOdds();
+            return null;
         }
-    }
-
-    private Dictionary<string, decimal> GenerateDefaultOdds()
-    {
-        Console.WriteLine("  📌 Using default odds");
-        return new Dictionary<string, decimal>
-        {
-            { "homeWin", 2.0m },
-            { "draw", 3.0m },
-            { "awayWin", 3.5m }
-        };
     }
 }
