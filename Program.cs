@@ -11,6 +11,7 @@ builder.Services.AddDbContext<BettingContext>(options =>
 
 builder.Services.AddScoped<OddsScraperService>();
 builder.Services.AddScoped<BetSettlementService>();
+builder.Services.AddScoped<TeamStatsSeedingService>();
 builder.Services.AddHttpClient();
 builder.Services.AddHttpClient<FootballDataService>();
 builder.Services.AddHttpClient<DiscordNotificationService>();
@@ -23,6 +24,10 @@ builder.Services.AddHostedService<AutoSettlementBackgroundService>();
 // 🤖 Décide de nouveaux paris toutes les 45min, sur les matchs qui démarrent
 // dans l'heure qui suit - remplace la dépendance à un cron externe.
 builder.Services.AddHostedService<AutoDecideBetsBackgroundService>();
+
+// 📊 Recalcule TeamStats une fois par jour à partir des vrais résultats
+// (forme, xG-proxy, fatigue) - remplace les données de test fabriquées.
+builder.Services.AddHostedService<TeamStatsRefreshBackgroundService>();
 
 // ⚡ FASTENDPOINTS
 builder.Services.AddFastEndpoints();
