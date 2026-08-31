@@ -73,10 +73,15 @@ public class TeamStatsSeedingService
 
         try
         {
-            var matches = await _footballDataService.GetFinishedMatchesAsync(DaysBack, ct);
+            var diag = new FetchDiagnostics();
+            var matches = await _footballDataService.GetFinishedMatchesAsync(DaysBack, ct, diag);
             if (matches.Count == 0)
             {
-                return (false, "Aucun match terminé trouvé sur la période", 0);
+                return (false,
+                    $"Aucun match terminé trouvé sur la période ({diag.ChunksAttempted} chunks essayés, " +
+                    $"{diag.ChunksNullDoc} sans réponse API, {diag.ChunksNoMatchesKey} sans clé 'matches', " +
+                    $"{diag.ChunksThrew} exceptions, {diag.RawMatchesSeen} matchs bruts vus toutes compétitions confondues)",
+                    0);
             }
 
             var generic = matches

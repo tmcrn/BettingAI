@@ -157,7 +157,7 @@ public class FootballDataService
     // each its own request (cheap: football-data.org allows 10/min and a
     // 45-day seed is only 5 chunks). Used to seed TeamStats with real
     // derived numbers instead of the old hardcoded test data.
-    public async Task<List<FinishedMatch>> GetFinishedMatchesAsync(int daysBack, CancellationToken ct = default)
+    public async Task<List<FinishedMatch>> GetFinishedMatchesAsync(int daysBack, CancellationToken ct = default, FetchDiagnostics? diag = null)
     {
         var results = new List<FinishedMatch>();
         var today = DateTime.UtcNow.Date;
@@ -191,19 +191,28 @@ public class FootballDataService
             var dateFrom = chunkFrom.ToString("yyyy-MM-dd");
             var dateTo = chunkTo.AddDays(1).ToString("yyyy-MM-dd"); // exclusive bound - includes chunkTo itself
 
+            if (diag != null) diag.ChunksAttempted++;
+
             try
             {
                 var doc = await GetAsync($"{_baseUrl}/matches?dateFrom={dateFrom}&dateTo={dateTo}", ct);
-                if (doc == null) continue;
+                if (doc == null)
+                {
+                    if (diag != null) diag.ChunksNullDoc++;
+                    continue;
+                }
                 if (!doc.RootElement.TryGetProperty("matches", out var matchesArray))
                 {
                     // A 200 OK with no "matches" key is unexpected (quota message,
                     // different error shape, etc.) - GetAsync only logs on a non-2xx
                     // status, so without this we'd silently skip every chunk with
                     // zero visibility into why, which is exactly what happened.
+                    if (diag != null) diag.ChunksNoMatchesKey++;
                     Console.WriteLine($"football-data.org: 200 OK but no 'matches' key for {dateFrom}..{dateTo} - body: {doc.RootElement}");
                     continue;
                 }
+
+                if (diag != null) diag.RawMatchesSeen += matchesArray.GetArrayLength();
 
                 foreach (var fixture in matchesArray.EnumerateArray())
                 {
@@ -229,6 +238,7 @@ public class FootballDataService
             }
             catch (Exception ex)
             {
+                if (diag != null) diag.ChunksThrew++;
                 Console.WriteLine($"Error fetching finished matches for chunk {dateFrom}..{dateTo}: {ex.Message}");
             }
         }
@@ -279,4 +289,20 @@ public class FinishedMatch
     public int HomeScore { get; set; }
     public int AwayScore { get; set; }
     public DateTime UtcDate { get; set; }
+}
+
+// Optional counters passed into GetFinishedMatchesAsync so a caller can
+// report exactly where a 0-match result came from (API errors, a 200 with
+// no "matches" key, exceptions, or the raw match count before our 5-league
+// filter) directly in its own response - without needing to correlate a
+// journalctl tail, which can be delayed by stdout buffering or filtered by
+// too narrow a grep. This loop is sequential (not parallelized), so plain
+// ints are fine, no locking needed.
+public class FetchDiagnostics
+{
+    public int ChunksAttempted;
+    public int ChunksNullDoc;
+    public int ChunksNoMatchesKey;
+    public int ChunksThrew;
+    public int RawMatchesSeen;
 }
