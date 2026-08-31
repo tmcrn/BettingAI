@@ -180,16 +180,16 @@ AVAILABLE MATCHES:
 
 Each match's analysis above already tells you the ATTACKING EDGE and FORM EDGE (HOME, AWAY, or EVEN) - this is the result of comparing both teams' numbers for you. Use it directly instead of re-deriving it: if ATTACKING EDGE says AWAY, the away team is the one with the higher xG, full stop. Never pick HOME_WIN when both edges say AWAY (and vice versa) - if you want to go against the edges, you need a specific stated reason (H2H, missing key players, fatigue) in your reasoning.
 
-BET TYPES YOU CAN USE - decide purely from the xG/form/stats data above. Odds (when listed) are NOT a signal to weigh and are NOT required to bet - they only affect the payout of a bet that wins, nothing more. Do not avoid a bet just because a match has no odds listed, and do not let a big/small odds number talk you out of a pick your stats support. You are allowed to take real risks when the stats back it up.
-1. HOME_WIN / AWAY_WIN: which side your stats (xG, xGA, form, H2H) favor, if confidence > 0.55
-2. DRAW: if the two teams look closely matched on stats and confidence > 0.40
-3. HOME_WIN_OR_DRAW / AWAY_WIN_OR_DRAW (double chance): if confidence > 0.60 for the double outcome
-4. BOTH_TEAMS_SCORE: if xGA (both teams) > 1.5 and confidence > 0.55
-5. OVER_GOALS (selection = line, e.g. ""2.5""): if combined xG > line and confidence > 0.55
-6. UNDER_GOALS (selection = line): if combined xG < line and confidence > 0.55
-7. HOME_OVER_GOALS / AWAY_OVER_GOALS (selection = line, e.g. ""1.5""): if that team's xG > line and confidence > 0.55
+BET TYPES YOU CAN USE - decide purely from the xG/form/stats data above. Odds (when listed) are NOT a signal to weigh and are NOT required to bet - they only affect the payout of a bet that wins, nothing more. Do not avoid a bet just because a match has no odds listed, and do not let a big/small odds number talk you out of a pick your stats support. You are allowed to take real risks when the stats back it up - these confidence bars are deliberately low, lean toward betting when a match gives you a real read rather than skipping it.
+1. HOME_WIN / AWAY_WIN: which side your stats (xG, xGA, form, H2H) favor, if confidence > 0.45
+2. DRAW: if the two teams look closely matched on stats and confidence > 0.35
+3. HOME_WIN_OR_DRAW / AWAY_WIN_OR_DRAW (double chance): if confidence > 0.50 for the double outcome
+4. BOTH_TEAMS_SCORE: if xGA (both teams) > 1.5 and confidence > 0.45
+5. OVER_GOALS (selection = line, e.g. ""2.5""): if combined xG > line and confidence > 0.45
+6. UNDER_GOALS (selection = line): if combined xG < line and confidence > 0.45
+7. HOME_OVER_GOALS / AWAY_OVER_GOALS (selection = line, e.g. ""1.5""): if that team's xG > line and confidence > 0.45
 
-Vary stakes by conviction, sized off your CURRENT balance above (not a fixed amount): low confidence (0.4-0.55) ≈ {lowStake}€, medium (0.55-0.7) ≈ {medStake}€, high (0.7+) ≈ {highStake}€. If the balance is low or negative right now (a lot already committed to other pending bets), stay smaller and more selective rather than piling on.
+Vary stakes by conviction, sized off your CURRENT balance above (not a fixed amount): low confidence (0.35-0.5) ≈ {lowStake}€, medium (0.5-0.65) ≈ {medStake}€, high (0.65+) ≈ {highStake}€. If the balance is low or negative right now (a lot already committed to other pending bets), stay smaller and more selective rather than piling on.
 
 NOT AVAILABLE - do not use, no data source exists for these: PLAYER_SCORER, PLAYER_ASSIST.
 
