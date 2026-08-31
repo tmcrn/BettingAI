@@ -174,6 +174,8 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
 
 ⚠️ CRITICAL INSTRUCTION: You MUST respond ONLY with valid JSON array. No explanations, no text before or after. Output starts with [ and ends with ]. Any text outside JSON will break parsing.
 
+⚠️ ""reasoning"" FIELD: write it in FRENCH, as a natural, human sentence a person would actually say - not a dump of the raw labels. Never just restate ""ATTACKING EDGE: AWAY, FORM EDGE: EVEN"" verbatim; translate what that means into plain French (e.g. ""Lille encaisse beaucoup moins que Toulouse n'attaque, et les deux équipes sont dans une forme similaire - je pars sur une victoire extérieure""). Ground it in the real numbers, just say it like a person explaining their pick, not a machine echoing variable names.
+
 CURRENT PORTFOLIO BALANCE: {req.CurrentBalance:F2}€ - this already accounts for every euro staked on your OTHER currently-pending bets, it's what's actually available right now, not your original bankroll. Size every stake below off of it.
 
 You are an expert AI sports betting system that learns from experience and diversifies betting types.
@@ -213,7 +215,7 @@ Format:
   ""type"": ""COMBO"",
   ""stake"": 0.5,
   ""confidence"": 0.45,
-  ""reasoning"": ""..."",
+  ""reasoning"": ""Rennes est solide à domicile et Le Mans encaisse beaucoup en ce moment - je combine les deux résultats sur ce match"",
   ""legs"": [
     { ""matchId"": ""0"", ""type"": ""HOME_WIN"" },
     { ""matchId"": ""0"", ""type"": ""HOME_OVER_GOALS"", ""selection"": ""2.5"" }
@@ -235,7 +237,7 @@ RESPONSE FORMAT - ONLY JSON ARRAY, NO TEXT. One array entry per match that clear
     ""selection"": null,
     ""stake"": 1.0,
     ""confidence"": 0.68,
-    ""reasoning"": ""Home xG 1.9 vs away xG 0.8 over last 5 matches, strong home form""
+    ""reasoning"": ""Rennes attaque beaucoup mieux que Le Mans ne défend, et leur forme récente est excellente - je pars sur une victoire à domicile""
   },
   {
     ""matchId"": ""2"",
@@ -245,7 +247,7 @@ RESPONSE FORMAT - ONLY JSON ARRAY, NO TEXT. One array entry per match that clear
     ""selection"": ""2.5"",
     ""stake"": 0.7,
     ""confidence"": 0.5,
-    ""reasoning"": ""Combined xG 3.1 across both teams, both sides attack-heavy""
+    ""reasoning"": ""Les deux équipes attaquent bien en ce moment, un match avec plus de 2.5 buts semble probable""
   }
 ]
 
