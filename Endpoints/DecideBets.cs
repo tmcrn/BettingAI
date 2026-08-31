@@ -193,7 +193,11 @@ Vary stakes by conviction, sized off your CURRENT balance above (not a fixed amo
 
 NOT AVAILABLE - do not use, no data source exists for these: PLAYER_SCORER, PLAYER_ASSIST.
 
-COMBO BETS (paris combinés) - an actual tool to reach for, not just a technical option: when you look at this batch of matches and find 2-4 where the stats genuinely support a pick each, combining them into one combo is a legitimate way to swing for a much bigger payout than any single bet could give you - that's the whole point of a combo, and you should propose one whenever you believe the compounded risk is worth what it pays if it lands. Don't hold back on a combo just because the combined odds/probability is low; that's expected and fine, it's still a real risk you can choose to take. Mix ANY of the bet types above freely across legs - not restricted to 1X2 types. Format:
+COMBO BETS (paris combinés) - an actual tool to reach for, not just a technical option: when you look at this batch of matches and find 2-4 where the stats genuinely support a pick each, combining them into one combo is a legitimate way to swing for a much bigger payout than any single bet could give you - that's the whole point of a combo, and you should propose one whenever you believe the compounded risk is worth what it pays if it lands. Don't hold back on a combo just because the combined odds/probability is low; that's expected and fine, it's still a real risk you can choose to take. Mix ANY of the bet types above freely across legs - not restricted to 1X2 types.
+
+Legs don't have to be on different matches - a SAME-MATCH combo (multiple legs on one match) is a classic move when a single match strongly supports more than one angle: e.g. HOME_WIN + that same team's HOME_OVER_GOALS line (""they win AND they score more than X"") usually pays noticeably better combined than either leg alone. The only hard rule: never put two ""who wins"" legs (HOME_WIN, AWAY_WIN, DRAW, HOME_WIN_OR_DRAW, AWAY_WIN_OR_DRAW) on the same match together - they're either contradictory or redundant with each other. Everything else can be combined with itself across matches or on the same one.
+
+Format:
 {
   ""type"": ""COMBO"",
   ""stake"": 0.5,
@@ -201,7 +205,7 @@ COMBO BETS (paris combinés) - an actual tool to reach for, not just a technical
   ""reasoning"": ""..."",
   ""legs"": [
     { ""matchId"": ""0"", ""type"": ""HOME_WIN"" },
-    { ""matchId"": ""1"", ""type"": ""AWAY_WIN_OR_DRAW"" }
+    { ""matchId"": ""0"", ""type"": ""HOME_OVER_GOALS"", ""selection"": ""2.5"" }
   ]
 }
 Combo confidence is the product of each leg's individual confidence - keep stakes small (0.3-0.6€) since combined risk is much higher. You can still place separate single bets on other matches in the same batch alongside a combo.
@@ -278,9 +282,9 @@ REMEMBER: Start with [ immediately. No preamble. No markdown. Just JSON.";
                                 .Select(b => (b.MatchId!, b.BetType!, b.Selection))
                         );
                         existingKeys.UnionWith(
-                            (await _context.ComboLegs.Where(l => l.Result == "PENDING").Select(l => new { l.MatchId, l.BetType }).ToListAsync(ct))
+                            (await _context.ComboLegs.Where(l => l.Result == "PENDING").Select(l => new { l.MatchId, l.BetType, l.Selection }).ToListAsync(ct))
                                 .Where(l => l.MatchId != null && l.BetType != null)
-                                .Select(l => (l.MatchId!, l.BetType!, (string?)null))
+                                .Select(l => (l.MatchId!, l.BetType!, l.Selection))
                         );
 
                         // Runaway-batch safety net, not a risk-appetite cap: nothing here
@@ -314,7 +318,7 @@ REMEMBER: Start with [ immediately. No preamble. No markdown. Just JSON.";
                                     savedCombos.Add(combo);
                                     projectedBalance -= combo.Stake;
                                     foreach (var leg in combo.Legs)
-                                        if (leg.MatchId != null && leg.BetType != null) existingKeys.Add((leg.MatchId, leg.BetType, null));
+                                        if (leg.MatchId != null && leg.BetType != null) existingKeys.Add((leg.MatchId, leg.BetType, leg.Selection));
                                 }
                                 continue;
                             }
@@ -477,7 +481,14 @@ REMEMBER: Start with [ immediately. No preamble. No markdown. Just JSON.";
         List<string> debugLog)
     {
         var legs = new List<ComboLeg>();
-        var seenMatchIds = new HashSet<string>();
+        // matchId -> leg types already added in this combo. Same-match combos
+        // are allowed (e.g. HOME_WIN + that team's own OVER_GOALS line, a
+        // classic same-game multi with better combined odds than either leg
+        // alone) - only reject an exact repeat, or two "who wins" legs on the
+        // same match, which are either contradictory (HOME_WIN + AWAY_WIN can
+        // never both happen) or redundant (HOME_WIN + HOME_WIN_OR_DRAW, the
+        // second already covers the first).
+        var legsByMatch = new Dictionary<string, HashSet<string>>();
         var combinedOdds = 1m;
 
         foreach (var legDecision in bet.Legs!)
@@ -488,9 +499,21 @@ REMEMBER: Start with [ immediately. No preamble. No markdown. Just JSON.";
                 return null;
             }
 
-            if (!seenMatchIds.Add(legDecision.MatchId))
+            if (!legsByMatch.TryGetValue(legDecision.MatchId, out var typesForMatch))
             {
-                debugLog.Add("COMBO REJECTED: two legs on the same match");
+                typesForMatch = new HashSet<string>();
+                legsByMatch[legDecision.MatchId] = typesForMatch;
+            }
+
+            if (!typesForMatch.Add(legDecision.Type))
+            {
+                debugLog.Add($"COMBO REJECTED: same type '{legDecision.Type}' proposed twice for the same match");
+                return null;
+            }
+
+            if (OneXTwoFamilyTypes.Contains(legDecision.Type) && typesForMatch.Count(t => OneXTwoFamilyTypes.Contains(t)) > 1)
+            {
+                debugLog.Add($"COMBO REJECTED: two '1X2-family' legs (who-wins markets) on the same match (matchId='{legDecision.MatchId}')");
                 return null;
             }
 
@@ -502,10 +525,11 @@ REMEMBER: Start with [ immediately. No preamble. No markdown. Just JSON.";
             }
 
             // Same guard as single bets: don't let a combo re-stake a match+type
-            // that's already an existing PENDING bet/leg (or another leg earlier
-            // in this same batch) - reject the whole combo rather than silently
-            // drop just that leg, since a partial combo isn't what the AI proposed.
-            if (existingKeys.Contains((sourceMatch.RealMatchId, legDecision.Type, null)))
+            // (+selection, for goal-line types) that's already an existing
+            // PENDING bet/leg (or another leg earlier in this same batch) -
+            // reject the whole combo rather than silently drop just that leg,
+            // since a partial combo isn't what the AI proposed.
+            if (existingKeys.Contains((sourceMatch.RealMatchId, legDecision.Type, legDecision.Selection)))
             {
                 debugLog.Add($"COMBO REJECTED: leg duplicates an existing PENDING bet " +
                     $"(matchId='{legDecision.MatchId}', type='{legDecision.Type}')");
@@ -528,6 +552,7 @@ REMEMBER: Start with [ immediately. No preamble. No markdown. Just JSON.";
                 HomeTeam = sourceMatch.HomeTeam,
                 AwayTeam = sourceMatch.AwayTeam,
                 BetType = legDecision.Type,
+                Selection = legDecision.Selection,
                 Odds = effectiveLegOdds,
                 MatchUtcDate = sourceMatch.UtcDate,
                 Result = "PENDING"

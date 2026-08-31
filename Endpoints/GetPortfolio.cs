@@ -40,6 +40,7 @@ public class ComboLegItem
     public int Id { get; set; }
     public string? Match { get; set; }
     public string? BetType { get; set; }
+    public string? Selection { get; set; }
     public decimal Odds { get; set; }
     public string? Result { get; set; }
 }
@@ -111,6 +112,7 @@ public class GetPortfolioEndpoint : EndpointWithoutRequest<GetPortfolioResponse>
                     Id = l.Id,
                     Match = $"{l.HomeTeam} vs {l.AwayTeam}",
                     BetType = l.BetType,
+                    Selection = l.Selection,
                     Odds = l.Odds,
                     Result = l.Result
                 }).ToList()

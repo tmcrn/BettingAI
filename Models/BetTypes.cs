@@ -27,14 +27,17 @@ public class BetDecision
     public decimal? Confidence { get; set; }
     public string? Reasoning { get; set; }
 
-    // Present only when Type == "COMBO": 2+ selections from different matches.
+    // Present only when Type == "COMBO": 2+ legs, any bet type, same or
+    // different matches (see DecideBets.TryBuildCombo for the compatibility
+    // rules - e.g. never two "who wins" legs on one match).
     public List<ComboLegDecision>? Legs { get; set; }
 }
 
 public class ComboLegDecision
 {
     public string? MatchId { get; set; }
-    public string? Type { get; set; } // must be one of the real-priced 1X2-family types
+    public string? Type { get; set; }
+    public string? Selection { get; set; } // the line for goal-based types, e.g. "2.5"
 }
 
 public class DecideBetsResponse

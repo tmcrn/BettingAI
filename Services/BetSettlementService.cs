@@ -137,7 +137,7 @@ public class BetSettlementService
 
             foreach (var leg in group)
             {
-                var won = DetermineOutcome(leg.BetType, null, result, status.HomeScore, status.AwayScore);
+                var won = DetermineOutcome(leg.BetType, leg.Selection, result, status.HomeScore, status.AwayScore);
                 leg.Result = won ? "WIN" : "LOSS";
                 settledLegCount++;
                 affectedCombos.Add(leg.BetComboId);
@@ -274,7 +274,7 @@ public class BetSettlementService
         if (leg.BetCombo == null) return (false, "Combiné parent introuvable");
 
         var result = homeScore > awayScore ? "HOME_WIN" : homeScore < awayScore ? "AWAY_WIN" : "DRAW";
-        var won = DetermineOutcome(leg.BetType, null, result, homeScore, awayScore);
+        var won = DetermineOutcome(leg.BetType, leg.Selection, result, homeScore, awayScore);
 
         if (realOdds.HasValue) leg.Odds = realOdds.Value;
         leg.Result = won ? "WIN" : "LOSS";

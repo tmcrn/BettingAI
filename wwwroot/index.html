@@ -510,7 +510,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                         <div class="leg-row">
                             <span class="leg-dot" style="background: ${l.result === 'WIN' ? 'var(--win)' : l.result === 'LOSS' ? 'var(--loss)' : 'var(--pending)'}"></span>
                             <span class="leg-match" style="flex:1">${l.match}</span>
-                            <span class="leg-type">${betTypeLabel(l.betType)}</span>
+                            <span class="leg-type">${betTypeLabel(l.betType, l.selection)}</span>
                             ${l.result === 'PENDING' ? `
                             <span class="leg-odds-edit">
                                 <input type="number" min="1" step="0.01" id="odds-leg-${l.id}" value="${l.odds ? l.odds.toFixed(2) : ''}">
