@@ -304,6 +304,46 @@ button:disabled { opacity: 0.5; cursor: default; transform: none; }
     font-size: 0.85em;
 }
 
+/* ---- Editable odds ---- */
+.odds-edit { display: flex; align-items: center; gap: 4px; margin-top: 2px; }
+.odds-edit input {
+    width: 56px;
+    padding: 4px 6px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--text);
+    font-size: 0.85em;
+    font-weight: 700;
+}
+.odds-edit input:focus { outline: none; border-color: var(--accent); }
+.odds-edit button {
+    padding: 3px 7px;
+    font-size: 0.78em;
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+    box-shadow: none;
+}
+.leg-odds-edit { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.leg-odds-edit input {
+    width: 46px;
+    padding: 2px 5px;
+    border-radius: 5px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font-size: 0.78em;
+}
+.leg-odds-edit button {
+    padding: 2px 6px;
+    font-size: 0.72em;
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+    box-shadow: none;
+}
+
 footer { text-align: center; color: var(--text-faint); font-size: 0.78em; padding-top: 12px; }
 
 @media (max-width: 640px) {
@@ -433,10 +473,26 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                         <div class="leg-row">
                             <span class="leg-dot" style="background: ${l.result === 'WIN' ? 'var(--win)' : l.result === 'LOSS' ? 'var(--loss)' : 'var(--pending)'}"></span>
                             <span class="leg-match" style="flex:1">${l.match}</span>
-                            <span class="leg-type">${betTypeLabel(l.betType)} · ${l.odds ? l.odds.toFixed(2) : '-'}</span>
+                            <span class="leg-type">${betTypeLabel(l.betType)}</span>
+                            ${l.result === 'PENDING' ? `
+                            <span class="leg-odds-edit">
+                                <input type="number" min="1" step="0.01" id="odds-leg-${l.id}" value="${l.odds ? l.odds.toFixed(2) : ''}">
+                                <button type="button" onclick="saveOdds('leg', ${l.id}, this)">✓</button>
+                            </span>` : `<span class="leg-type">${l.odds ? l.odds.toFixed(2) : '-'}</span>`}
                         </div>
                     `).join('')}
                 </div>` : '';
+
+            // A combo's own odds are always the product of its legs (edit those
+            // individually below, in the legs box) - only single bets get an
+            // editable top-level field.
+            const oddsCell = (!bet.isCombo && bet.result === 'PENDING') ? `
+                <div class="odds-edit">
+                    <input type="number" min="1" step="0.01" id="odds-bet-${bet.id}"
+                           value="${bet.odds ? bet.odds.toFixed(2) : ''}"
+                           placeholder="${(bet.confidence > 0 ? 1 / bet.confidence : 2).toFixed(2)}">
+                    <button type="button" onclick="saveOdds('bet', ${bet.id}, this)">✓</button>
+                </div>` : `<div class="val">${displayOdds(bet.odds, bet.confidence)}</div>`;
 
             return `
                 <div class="ticket">
@@ -454,7 +510,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
 
                         <div class="info-grid">
                             <div class="info-item"><div class="label">Mise</div><div class="val">${fmtEuro(bet.stake)}</div></div>
-                            <div class="info-item"><div class="label">Cote</div><div class="val">${displayOdds(bet.odds, bet.confidence)}</div></div>
+                            <div class="info-item"><div class="label">Cote</div>${oddsCell}</div>
                             <div class="info-item"><div class="label">Gain</div><div class="val">${bet.winnings != null ? fmtEuro(bet.winnings) : '-'}</div></div>
                         </div>
 
@@ -565,6 +621,30 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                 alert('Erreur: ' + e.message);
                 submitBtn.disabled = false;
                 submitBtn.textContent = '✅ Valider ce résultat';
+            }
+        }
+
+        async function saveOdds(kind, id, btnEl) {
+            const input = document.getElementById(`odds-${kind}-${id}`);
+            const odds = parseFloat(input.value);
+            if (!odds || odds < 1) {
+                alert('Entre une cote valide (>= 1.0)');
+                return;
+            }
+
+            btnEl.disabled = true;
+            try {
+                const res = await fetch('/api/set-odds', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ kind, id, odds })
+                });
+                const data = await res.json();
+                if (!data.success) throw new Error(data.message);
+                await refreshAll();
+            } catch (e) {
+                alert('Erreur: ' + e.message);
+                btnEl.disabled = false;
             }
         }
 

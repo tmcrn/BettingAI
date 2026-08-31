@@ -37,6 +37,7 @@ public class BetHistoryItem
 
 public class ComboLegItem
 {
+    public int Id { get; set; }
     public string? Match { get; set; }
     public string? BetType { get; set; }
     public decimal Odds { get; set; }
@@ -107,6 +108,7 @@ public class GetPortfolioEndpoint : EndpointWithoutRequest<GetPortfolioResponse>
                 IsCombo = true,
                 Legs = c.Legs.Select(l => new ComboLegItem
                 {
+                    Id = l.Id,
                     Match = $"{l.HomeTeam} vs {l.AwayTeam}",
                     BetType = l.BetType,
                     Odds = l.Odds,
