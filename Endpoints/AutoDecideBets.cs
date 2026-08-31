@@ -23,6 +23,9 @@ public class BetData
 
 public class AutoDecideBetsRequest
 {
+    // Optional override for manual/test calls. Omitted (the normal case,
+    // including the once-daily background cron), it defaults to "the rest
+    // of today" (hours until midnight Europe/Paris) - see HoursUntilEndOfDayParis.
     [QueryParam]
     public int? WindowHours { get; set; }
 }
@@ -56,8 +59,26 @@ public class AutoDecideBetsEndpoint : Endpoint<AutoDecideBetsRequest, AutoDecide
         {
             Console.WriteLine("🤖 AUTO-DECIDE-BETS STARTED");
 
-            // 1️⃣ Récupère les prochains matchs
-            var windowHours = req.WindowHours ?? 24;
+            // 0️⃣ Règle d'abord les paris d'hier (ou de plus tôt aujourd'hui) avant de
+            // décider les nouveaux - le LearningNotebook reflète les vrais résultats
+            // les plus récents au moment où l'IA raisonne, plutôt que d'attendre le
+            // prochain passage du service de règlement automatique (15min).
+            try
+            {
+                var settleResp = await _httpClient.PostAsync("http://localhost:5255/api/settle-pending-bets", null, ct);
+                var settleBody = await settleResp.Content.ReadAsStringAsync(ct);
+                Console.WriteLine($"🎯 Pré-règlement avant décision: {settleBody}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"⚠️ Pré-règlement échoué (on continue quand même): {ex.Message}");
+            }
+
+            // 1️⃣ Récupère les matchs du reste de la journée (heure de Paris) par défaut -
+            // ce cycle tourne une fois par jour et doit couvrir toute la journée en un
+            // seul passage, pas juste une fenêtre glissante étroite. windowHours reste
+            // surchargeable manuellement (bouton "Forcer un cycle" du dashboard, tests).
+            var windowHours = req.WindowHours ?? HoursUntilEndOfDayParis();
             var upcomingMatches = await GetUpcomingMatches(windowHours);
             if (upcomingMatches == null || upcomingMatches.Count == 0)
             {
@@ -83,9 +104,17 @@ public class AutoDecideBetsEndpoint : Endpoint<AutoDecideBetsRequest, AutoDecide
             // des paris "stats seules" (BTTS, over/under) dessus à partir de
             // TeamStats, sans avoir besoin de cotes 1X2. Exclure ces matchs
             // ici les aurait empêché d'atteindre l'IA pour ce type de pari.
+            // Limite haute de sécurité, pas une vraie limite métier - avec un cycle
+            // quotidien couvrant toute la journée sur 5 championnats, on peut
+            // facilement avoir 15-25 matchs. À noter: Mistral tourne ici avec une
+            // fenêtre de contexte de 4096 tokens (voir la config Ollama) - un trop
+            // grand nombre de matchs dans un seul prompt (analyse + cotes détaillées
+            // par match) peut la dépasser et dégrader/tronquer la réponse. À surveiller
+            // si des cycles à forte affluence de matchs produisent des réponses
+            // visiblement incomplètes.
             var matchesWithOdds = new List<dynamic>();
             var matchesWithRealOdds = 0;
-            foreach (var match in upcomingMatches.Take(5)) // Limite à 5 matchs par cycle (assez pour permettre des combinés)
+            foreach (var match in upcomingMatches.Take(25))
             {
                 Console.WriteLine($"  Scraping odds for: {match.HomeTeam} vs {match.AwayTeam}");
 
@@ -224,6 +253,27 @@ public class AutoDecideBetsEndpoint : Endpoint<AutoDecideBetsRequest, AutoDecide
                 Message = ex.Message
             });
         }
+    }
+
+    // Hours remaining until midnight Europe/Paris from right now - what "the
+    // rest of today" means for a cycle that runs once a day. Same fallback
+    // logic as AutoDecideBetsBackgroundService if tzdata is unavailable.
+    private static int HoursUntilEndOfDayParis()
+    {
+        TimeZoneInfo parisTz;
+        try
+        {
+            parisTz = TimeZoneInfo.FindSystemTimeZoneById("Europe/Paris");
+        }
+        catch
+        {
+            parisTz = TimeZoneInfo.CreateCustomTimeZone("FallbackParis", TimeSpan.FromHours(1), "Fallback Paris", "UTC+1");
+        }
+
+        var nowParis = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, parisTz);
+        var midnightParis = nowParis.Date.AddDays(1);
+        var hours = (midnightParis - nowParis).TotalHours;
+        return Math.Max(1, (int)Math.Ceiling(hours));
     }
 
     private async Task<List<dynamic>?> GetUpcomingMatches(int windowHours)

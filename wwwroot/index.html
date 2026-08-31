@@ -318,7 +318,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                 <h1>⚔️ BettingAI</h1>
                 <p>Décisions basées sur les stats réelles (xG, forme, H2H) • Apprentissage en temps réel</p>
             </div>
-            <div class="cron-pill" id="cronPill" title="État du cycle automatique (toutes les 45 min)">
+            <div class="cron-pill" id="cronPill" title="État du cycle automatique (une fois par jour, 8h heure de Paris)">
                 <span class="dot dot-unknown" id="cronDot"></span>
                 <div>
                     <div class="cron-main" id="cronMain">Chargement…</div>
@@ -589,8 +589,11 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                     return;
                 }
 
+                // The cycle now runs once a day (8h Paris) instead of every 45 min,
+                // so "healthy" spans most of a 24h gap - only flag it once a whole
+                // extra day has plausibly gone by without a run.
                 const mins = s.minutesSinceLastRun;
-                dot.className = 'dot ' + (mins > 55 ? 'dot-dead' : mins > 47 ? 'dot-warn' : 'dot-live');
+                dot.className = 'dot ' + (mins > 26 * 60 ? 'dot-dead' : mins > 25 * 60 ? 'dot-warn' : 'dot-live');
 
                 const outcomeLabel = {
                     no_matches: 'Aucun match dans la fenêtre',
@@ -599,7 +602,8 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                     error: 'Erreur au dernier cycle'
                 }[s.lastOutcome] || s.lastMessage || '';
 
-                main.textContent = `Cron actif · il y a ${mins} min`;
+                const elapsed = mins >= 60 ? `${Math.floor(mins / 60)}h${String(mins % 60).padStart(2, '0')}` : `${mins} min`;
+                main.textContent = `Cron actif · il y a ${elapsed}`;
                 sub.textContent = outcomeLabel;
             } catch (e) {
                 document.getElementById('cronDot').className = 'dot dot-dead';
@@ -620,7 +624,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             btn.disabled = true;
             btn.textContent = '⏳ Cycle en cours…';
             try {
-                const res = await fetch('/api/auto-decide-bets?windowHours=1', { method: 'POST' });
+                const res = await fetch('/api/auto-decide-bets', { method: 'POST' });
                 const data = await res.json();
                 await refreshAll();
                 alert(data.message || 'Cycle terminé.');
