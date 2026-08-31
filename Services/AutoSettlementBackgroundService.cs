@@ -1,8 +1,12 @@
 namespace BettingAI.Services;
 
-// Runs inside the API process itself so bet settlement (and therefore
-// learning) happens automatically without depending on an external cron
-// entry existing for it. Checks every 15 minutes.
+// No longer registered in Program.cs - the user wants settlement grouped
+// into the single 8h daily cycle rather than checked every 15 minutes
+// around the clock (AutoDecideBetsEndpoint already calls
+// /api/settle-pending-bets as its first step). Left here rather than
+// deleted in case continuous settlement is ever wanted again; the actual
+// settlement logic it calls into (BetSettlementService) is unchanged and
+// still used by the daily cycle and by manual settlement.
 public class AutoSettlementBackgroundService : BackgroundService
 {
     private static readonly TimeSpan Interval = TimeSpan.FromMinutes(15);

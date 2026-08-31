@@ -17,10 +17,13 @@ builder.Services.AddHttpClient();
 builder.Services.AddHttpClient<FootballDataService>();
 builder.Services.AddHttpClient<DiscordNotificationService>();
 
-// 🎯 Auto-corrige les paris PENDING toutes les 15min (vérifie le score réel,
-// marque WIN/LOSS, met à jour le LearningNotebook) - c'est ce qui permet à
-// l'IA de réellement apprendre de ses résultats, sans dépendre d'un cron externe.
-builder.Services.AddHostedService<AutoSettlementBackgroundService>();
+// 🎯 Le règlement des paris PENDING (vérifie le score réel, marque WIN/LOSS,
+// met à jour le LearningNotebook) ne tourne plus en continu toutes les 15min
+// (AutoSettlementBackgroundService, désormais non enregistré) - l'utilisateur
+// veut tout regroupé sur le cycle unique de 8h, pas de vérifications éparpillées
+// dans la journée. AutoDecideBetsEndpoint appelle déjà /api/settle-pending-bets
+// en tout premier avant de décider les nouveaux paris, donc le règlement se
+// fait bien une fois par jour, dans le même cycle que les décisions.
 
 // 🤖 Décide des paris du jour une fois par jour (8h heure de Paris), sur tous
 // les matchs restants de la journée - remplace la dépendance à un cron externe.

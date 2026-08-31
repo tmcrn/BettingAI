@@ -4,6 +4,18 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+
+    <!-- Personal single-user app on a resource-capped WSL2 VM, not a
+         high-throughput server - the ASP.NET Core SDK default (Server GC)
+         allocates a heap per logical core up front, which is wasteful here.
+         Workstation GC keeps a much smaller footprint; non-concurrent trades
+         slightly longer GC pauses (irrelevant for this traffic pattern) for
+         not keeping a second background GC thread/heap segment around. -->
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+    <!-- Skips loading full ICU globalization data - the app doesn't need
+         locale-aware string operations, and this alone saves real memory. -->
+    <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
 
   <ItemGroup>
