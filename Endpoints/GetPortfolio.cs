@@ -23,9 +23,24 @@ public class BetHistoryItem
     public string? MatchId { get; set; }
     public string? Match { get; set; }
     public string? BetType { get; set; }
+    public string? Selection { get; set; }
     public decimal Stake { get; set; }
     public string? Result { get; set; }
     public decimal? Winnings { get; set; }
+    public decimal Confidence { get; set; }
+    public string? Reasoning { get; set; }
+    public decimal? Odds { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public bool IsCombo { get; set; }
+    public List<ComboLegItem>? Legs { get; set; }
+}
+
+public class ComboLegItem
+{
+    public string? Match { get; set; }
+    public string? BetType { get; set; }
+    public decimal Odds { get; set; }
+    public string? Result { get; set; }
 }
 
 public class GetPortfolioEndpoint : EndpointWithoutRequest<GetPortfolioResponse>
@@ -66,19 +81,37 @@ public class GetPortfolioEndpoint : EndpointWithoutRequest<GetPortfolioResponse>
                 MatchId = b.MatchId,
                 Match = $"{b.HomeTeam} vs {b.AwayTeam}",
                 BetType = b.BetType,
+                Selection = b.Selection,
                 Stake = b.Stake,
                 Result = b.Result,
-                Winnings = b.Winnings
+                Winnings = b.Winnings,
+                Confidence = b.Confidence,
+                Reasoning = b.Reasoning,
+                Odds = b.Odds,
+                CreatedAt = b.CreatedAt,
+                IsCombo = false
             }))
             .Concat(combos.Select(c => (CreatedAt: c.CreatedAt, Item: new BetHistoryItem
             {
                 Id = c.Id,
                 MatchId = null,
-                Match = $"Combiné {c.Legs.Count} matchs (" + string.Join(", ", c.Legs.Select(l => $"{l.HomeTeam} vs {l.AwayTeam}")) + ")",
+                Match = $"Combiné {c.Legs.Count} matchs",
                 BetType = "COMBO",
                 Stake = c.Stake,
                 Result = c.Result,
-                Winnings = c.Winnings
+                Winnings = c.Winnings,
+                Confidence = c.Confidence,
+                Reasoning = c.Reasoning,
+                Odds = c.CombinedOdds,
+                CreatedAt = c.CreatedAt,
+                IsCombo = true,
+                Legs = c.Legs.Select(l => new ComboLegItem
+                {
+                    Match = $"{l.HomeTeam} vs {l.AwayTeam}",
+                    BetType = l.BetType,
+                    Odds = l.Odds,
+                    Result = l.Result
+                }).ToList()
             })))
             .OrderByDescending(x => x.CreatedAt)
             .Take(10)

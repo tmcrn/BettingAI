@@ -1,9 +1,9 @@
 namespace BettingAI.Models;
 
 // A combined bet (multi) across 2+ different matches - wins only if every
-// leg wins. Restricted to leg types with real scraped 1X2 odds (HOME_WIN,
-// AWAY_WIN, DRAW, HOME_WIN_OR_DRAW, AWAY_WIN_OR_DRAW) since that's the only
-// market we have verified pricing for - never fabricate combined odds.
+// leg wins. Legs can be any bet type; a leg without resolvable real 1X2
+// odds falls back to a flat 2x multiplier (see DecideBets.TryBuildCombo) -
+// the decision is stats-driven, odds only price the payout.
 public class BetCombo
 {
     public int Id { get; set; }
