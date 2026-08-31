@@ -344,6 +344,19 @@ button:disabled { opacity: 0.5; cursor: default; transform: none; }
     box-shadow: none;
 }
 
+/* ---- Self-serve result validation (any PENDING bet, not just 3h-stuck) ---- */
+.settle-toggle-btn {
+    padding: 6px 12px;
+    font-size: 0.8em;
+    align-self: flex-start;
+}
+.leg-validate-btn {
+    padding: 2px 6px;
+    font-size: 0.75em;
+    flex-shrink: 0;
+    box-shadow: none;
+}
+.settle-inline-form { margin-top: 8px; }
 footer { text-align: center; color: var(--text-faint); font-size: 0.78em; padding-top: 12px; }
 
 @media (max-width: 640px) {
@@ -464,6 +477,30 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             return `~${est.toFixed(2)}*`;
         }
 
+        // A hidden, toggle-revealed score-entry form for self-serve validation of
+        // any PENDING bet/leg, not just the ones stuck past the 3h auto-review
+        // threshold - reuses the same /api/manual-settle path via submitManualSettle.
+        function settleFormBlock(kind, id) {
+            const formId = `settle-form-${kind}-${id}`;
+            return `
+                <form class="review-form settle-inline-form" id="${formId}" hidden onsubmit="submitManualSettle(event, '${kind}', ${id})">
+                    <div class="review-row">
+                        <label>Score dom.</label>
+                        <input type="number" min="0" name="homeScore" required>
+                        <label style="width:auto">-</label>
+                        <input type="number" min="0" name="awayScore" required>
+                        <label style="width:auto">Score ext.</label>
+                    </div>
+                    <button type="submit" class="review-submit">✅ Confirmer le résultat</button>
+                </form>
+            `;
+        }
+
+        function toggleSettleForm(formId) {
+            const el = document.getElementById(formId);
+            if (el) el.hidden = !el.hidden;
+        }
+
         function ticketCard(bet) {
             const confPct = Math.round((bet.confidence || 0) * 100);
             const legsHtml = bet.isCombo && bet.legs && bet.legs.length ? `
@@ -478,8 +515,11 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                             <span class="leg-odds-edit">
                                 <input type="number" min="1" step="0.01" id="odds-leg-${l.id}" value="${l.odds ? l.odds.toFixed(2) : ''}">
                                 <button type="button" onclick="saveOdds('leg', ${l.id}, this)">✓</button>
-                            </span>` : `<span class="leg-type">${l.odds ? l.odds.toFixed(2) : '-'}</span>`}
+                            </span>
+                            <button type="button" class="leg-validate-btn" title="Valider le résultat" onclick="toggleSettleForm('settle-form-leg-${l.id}')">✅</button>
+                            ` : `<span class="leg-type">${l.odds ? l.odds.toFixed(2) : '-'}</span>`}
                         </div>
+                        ${l.result === 'PENDING' ? settleFormBlock('leg', l.id) : ''}
                     `).join('')}
                 </div>` : '';
 
@@ -526,6 +566,11 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                         </div>` : ''}
 
                         ${legsHtml}
+
+                        ${(!bet.isCombo && bet.result === 'PENDING') ? `
+                        <button type="button" class="settle-toggle-btn" onclick="toggleSettleForm('settle-form-bet-${bet.id}')">✅ Valider le résultat</button>
+                        ${settleFormBlock('bet', bet.id)}
+                        ` : ''}
                     </div>
                 </div>
             `;
