@@ -101,8 +101,12 @@ public class FootballDataService
             var now = DateTime.UtcNow;
             var windowEnd = now.AddHours(24);
 
+            // dateTo appears to behave as an EXCLUSIVE bound (confirmed live:
+            // dateFrom=today&dateTo=tomorrow only returned today's matches).
+            // Ask for +2 days to reliably cover the full 24h window ahead;
+            // the windowEnd check below still does the real trimming.
             var dateFrom = now.ToString("yyyy-MM-dd");
-            var dateTo = now.AddDays(1).ToString("yyyy-MM-dd");
+            var dateTo = now.AddDays(2).ToString("yyyy-MM-dd");
             var url = $"{_baseUrl}/matches?dateFrom={dateFrom}&dateTo={dateTo}";
 
             var doc = await GetAsync(url);
