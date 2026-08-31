@@ -69,43 +69,32 @@ public class AutoDecideBetsEndpoint : Endpoint<AutoDecideBetsRequest, AutoDecide
 
             Console.WriteLine($"✓ Found {upcomingMatches.Count} upcoming matches");
 
-            // 2️⃣ Pour chaque match, scrape les cotes
+            // 2️⃣ Pour chaque match, tente de scraper les cotes - mais garde le
+            // match même sans cotes réelles: DecideBets sait encore proposer
+            // des paris "stats seules" (BTTS, over/under) dessus à partir de
+            // TeamStats, sans avoir besoin de cotes 1X2. Exclure ces matchs
+            // ici les aurait empêché d'atteindre l'IA pour ce type de pari.
             var matchesWithOdds = new List<dynamic>();
+            var matchesWithRealOdds = 0;
             foreach (var match in upcomingMatches.Take(5)) // Limite à 5 matchs par cycle (assez pour permettre des combinés)
             {
                 Console.WriteLine($"  Scraping odds for: {match.HomeTeam} vs {match.AwayTeam}");
 
                 var odds = await _scraper.GetSofascoreOdds(match.HomeTeam, match.AwayTeam);
+                if (odds != null) matchesWithRealOdds++;
 
-                if (odds != null)
+                matchesWithOdds.Add(new
                 {
-                    matchesWithOdds.Add(new
-                    {
-                        match.Id,
-                        match.HomeTeam,
-                        match.AwayTeam,
-                        match.UtcDate,
-                        odds
-                    });
-                    await Task.Delay(1000); // Rate limit respectueux
-                }
-            }
-
-            if (matchesWithOdds.Count == 0)
-            {
-                await _discord.NotifyNoActionAsync(
-                    "Aucune cote réelle publiée pour l'instant sur les matchs trouvés (trop tôt avant le coup d'envoi)",
-                    upcomingMatches.Count,
-                    0);
-                await Send.OkAsync(new AutoDecideResponse
-                {
-                    Success = false,
-                    Message = "Could not scrape odds for any matches"
+                    match.Id,
+                    match.HomeTeam,
+                    match.AwayTeam,
+                    match.UtcDate,
+                    odds // null si pas encore publiées - DecideBets gère ce cas
                 });
-                return;
+                await Task.Delay(1000); // Rate limit respectueux
             }
 
-            Console.WriteLine($"✓ Scraped odds for {matchesWithOdds.Count} matches");
+            Console.WriteLine($"✓ {matchesWithOdds.Count} matchs à analyser ({matchesWithRealOdds} avec cotes réelles)");
 
             // 3️⃣ Appelle decide-bets avec les matchs trouvés
             var settledBetsWinnings = _db.Bets.Where(b => b.Result != "PENDING").Sum(b => b.Winnings) ?? 0;
@@ -193,10 +182,10 @@ public class AutoDecideBetsEndpoint : Endpoint<AutoDecideBetsRequest, AutoDecide
 
             if (bets.Count == 0)
             {
-                await _discord.NotifyNoActionAsync(
-                    "Cotes réelles disponibles, mais aucun pari ne remplissait les critères de value de l'IA",
-                    upcomingMatches.Count,
-                    matchesWithOdds.Count);
+                var reason = matchesWithRealOdds > 0
+                    ? "Matchs analysés (dont certains avec cotes réelles), mais aucun pari ne remplissait les critères de l'IA"
+                    : "Matchs analysés sur stats seules (aucune cote réelle publiée pour l'instant), mais aucun pari ne remplissait les critères de l'IA";
+                await _discord.NotifyNoActionAsync(reason, upcomingMatches.Count, matchesWithRealOdds);
             }
 
             await Send.OkAsync(new AutoDecideResponse
