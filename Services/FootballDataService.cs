@@ -103,10 +103,20 @@ public class FootballDataService
 
             // dateTo appears to behave as an EXCLUSIVE bound (confirmed live:
             // dateFrom=today&dateTo=tomorrow only returned today's matches).
-            // Ask for +2 days to reliably cover the full 24h window ahead;
-            // the windowEnd check below still does the real trimming.
+            // Scale the fetch span with windowHours (+1 day buffer for that
+            // exclusive bound) instead of a fixed +2 days - that fixed cap
+            // silently dropped every match beyond 48h out regardless of what
+            // windowHours actually asked for (confirmed live: windowHours=80
+            // still only ever saw matches within the next 2 days). Still
+            // capped at 9 days total span - this call has no `competitions`
+            // filter, which the API caps at 10 days max ("Specified period
+            // must not exceed 10 days").
+            var requestedEnd = now.AddHours(windowHours).AddDays(1);
+            var maxSpanEnd = now.AddDays(9);
+            var dateToDate = requestedEnd < maxSpanEnd ? requestedEnd : maxSpanEnd;
+
             var dateFrom = now.ToString("yyyy-MM-dd");
-            var dateTo = now.AddDays(2).ToString("yyyy-MM-dd");
+            var dateTo = dateToDate.ToString("yyyy-MM-dd");
             var url = $"{_baseUrl}/matches?dateFrom={dateFrom}&dateTo={dateTo}";
 
             var doc = await GetAsync(url);
