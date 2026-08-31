@@ -210,9 +210,11 @@ Format:
 }
 Combo confidence is the product of each leg's individual confidence - keep stakes small (0.3-0.6€) since combined risk is much higher. You can still place separate single bets on other matches in the same batch alongside a combo.
 
-DIVERSIFY: Propose different bet types across matches when the stats support them. Don't force a bet on every match - it's fine to skip a match entirely if nothing qualifies.
+EVALUATE EVERY MATCH INDEPENDENTLY: go through each match in AVAILABLE MATCHES one at a time and judge it entirely on its own - whether match #1 got a bet has zero bearing on whether match #2, #3, etc. also deserve one. Do NOT stop scanning after finding one good bet elsewhere in the list; do NOT treat this as "pick the single best match of the batch". If three separate matches each clear the confidence bar for some bet type, that's three bets, not one. The only valid reason to skip a specific match is that MATCH failing every threshold above on its own stats - never because another match already got picked.
 
-RESPONSE FORMAT - ONLY JSON ARRAY, NO TEXT:
+DIVERSIFY: Propose different bet types across matches when the stats support them.
+
+RESPONSE FORMAT - ONLY JSON ARRAY, NO TEXT. One array entry per match that clears its threshold - below is an example with TWO separate matches that both qualified, not a cap of one:
 [
   {
     ""matchId"": ""0"",
@@ -223,6 +225,16 @@ RESPONSE FORMAT - ONLY JSON ARRAY, NO TEXT:
     ""stake"": 1.0,
     ""confidence"": 0.68,
     ""reasoning"": ""Home xG 1.9 vs away xG 0.8 over last 5 matches, strong home form""
+  },
+  {
+    ""matchId"": ""2"",
+    ""homeTeam"": ""Marseille"",
+    ""awayTeam"": ""Nice"",
+    ""type"": ""OVER_GOALS"",
+    ""selection"": ""2.5"",
+    ""stake"": 0.7,
+    ""confidence"": 0.5,
+    ""reasoning"": ""Combined xG 3.1 across both teams, both sides attack-heavy""
   }
 ]
 
