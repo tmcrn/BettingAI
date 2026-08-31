@@ -415,6 +415,15 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             return d.toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
         }
 
+        // Same fallback formula as BetSettlementService.EstimateOddsFromConfidence -
+        // when there's no real market odds, this is what actually gets paid out
+        // (and what the ticket should show), not a flat placeholder number.
+        function displayOdds(odds, confidence) {
+            if (odds) return odds.toFixed(2);
+            const est = confidence > 0 ? 1 / confidence : 2;
+            return `~${est.toFixed(2)}*`;
+        }
+
         function ticketCard(bet) {
             const confPct = Math.round((bet.confidence || 0) * 100);
             const legsHtml = bet.isCombo && bet.legs && bet.legs.length ? `
@@ -445,7 +454,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
 
                         <div class="info-grid">
                             <div class="info-item"><div class="label">Mise</div><div class="val">${fmtEuro(bet.stake)}</div></div>
-                            <div class="info-item"><div class="label">Cote</div><div class="val">${bet.odds ? bet.odds.toFixed(2) : '~2.00*'}</div></div>
+                            <div class="info-item"><div class="label">Cote</div><div class="val">${displayOdds(bet.odds, bet.confidence)}</div></div>
                             <div class="info-item"><div class="label">Gain</div><div class="val">${bet.winnings != null ? fmtEuro(bet.winnings) : '-'}</div></div>
                         </div>
 

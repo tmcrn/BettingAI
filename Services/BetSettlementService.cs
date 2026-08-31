@@ -19,6 +19,17 @@ public class BetSettlementService
     // entry instead of leaving it PENDING forever.
     public static readonly TimeSpan ManualReviewThreshold = TimeSpan.FromHours(3);
 
+    // Payout fallback for a bet with no real market odds. A flat 2x was
+    // wildly off in practice (a real HOME_WIN market at 1.07 for a heavy
+    // favorite got shown/paid out as if it were 2.00, roughly double the
+    // real payout) - deriving it from the AI's own confidence is a much
+    // closer estimate (high confidence => the AI itself thinks this is a
+    // strong favorite => low odds) using only data we already have, no
+    // external lookup. Still just an estimate, not a real market price -
+    // callers should keep marking it as such wherever it's shown.
+    public static decimal EstimateOddsFromConfidence(decimal confidence) =>
+        confidence > 0 ? Math.Round(1m / confidence, 2) : 2m;
+
     private readonly BettingContext _context;
     private readonly FootballDataService _footballDataService;
     private readonly DiscordNotificationService _discord;
@@ -75,9 +86,9 @@ public class BetSettlementService
                 var won = DetermineOutcome(bet.BetType, bet.Selection, result, status.HomeScore, status.AwayScore);
                 bet.Result = won ? "WIN" : "LOSS";
                 // Real odds (when Sofascore had them at decision time) price the payout for
-                // real; otherwise fall back to a flat 2x - odds never influenced whether this
-                // bet was placed, only how much it pays out now that it won.
-                bet.Winnings = won ? bet.Stake * (bet.Odds ?? 2m) : 0;
+                // real; otherwise estimate from the AI's own confidence - odds never
+                // influenced whether this bet was placed, only how much it pays out now.
+                bet.Winnings = won ? bet.Stake * (bet.Odds ?? EstimateOddsFromConfidence(bet.Confidence)) : 0;
                 settledCount++;
 
                 if (won)
@@ -238,7 +249,7 @@ public class BetSettlementService
 
         if (realOdds.HasValue) bet.Odds = realOdds;
         bet.Result = won ? "WIN" : "LOSS";
-        bet.Winnings = won ? bet.Stake * (bet.Odds ?? 2m) : 0;
+        bet.Winnings = won ? bet.Stake * (bet.Odds ?? EstimateOddsFromConfidence(bet.Confidence)) : 0;
 
         await _context.SaveChangesAsync(ct);
         await RefreshLearningNotebookAsync(ct);
