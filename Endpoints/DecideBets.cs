@@ -80,8 +80,27 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
                     analysisRequest,
                     cancellationToken: ct
                 );
-                var analysisText = await analysisResp.Content.ReadAsStringAsync();
-                analysisPerMatch[match.Id ?? "unknown"] = analysisText;
+                var analysis = await analysisResp.Content.ReadFromJsonAsync<AnalyzeMatchResponse>(cancellationToken: ct);
+
+                if (analysis != null)
+                {
+                    // Pre-compute the edge ourselves instead of handing the model raw
+                    // numbers to compare - Mistral 7B has repeatedly gotten this
+                    // arithmetic wrong (e.g. betting HOME_WIN while its own reasoning
+                    // stated away xG was double home xG). Spelling out "favors AWAY"
+                    // in plain text removes that failure mode entirely.
+                    var xgEdge = analysis.HomeXG - analysis.AwayXG > 0.2m ? "HOME"
+                        : analysis.AwayXG - analysis.HomeXG > 0.2m ? "AWAY" : "EVEN";
+                    var formEdge = analysis.HomeFormLast5 - analysis.AwayFormLast5 > 0.3m ? "HOME"
+                        : analysis.AwayFormLast5 - analysis.HomeFormLast5 > 0.3m ? "AWAY" : "EVEN";
+
+                    analysisPerMatch[match.Id ?? "unknown"] =
+                        $"Home xG: {analysis.HomeXG} | Away xG: {analysis.AwayXG} => ATTACKING EDGE: {xgEdge}\n" +
+                        $"Home xGA (goals conceded): {analysis.HomeXGA} | Away xGA: {analysis.AwayXGA}\n" +
+                        $"Home form (last 5): {analysis.HomeFormLast5} | Away form (last 5): {analysis.AwayFormLast5} => FORM EDGE: {formEdge}\n" +
+                        $"H2H wins - Home: {analysis.HomeWinsH2H} | Away: {analysis.AwayWinsH2H}\n" +
+                        $"Key factors: {analysis.AnalysisSummary}";
+                }
 
                 // Récupère aussi les contextes (compos)
                 var context = await _context.MatchContexts
@@ -144,6 +163,8 @@ REAL 1X2 ODDS FROM BOOKMAKERS (for context only - these affect payout size on a 
 
 AVAILABLE MATCHES:
 " + matchsInfo + @"
+
+Each match's analysis above already tells you the ATTACKING EDGE and FORM EDGE (HOME, AWAY, or EVEN) - this is the result of comparing both teams' numbers for you. Use it directly instead of re-deriving it: if ATTACKING EDGE says AWAY, the away team is the one with the higher xG, full stop. Never pick HOME_WIN when both edges say AWAY (and vice versa) - if you want to go against the edges, you need a specific stated reason (H2H, missing key players, fatigue) in your reasoning.
 
 BET TYPES YOU CAN USE - decide purely from the xG/form/stats data above. Odds (when listed) are NOT a signal to weigh and are NOT required to bet - they only affect the payout of a bet that wins, nothing more. Do not avoid a bet just because a match has no odds listed, and do not let a big/small odds number talk you out of a pick your stats support. You are allowed to take real risks when the stats back it up.
 1. HOME_WIN / AWAY_WIN: which side your stats (xG, xGA, form, H2H) favor, if confidence > 0.55

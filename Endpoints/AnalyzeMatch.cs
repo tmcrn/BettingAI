@@ -99,31 +99,46 @@ public class AnalyzeMatchEndpoint : Endpoint<AnalyzeMatchRequest, AnalyzeMatchRe
         return Math.Min(0.95m, Math.Max(0.05m, probability));
     }
 
+    // Symmetric home-vs-away comparison. The old version only ever checked
+    // "is home's attack strong" / "is away's defense weak" in isolation, so
+    // a match where the AWAY team's attack was clearly the stronger one
+    // (e.g. away xG 4.0 vs home xG 2.0) produced a summary that never said
+    // so - nothing here ever pointed at the away team's attack or the
+    // home team's defense. That one-sidedness is exactly what led the AI to
+    // bet HOME_WIN on a match its own xG numbers favored the away side on.
+    // Every factor below explicitly names which side it favors.
     private string GenerateAnalysis(TeamStats? home, TeamStats? away, MatchContext? context)
     {
         if (home == null || away == null) return "Données insuffisantes";
 
         var factors = new List<string>();
 
-        // Attaque
-        if (home.xG > 1.8m) factors.Add("✓ Attaque domicile forte");
-        if (home.xG < 1.3m) factors.Add("✗ Attaque domicile faible");
+        // Attaque (xG) - qui marque le plus
+        var xgDiff = home.xG - away.xG;
+        if (xgDiff > 0.3m) factors.Add($"✓ Attaque domicile supérieure ({home.xG} xG vs {away.xG})");
+        else if (xgDiff < -0.3m) factors.Add($"✓ Attaque visiteur supérieure ({away.xG} xG vs {home.xG})");
+        else factors.Add($"= Attaques comparables ({home.xG} xG vs {away.xG})");
 
-        // Défense
-        if (away.xGA > 1.6m) factors.Add("✗ Défense visiteur fragile");
-        if (away.xGA < 1.2m) factors.Add("✓ Défense visiteur solide");
+        // Défense (xGA) - qui encaisse le moins (plus bas = meilleur)
+        var xgaDiff = home.xGA - away.xGA;
+        if (xgaDiff < -0.3m) factors.Add($"✓ Défense domicile supérieure ({home.xGA} xGA vs {away.xGA})");
+        else if (xgaDiff > 0.3m) factors.Add($"✓ Défense visiteur supérieure ({away.xGA} xGA vs {home.xGA})");
 
-        // Forme
-        if (home.FormLast5 > 1.7m) factors.Add("✓ Excellente forme domicile");
-        if (away.FormLast5 < 1.3m) factors.Add("✗ Forme visiteur moyenne");
+        // Forme (5 derniers matchs)
+        var formDiff = home.FormLast5 - away.FormLast5;
+        if (formDiff > 0.4m) factors.Add($"✓ Meilleure forme domicile ({home.FormLast5} vs {away.FormLast5})");
+        else if (formDiff < -0.4m) factors.Add($"✓ Meilleure forme visiteur ({away.FormLast5} vs {home.FormLast5})");
 
         // H2H
-        if (context != null && context.HomeWinsH2H > context.AwayWinsH2H + 2)
-            factors.Add("✓ Domicile dominant en H2H");
+        if (context != null)
+        {
+            if (context.HomeWinsH2H > context.AwayWinsH2H + 1) factors.Add("✓ Domicile dominant en H2H");
+            else if (context.AwayWinsH2H > context.HomeWinsH2H + 1) factors.Add("✓ Visiteur dominant en H2H");
+        }
 
         // Fatigue
         if (home.FatigueIndex > 0.6m) factors.Add("⚠ Fatigue domicile élevée");
-        if (away.ConsecutiveMatches > 2) factors.Add("⚠ Visiteur fatigue (3+ matchs)");
+        if (away.ConsecutiveMatches > 2) factors.Add("⚠ Visiteur fatigué (3+ matchs)");
 
         return factors.Count > 0 ? string.Join(" | ", factors) : "Contexte équilibré";
     }
