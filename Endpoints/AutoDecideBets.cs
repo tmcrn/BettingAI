@@ -33,13 +33,15 @@ public class AutoDecideBetsEndpoint : Endpoint<AutoDecideBetsRequest, AutoDecide
     private readonly OddsScraperService _scraper;
     private readonly BettingContext _db;
     private readonly DiscordNotificationService _discord;
+    private readonly CycleStatusService _cycleStatus;
 
-    public AutoDecideBetsEndpoint(HttpClient httpClient, OddsScraperService scraper, BettingContext db, DiscordNotificationService discord)
+    public AutoDecideBetsEndpoint(HttpClient httpClient, OddsScraperService scraper, BettingContext db, DiscordNotificationService discord, CycleStatusService cycleStatus)
     {
         _httpClient = httpClient;
         _scraper = scraper;
         _db = db;
         _discord = discord;
+        _cycleStatus = cycleStatus;
     }
 
     public override void Configure()
@@ -59,6 +61,13 @@ public class AutoDecideBetsEndpoint : Endpoint<AutoDecideBetsRequest, AutoDecide
             var upcomingMatches = await GetUpcomingMatches(windowHours);
             if (upcomingMatches == null || upcomingMatches.Count == 0)
             {
+                // No Discord notification here on purpose (an empty window is the
+                // normal case most cycles, outside match hours - notifying every
+                // time would be spam) - but that means this is the ONE outcome
+                // with zero external visibility, which reads as "the cron is
+                // broken" from the outside. CycleStatusService/GetCycleStatus
+                // exists so that can be checked on demand instead of guessed at.
+                _cycleStatus.Record("no_matches", 0, 0, $"Aucun match dans les {windowHours}h qui suivent");
                 await Send.OkAsync(new AutoDecideResponse
                 {
                     Success = false,
@@ -186,6 +195,11 @@ public class AutoDecideBetsEndpoint : Endpoint<AutoDecideBetsRequest, AutoDecide
                     ? "Matchs analysés (dont certains avec cotes réelles), mais aucun pari ne remplissait les critères de l'IA"
                     : "Matchs analysés sur stats seules (aucune cote réelle publiée pour l'instant), mais aucun pari ne remplissait les critères de l'IA";
                 await _discord.NotifyNoActionAsync(reason, upcomingMatches.Count, matchesWithRealOdds);
+                _cycleStatus.Record("no_bets", upcomingMatches.Count, 0, reason);
+            }
+            else
+            {
+                _cycleStatus.Record("bets_placed", upcomingMatches.Count, bets.Count, $"{bets.Count} pari(s) placé(s)");
             }
 
             await Send.OkAsync(new AutoDecideResponse
@@ -198,6 +212,7 @@ public class AutoDecideBetsEndpoint : Endpoint<AutoDecideBetsRequest, AutoDecide
         catch (Exception ex)
         {
             Console.WriteLine($"❌ Error: {ex.Message}");
+            _cycleStatus.Record("error", 0, 0, ex.Message);
             await Send.OkAsync(new AutoDecideResponse
             {
                 Success = false,
