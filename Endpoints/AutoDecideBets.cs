@@ -205,21 +205,22 @@ public class AutoDecideBetsEndpoint : Endpoint<AutoDecideBetsRequest, AutoDecide
                         continue;
                     }
 
-                    // 🔧 Matcher par INDEX
-                    var matchIdStr = bet.TryGetProperty("matchId", out var matchIdEl) ? matchIdEl.GetString() : null;
-                    if (int.TryParse(matchIdStr, out var matchIndex) && matchIndex < matchesWithOdds.Count)
-                    {
-                        var matchData = matchesWithOdds[matchIndex];  // ← Direct access par index
+                    // DecideBets now echoes back what it actually PERSISTED (real
+                    // homeTeam/awayTeam included directly), not the AI's raw proposal
+                    // matched by index against matchesWithOdds - a bet rejected as a
+                    // duplicate or over the balance floor simply isn't in this list at
+                    // all anymore, instead of misreporting as placed.
+                    var homeTeam = bet.TryGetProperty("homeTeam", out var htEl) ? htEl.GetString() : null;
+                    var awayTeam = bet.TryGetProperty("awayTeam", out var atEl) ? atEl.GetString() : null;
 
-                        bets.Add(new BetData
-                        {
-                            Match = $"{matchData.HomeTeam} vs {matchData.AwayTeam}",
-                            BetType = betType,
-                            Stake = bet.GetProperty("stake").GetDecimal(),
-                            Confidence = bet.GetProperty("confidence").GetDecimal(),
-                            Reasoning = bet.GetProperty("reasoning").GetString()
-                        });
-                    }
+                    bets.Add(new BetData
+                    {
+                        Match = $"{homeTeam} vs {awayTeam}",
+                        BetType = betType,
+                        Stake = bet.GetProperty("stake").GetDecimal(),
+                        Confidence = bet.GetProperty("confidence").GetDecimal(),
+                        Reasoning = bet.GetProperty("reasoning").GetString()
+                    });
                 }
             }
 

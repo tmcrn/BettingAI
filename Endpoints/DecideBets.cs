@@ -392,7 +392,32 @@ REMEMBER: Start with [ immediately. No preamble. No markdown. Just JSON.";
                             savedBets.Add(dbBet);
                         }
                         await _context.SaveChangesAsync(ct);
-                        bets = betsArray;
+
+                        // Report what was actually PERSISTED, not the AI's raw proposal -
+                        // betsArray still includes anything rejected along the way
+                        // (duplicate of an existing PENDING bet, projected balance floor,
+                        // unresolvable match id...), so echoing it back made the response
+                        // claim a bet was placed even when it had just been silently
+                        // rejected as a duplicate.
+                        bets = savedBets.Select(b => new BetDecision
+                        {
+                            MatchId = b.MatchId,
+                            HomeTeam = b.HomeTeam,
+                            AwayTeam = b.AwayTeam,
+                            Type = b.BetType,
+                            Selection = b.Selection,
+                            Stake = b.Stake,
+                            Confidence = b.Confidence,
+                            Reasoning = b.Reasoning
+                        })
+                        .Concat(savedCombos.Select(c => new BetDecision
+                        {
+                            Type = "COMBO",
+                            Stake = c.Stake,
+                            Confidence = c.Confidence,
+                            Reasoning = c.Reasoning
+                        }))
+                        .ToList();
                         debugLog.Add($"SAVED {savedBets.Count} bets, {savedCombos.Count} combos");
 
                         foreach (var savedBet in savedBets)
