@@ -235,6 +235,7 @@ public class AutoDecideBetsEndpoint : Endpoint<AutoDecideBetsRequest, AutoDecide
             else
             {
                 _cycleStatus.Record("bets_placed", upcomingMatches.Count, bets.Count, $"{bets.Count} pari(s) placé(s)");
+                await _discord.NotifyCycleSummaryAsync(upcomingMatches.Count, matchesWithRealOdds, bets.Count);
             }
 
             await Send.OkAsync(new AutoDecideResponse

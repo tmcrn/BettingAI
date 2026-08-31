@@ -41,6 +41,29 @@ public class DiscordNotificationService
         }
     });
 
+    // Fired once per cycle that actually placed something, alongside the
+    // per-bet detail notifications - those don't carry how many matches the
+    // cycle looked at overall, only NotifyNoActionAsync did, so a cycle that
+    // DID bet had no visible match-count context at all.
+    public Task NotifyCycleSummaryAsync(int matchesFound, int matchesWithOdds, int betsPlaced) => SendAsync(new
+    {
+        embeds = new[]
+        {
+            new
+            {
+                title = "📋 Résumé du cycle",
+                color = 0x3498db,
+                fields = new object[]
+                {
+                    new { name = "Matchs analysés", value = matchesFound.ToString(), inline = true },
+                    new { name = "Avec cotes réelles", value = matchesWithOdds.ToString(), inline = true },
+                    new { name = "Paris placés", value = betsPlaced.ToString(), inline = true }
+                },
+                timestamp = DateTime.UtcNow.ToString("o")
+            }
+        }
+    });
+
     public Task NotifyBetPlacedAsync(Bet bet) => SendAsync(new
     {
         embeds = new[]
