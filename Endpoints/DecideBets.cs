@@ -389,8 +389,13 @@ REMEMBER: Start with [ immediately. No preamble. No markdown. Just JSON.";
                             var dbBet = new Bet
                             {
                                 MatchId = effectiveMatchId,
-                                HomeTeam = bet.HomeTeam,
-                                AwayTeam = bet.AwayTeam,
+                                // Prefer our own verified team names over the AI's echo, same
+                                // principle as effectiveMatchId - confirmed live: the model
+                                // wrote matchId "0" (correctly resolving to the real match) but
+                                // paired it with a DIFFERENT match's team names, saving a bet
+                                // attached to the right match yet displaying the wrong one.
+                                HomeTeam = sourceMatch?.HomeTeam ?? bet.HomeTeam,
+                                AwayTeam = sourceMatch?.AwayTeam ?? bet.AwayTeam,
                                 BetType = bet.Type,
                                 Selection = bet.Selection,
                                 Stake = stake,
