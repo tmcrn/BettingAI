@@ -262,6 +262,48 @@ button:disabled { opacity: 0.5; cursor: default; transform: none; }
     font-size: 0.9em;
 }
 
+/* ---- Manual review ---- */
+#manualReviewSection { display: none; }
+.review-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 16px;
+    margin-bottom: 40px;
+}
+.review-card {
+    background: var(--surface);
+    border-radius: var(--radius);
+    border: 1px solid var(--pending);
+    box-shadow: var(--shadow);
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.review-card .rc-match { font-weight: 700; }
+.review-card .rc-meta { font-size: 0.78em; color: var(--text-faint); margin-top: 2px; }
+.review-form { display: flex; flex-direction: column; gap: 10px; }
+.review-row { display: flex; gap: 8px; align-items: center; }
+.review-row label { font-size: 0.78em; color: var(--text-dim); width: 68px; flex-shrink: 0; }
+.review-row input {
+    flex: 1;
+    padding: 7px 10px;
+    border-radius: 7px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--text);
+    font-size: 0.88em;
+    min-width: 0;
+}
+.review-row input:focus { outline: none; border-color: var(--accent); }
+.review-submit {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+    padding: 8px 14px;
+    font-size: 0.85em;
+}
+
 footer { text-align: center; color: var(--text-faint); font-size: 0.78em; padding-top: 12px; }
 
 @media (max-width: 640px) {
@@ -316,6 +358,11 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                 <h3>⏳ En attente</h3>
                 <div class="value" id="pendingBets">-</div>
             </div>
+        </div>
+
+        <div id="manualReviewSection">
+            <div class="section-title">⚠️ Saisie manuelle requise <span class="count" id="reviewCount"></span></div>
+            <div class="review-container" id="reviewContainer"></div>
         </div>
 
         <div class="section-title">🎯 Tickets récents <span class="count" id="ticketsCount"></span></div>
@@ -441,6 +488,77 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             container.innerHTML = p.recentBets.map(ticketCard).join('');
         }
 
+        function reviewCard(item) {
+            const formId = `review-form-${item.kind}-${item.id}`;
+            return `
+                <div class="review-card">
+                    <div>
+                        <div class="rc-match">${item.match}</div>
+                        <div class="rc-meta">${betTypeLabel(item.betType, item.selection)} · coup d'envoi ${fmtDate(item.matchUtcDate)}</div>
+                    </div>
+                    <form class="review-form" id="${formId}" onsubmit="submitManualSettle(event, '${item.kind}', ${item.id})">
+                        <div class="review-row">
+                            <label>Score dom.</label>
+                            <input type="number" min="0" name="homeScore" required>
+                            <label style="width:auto">-</label>
+                            <input type="number" min="0" name="awayScore" required>
+                            <label style="width:auto">Score ext.</label>
+                        </div>
+                        ${!item.hasRealOdds ? `
+                        <div class="review-row">
+                            <label>Cote réelle</label>
+                            <input type="number" min="1" step="0.01" name="realOdds" placeholder="ex: 6.00 (optionnel)">
+                        </div>` : ''}
+                        <button type="submit" class="review-submit">✅ Valider ce résultat</button>
+                    </form>
+                </div>
+            `;
+        }
+
+        async function refreshManualReview() {
+            const res = await fetch('/api/needs-manual-review');
+            const data = await res.json();
+            const section = document.getElementById('manualReviewSection');
+            const container = document.getElementById('reviewContainer');
+            const countEl = document.getElementById('reviewCount');
+
+            if (!data.items || data.items.length === 0) {
+                section.style.display = 'none';
+                return;
+            }
+            section.style.display = 'block';
+            countEl.textContent = `(${data.items.length})`;
+            container.innerHTML = data.items.map(reviewCard).join('');
+        }
+
+        async function submitManualSettle(event, kind, id) {
+            event.preventDefault();
+            const form = event.target;
+            const homeScore = parseInt(form.homeScore.value, 10);
+            const awayScore = parseInt(form.awayScore.value, 10);
+            const realOddsRaw = form.realOdds ? form.realOdds.value : '';
+            const realOdds = realOddsRaw ? parseFloat(realOddsRaw) : null;
+
+            const submitBtn = form.querySelector('button[type="submit"]');
+            submitBtn.disabled = true;
+            submitBtn.textContent = '⏳ Enregistrement…';
+
+            try {
+                const res = await fetch('/api/manual-settle', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ kind, id, homeScore, awayScore, realOdds })
+                });
+                const data = await res.json();
+                if (!data.success) throw new Error(data.message);
+                await refreshAll();
+            } catch (e) {
+                alert('Erreur: ' + e.message);
+                submitBtn.disabled = false;
+                submitBtn.textContent = '✅ Valider ce résultat';
+            }
+        }
+
         async function refreshLearning() {
             const res = await fetch('/api/learning-notebook');
             const l = await res.json();
@@ -482,7 +600,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
 
         async function refreshAll() {
             try {
-                await Promise.all([refreshPortfolio(), refreshLearning(), refreshCronStatus()]);
+                await Promise.all([refreshPortfolio(), refreshLearning(), refreshCronStatus(), refreshManualReview()]);
             } catch (error) {
                 console.error('Erreur de chargement:', error);
             }

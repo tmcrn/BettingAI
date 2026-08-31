@@ -13,6 +13,12 @@ public class BetSettlementService
 {
     private static readonly TimeSpan SettlementBuffer = TimeSpan.FromHours(2);
 
+    // If football-data.org still hasn't given us a real result (or the bet
+    // still has no real odds) this long after kickoff, auto-settlement has
+    // had its chance - stop waiting on it and surface the bet for manual
+    // entry instead of leaving it PENDING forever.
+    public static readonly TimeSpan ManualReviewThreshold = TimeSpan.FromHours(3);
+
     private readonly BettingContext _context;
     private readonly FootballDataService _footballDataService;
     private readonly DiscordNotificationService _discord;
@@ -139,26 +145,136 @@ public class BetSettlementService
             var combo = await _context.BetCombos
                 .Include(c => c.Legs)
                 .FirstOrDefaultAsync(c => c.Id == comboId, ct);
-            if (combo == null || combo.Result != "PENDING") continue;
+            if (combo == null) continue;
 
-            if (combo.Legs.Any(l => l.Result == "LOSS"))
-            {
-                combo.Result = "LOSS";
-                combo.Winnings = 0;
-                await _context.SaveChangesAsync(ct);
-                await _discord.NotifyComboLostAsync(combo);
-            }
-            else if (combo.Legs.All(l => l.Result == "WIN"))
-            {
-                combo.Result = "WIN";
-                combo.Winnings = combo.Stake * combo.CombinedOdds;
-                await _context.SaveChangesAsync(ct);
-                await _discord.NotifyComboWonAsync(combo);
-            }
-            // else: some legs still PENDING and none lost yet - stays PENDING
+            await FinalizeComboIfDeterminedAsync(combo, ct);
         }
 
         return settledLegCount;
+    }
+
+    // LOSS as soon as any leg loses (no need to wait for the rest), WIN only
+    // once every leg has won, otherwise stays PENDING. Shared between the
+    // automatic settlement loop and manual leg entry.
+    private async Task<bool> FinalizeComboIfDeterminedAsync(BetCombo combo, CancellationToken ct)
+    {
+        if (combo.Result != "PENDING") return false;
+
+        if (combo.Legs.Any(l => l.Result == "LOSS"))
+        {
+            combo.Result = "LOSS";
+            combo.Winnings = 0;
+            await _context.SaveChangesAsync(ct);
+            await _discord.NotifyComboLostAsync(combo);
+            return true;
+        }
+
+        if (combo.Legs.All(l => l.Result == "WIN"))
+        {
+            combo.Result = "WIN";
+            combo.Winnings = combo.Stake * combo.CombinedOdds;
+            await _context.SaveChangesAsync(ct);
+            await _discord.NotifyComboWonAsync(combo);
+            return true;
+        }
+
+        return false; // some legs still PENDING and none lost yet
+    }
+
+    // Bets/legs whose match kicked off more than ManualReviewThreshold ago
+    // and are still PENDING - auto-settlement (football-data.org lookup)
+    // has had its chance and hasn't resolved them, so surface them for
+    // manual score/odds entry instead of leaving them stuck forever.
+    public async Task<List<ManualReviewItem>> GetItemsNeedingManualReviewAsync(CancellationToken ct = default)
+    {
+        var cutoff = DateTime.UtcNow - ManualReviewThreshold;
+
+        var bets = await _context.Bets
+            .Where(b => b.Result == "PENDING" && b.MatchUtcDate != null && b.MatchUtcDate < cutoff)
+            .ToListAsync(ct);
+
+        var legs = await _context.ComboLegs
+            .Where(l => l.Result == "PENDING" && l.MatchUtcDate != null && l.MatchUtcDate < cutoff)
+            .ToListAsync(ct);
+
+        var items = bets.Select(b => new ManualReviewItem
+        {
+            Kind = "bet",
+            Id = b.Id,
+            Match = $"{b.HomeTeam} vs {b.AwayTeam}",
+            BetType = b.BetType,
+            Selection = b.Selection,
+            MatchUtcDate = b.MatchUtcDate,
+            HasRealOdds = b.Odds != null
+        })
+        .Concat(legs.Select(l => new ManualReviewItem
+        {
+            Kind = "leg",
+            Id = l.Id,
+            Match = $"{l.HomeTeam} vs {l.AwayTeam}",
+            BetType = l.BetType,
+            Selection = null,
+            MatchUtcDate = l.MatchUtcDate,
+            HasRealOdds = true // legs always carry a value (real or the flat 2x fallback)
+        }))
+        .OrderBy(i => i.MatchUtcDate)
+        .ToList();
+
+        return items;
+    }
+
+    // Manual entry for a single Bet stuck past ManualReviewThreshold. The
+    // user reports the real final score (and optionally the real odds they
+    // saw, if none were resolved automatically) instead of the system
+    // guessing or leaving it PENDING forever.
+    public async Task<(bool Success, string Message)> ManualSettleBetAsync(int betId, int homeScore, int awayScore, decimal? realOdds, CancellationToken ct = default)
+    {
+        var bet = await _context.Bets.FirstOrDefaultAsync(b => b.Id == betId, ct);
+        if (bet == null) return (false, "Pari introuvable");
+        if (bet.Result != "PENDING") return (false, "Ce pari est déjà réglé");
+
+        var result = homeScore > awayScore ? "HOME_WIN" : homeScore < awayScore ? "AWAY_WIN" : "DRAW";
+        var won = DetermineOutcome(bet.BetType, bet.Selection, result, homeScore, awayScore);
+
+        if (realOdds.HasValue) bet.Odds = realOdds;
+        bet.Result = won ? "WIN" : "LOSS";
+        bet.Winnings = won ? bet.Stake * (bet.Odds ?? 2m) : 0;
+
+        await _context.SaveChangesAsync(ct);
+        await RefreshLearningNotebookAsync(ct);
+
+        if (won) await _discord.NotifyBetWonAsync(bet);
+        else await _discord.NotifyBetLostAsync(bet);
+
+        return (true, $"Pari #{betId} réglé manuellement : {(won ? "GAGNÉ" : "PERDU")}");
+    }
+
+    // Same idea for one leg of a combo - settling it may in turn finalize
+    // the whole combo (via FinalizeComboIfDeterminedAsync) if that was the
+    // last leg still PENDING, or leave it PENDING if others still are.
+    public async Task<(bool Success, string Message)> ManualSettleLegAsync(int legId, int homeScore, int awayScore, decimal? realOdds, CancellationToken ct = default)
+    {
+        var leg = await _context.ComboLegs
+            .Include(l => l.BetCombo)
+            .ThenInclude(c => c!.Legs)
+            .FirstOrDefaultAsync(l => l.Id == legId, ct);
+        if (leg == null) return (false, "Jambe de combiné introuvable");
+        if (leg.Result != "PENDING") return (false, "Cette jambe est déjà réglée");
+        if (leg.BetCombo == null) return (false, "Combiné parent introuvable");
+
+        var result = homeScore > awayScore ? "HOME_WIN" : homeScore < awayScore ? "AWAY_WIN" : "DRAW";
+        var won = DetermineOutcome(leg.BetType, null, result, homeScore, awayScore);
+
+        if (realOdds.HasValue) leg.Odds = realOdds.Value;
+        leg.Result = won ? "WIN" : "LOSS";
+
+        await _context.SaveChangesAsync(ct);
+
+        var comboFinalized = await FinalizeComboIfDeterminedAsync(leg.BetCombo, ct);
+        if (comboFinalized) await RefreshLearningNotebookAsync(ct);
+
+        return (true, $"Jambe #{legId} réglée manuellement : {(won ? "GAGNÉE" : "PERDUE")}" +
+            (comboFinalized ? $" - combiné #{leg.BetComboId} finalisé ({leg.BetCombo.Result})" : ""));
     }
 
     public static bool DetermineOutcome(string? betType, string? selection, string result, int homeScore, int awayScore)
@@ -206,4 +322,15 @@ public class BetSettlementService
 
         await _context.SaveChangesAsync(ct);
     }
+}
+
+public class ManualReviewItem
+{
+    public string Kind { get; set; } = ""; // "bet" | "leg"
+    public int Id { get; set; }
+    public string? Match { get; set; }
+    public string? BetType { get; set; }
+    public string? Selection { get; set; }
+    public DateTime? MatchUtcDate { get; set; }
+    public bool HasRealOdds { get; set; }
 }
