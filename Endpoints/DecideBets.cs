@@ -280,8 +280,9 @@ REMEMBER: Start with [ immediately. No preamble. No markdown. Just JSON.";
 
                             var stake = bet.Stake;
                             decimal? realOdds = null;
+                            var isRealOddsType = RealOddsTypes.Contains(bet.Type ?? "");
 
-                            if (RealOddsTypes.Contains(bet.Type ?? "") && bet.MatchId != null && resolvedOdds.TryGetValue(bet.MatchId, out var o))
+                            if (isRealOddsType && bet.MatchId != null && resolvedOdds.TryGetValue(bet.MatchId, out var o))
                             {
                                 realOdds = ResolveLegOdds(bet.Type, o);
                             }
@@ -290,6 +291,18 @@ REMEMBER: Start with [ immediately. No preamble. No markdown. Just JSON.";
                                 // No real market odds exist for this type - cap exposure regardless
                                 // of what the AI proposed as a safety net.
                                 stake = Math.Min(stake, StatsOnlyStakeCap);
+                            }
+
+                            // The prompt tells the AI not to bet HOME_WIN/AWAY_WIN/DRAW/double-chance
+                            // without real odds listed - but a 7B model doesn't reliably follow that,
+                            // and did exactly this live (bet HOME_WIN_OR_DRAW on a match Sofascore had
+                            // no odds for, with an invented confidence number). Enforce it in code:
+                            // no resolved real odds, no real-odds-type bet, full stop.
+                            if (isRealOddsType && realOdds == null)
+                            {
+                                debugLog.Add($"BET REJECTED: '{bet.Type}' needs real odds but none were resolved for " +
+                                    $"{bet.HomeTeam} vs {bet.AwayTeam} (matchId='{bet.MatchId}') - AI ignored the no-odds instruction");
+                                continue;
                             }
 
                             var dbBet = new Bet
