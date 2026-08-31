@@ -21,11 +21,20 @@ public class BetDecision
     public string? MatchId { get; set; }
     public string? HomeTeam { get; set; }
     public string? AwayTeam { get; set; }
-    public string? Type { get; set; }  // ← Change en string
+    public string? Type { get; set; }  // ← Change en string - "COMBO" when Legs is set
     public string? Selection { get; set; }
     public decimal Stake { get; set; }
     public decimal? Confidence { get; set; }
     public string? Reasoning { get; set; }
+
+    // Present only when Type == "COMBO": 2+ selections from different matches.
+    public List<ComboLegDecision>? Legs { get; set; }
+}
+
+public class ComboLegDecision
+{
+    public string? MatchId { get; set; }
+    public string? Type { get; set; } // must be one of the real-priced 1X2-family types
 }
 
 public class DecideBetsResponse

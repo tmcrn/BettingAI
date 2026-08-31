@@ -29,6 +29,8 @@ public class ResetSystemEndpoint : EndpointWithoutRequest<ResetSystemResponse>
     {
         // Clear ALL data
         _context.Bets.RemoveRange(_context.Bets);
+        _context.ComboLegs.RemoveRange(_context.ComboLegs);
+        _context.BetCombos.RemoveRange(_context.BetCombos);
         _context.TeamStats.RemoveRange(_context.TeamStats);
         _context.MatchContexts.RemoveRange(_context.MatchContexts);
         _context.LearningNotebook.RemoveRange(_context.LearningNotebook);

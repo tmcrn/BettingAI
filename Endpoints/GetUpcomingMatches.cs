@@ -4,7 +4,12 @@ using FastEndpoints;
 
 namespace BettingAI.Endpoints;
 
-public class GetUpcomingMatchesEndpoint : EndpointWithoutRequest<List<FootballMatch>>
+public class GetUpcomingMatchesRequest
+{
+    public int? WindowHours { get; set; }
+}
+
+public class GetUpcomingMatchesEndpoint : Endpoint<GetUpcomingMatchesRequest, List<FootballMatch>>
 {
     private readonly FootballDataService _footballDataService;
 
@@ -19,9 +24,9 @@ public class GetUpcomingMatchesEndpoint : EndpointWithoutRequest<List<FootballMa
         AllowAnonymous();
     }
 
-    public override async Task HandleAsync(CancellationToken ct)
+    public override async Task HandleAsync(GetUpcomingMatchesRequest req, CancellationToken ct)
     {
-        var matches = await _footballDataService.GetUpcomingMatchesAsync();
+        var matches = await _footballDataService.GetUpcomingMatchesAsync(req.WindowHours ?? 24);
         await Send.OkAsync(matches);
     }
 }

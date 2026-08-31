@@ -21,7 +21,12 @@ public class BetData
     public string? Reasoning { get; set; }
 }
 
-public class AutoDecideBetsEndpoint : Endpoint<EmptyRequest, AutoDecideResponse>
+public class AutoDecideBetsRequest
+{
+    public int? WindowHours { get; set; }
+}
+
+public class AutoDecideBetsEndpoint : Endpoint<AutoDecideBetsRequest, AutoDecideResponse>
 {
     private readonly HttpClient _httpClient;
     private readonly OddsScraperService _scraper;
@@ -40,14 +45,15 @@ public class AutoDecideBetsEndpoint : Endpoint<EmptyRequest, AutoDecideResponse>
         AllowAnonymous();
     }
 
-    public override async Task HandleAsync(EmptyRequest req, CancellationToken ct)
+    public override async Task HandleAsync(AutoDecideBetsRequest req, CancellationToken ct)
     {
         try
         {
             Console.WriteLine("🤖 AUTO-DECIDE-BETS STARTED");
 
             // 1️⃣ Récupère les prochains matchs
-            var upcomingMatches = await GetUpcomingMatches();
+            var windowHours = req.WindowHours ?? 24;
+            var upcomingMatches = await GetUpcomingMatches(windowHours);
             if (upcomingMatches == null || upcomingMatches.Count == 0)
             {
                 await Send.OkAsync(new AutoDecideResponse
@@ -62,7 +68,7 @@ public class AutoDecideBetsEndpoint : Endpoint<EmptyRequest, AutoDecideResponse>
 
             // 2️⃣ Pour chaque match, scrape les cotes
             var matchesWithOdds = new List<dynamic>();
-            foreach (var match in upcomingMatches.Take(3)) // Limite à 3 pour ce test
+            foreach (var match in upcomingMatches.Take(5)) // Limite à 5 matchs par cycle (assez pour permettre des combinés)
             {
                 Console.WriteLine($"  Scraping odds for: {match.HomeTeam} vs {match.AwayTeam}");
 
@@ -95,7 +101,9 @@ public class AutoDecideBetsEndpoint : Endpoint<EmptyRequest, AutoDecideResponse>
             Console.WriteLine($"✓ Scraped odds for {matchesWithOdds.Count} matches");
 
             // 3️⃣ Appelle decide-bets avec les matchs trouvés
-            var balance = _db.Bets.Where(b => b.Result != "PENDING").Sum(b => b.Winnings) + 10;
+            var settledBetsWinnings = _db.Bets.Where(b => b.Result != "PENDING").Sum(b => b.Winnings) ?? 0;
+            var settledCombosWinnings = _db.BetCombos.Where(c => c.Result != "PENDING").Sum(c => c.Winnings) ?? 0;
+            var balance = settledBetsWinnings + settledCombosWinnings + 10;
 
             // 🔧 UTILISER LES INDICES comme IDs
             var decideBetsPayload = new
@@ -140,8 +148,26 @@ public class AutoDecideBetsEndpoint : Endpoint<EmptyRequest, AutoDecideResponse>
             {
                 foreach (var bet in betsElement.EnumerateArray())
                 {
+                    var betType = bet.TryGetProperty("type", out var typeEl) ? typeEl.GetString() : null;
+
+                    if (betType == "COMBO")
+                    {
+                        // Combos don't carry a top-level matchId (they span several
+                        // matches via "legs") - already saved by decide-bets, just
+                        // summarize them differently here.
+                        bets.Add(new BetData
+                        {
+                            Match = "Combiné",
+                            BetType = "COMBO",
+                            Stake = bet.TryGetProperty("stake", out var s) ? s.GetDecimal() : 0,
+                            Confidence = bet.TryGetProperty("confidence", out var c) ? c.GetDecimal() : 0,
+                            Reasoning = bet.TryGetProperty("reasoning", out var r) ? r.GetString() : null
+                        });
+                        continue;
+                    }
+
                     // 🔧 Matcher par INDEX
-                    var matchIdStr = bet.GetProperty("matchId").GetString();
+                    var matchIdStr = bet.TryGetProperty("matchId", out var matchIdEl) ? matchIdEl.GetString() : null;
                     if (int.TryParse(matchIdStr, out var matchIndex) && matchIndex < matchesWithOdds.Count)
                     {
                         var matchData = matchesWithOdds[matchIndex];  // ← Direct access par index
@@ -149,7 +175,7 @@ public class AutoDecideBetsEndpoint : Endpoint<EmptyRequest, AutoDecideResponse>
                         bets.Add(new BetData
                         {
                             Match = $"{matchData.HomeTeam} vs {matchData.AwayTeam}",
-                            BetType = bet.GetProperty("type").GetString(),
+                            BetType = betType,
                             Stake = bet.GetProperty("stake").GetDecimal(),
                             Confidence = bet.GetProperty("confidence").GetDecimal(),
                             Reasoning = bet.GetProperty("reasoning").GetString()
@@ -176,12 +202,12 @@ public class AutoDecideBetsEndpoint : Endpoint<EmptyRequest, AutoDecideResponse>
         }
     }
 
-    private async Task<List<dynamic>?> GetUpcomingMatches()
+    private async Task<List<dynamic>?> GetUpcomingMatches(int windowHours)
     {
         try
         {
             // Appelle l'endpoint interne
-            var response = await _httpClient.GetAsync("http://localhost:5255/api/matches/upcoming");
+            var response = await _httpClient.GetAsync($"http://localhost:5255/api/matches/upcoming?windowHours={windowHours}");
 
             if (!response.IsSuccessStatusCode) return null;
 

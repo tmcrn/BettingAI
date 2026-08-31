@@ -48,7 +48,7 @@ public class RecordMatchResultEndpoint : Endpoint<RecordMatchResultRequest, Reco
 
         foreach (var bet in bets)
         {
-            var won = BetSettlementService.DetermineOutcome(bet.BetType, req.Result ?? "", req.HomeScore, req.AwayScore);
+            var won = BetSettlementService.DetermineOutcome(bet.BetType, bet.Selection, req.Result ?? "", req.HomeScore, req.AwayScore);
 
             if (won)
             {

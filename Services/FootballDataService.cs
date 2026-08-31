@@ -93,13 +93,13 @@ public class FootballDataService
     private static int GetScoreOrZero(JsonElement fullTime, string side) =>
         fullTime.TryGetProperty(side, out var val) && val.ValueKind != JsonValueKind.Null ? val.GetInt32() : 0;
 
-    public async Task<List<FootballMatch>> GetUpcomingMatchesAsync()
+    public async Task<List<FootballMatch>> GetUpcomingMatchesAsync(int windowHours = 24)
     {
         try
         {
             var matches = new List<FootballMatch>();
             var now = DateTime.UtcNow;
-            var windowEnd = now.AddHours(24);
+            var windowEnd = now.AddHours(windowHours);
 
             // dateTo appears to behave as an EXCLUSIVE bound (confirmed live:
             // dateFrom=today&dateTo=tomorrow only returned today's matches).

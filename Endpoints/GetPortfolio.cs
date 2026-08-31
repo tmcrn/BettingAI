@@ -46,18 +46,21 @@ public class GetPortfolioEndpoint : EndpointWithoutRequest<GetPortfolioResponse>
     public override async Task HandleAsync(CancellationToken ct)
     {
         var bets = await _context.Bets.ToListAsync(cancellationToken: ct);
+        var combos = await _context.BetCombos.Include(c => c.Legs).ToListAsync(cancellationToken: ct);
 
-        var totalStaked = bets.Sum(b => b.Stake);
-        var totalWinnings = bets.Where(b => b.Result == "WIN").Sum(b => b.Winnings ?? 0);
+        var totalStaked = bets.Sum(b => b.Stake) + combos.Sum(c => c.Stake);
+        var totalWinnings = bets.Where(b => b.Result == "WIN").Sum(b => b.Winnings ?? 0)
+            + combos.Where(c => c.Result == "WIN").Sum(c => c.Winnings ?? 0);
         var currentBalance = 10 + totalWinnings - totalStaked;
-        var wonBets = bets.Count(b => b.Result == "WIN");
-        var lostBets = bets.Count(b => b.Result == "LOSS");
-        var pendingBets = bets.Count(b => b.Result == "PENDING");
-        var winRate = bets.Count > 0 ? (double)wonBets / bets.Count : 0;
 
-        var recentBets = bets.OrderByDescending(b => b.CreatedAt)
-            .Take(10)
-            .Select(b => new BetHistoryItem
+        var wonCount = bets.Count(b => b.Result == "WIN") + combos.Count(c => c.Result == "WIN");
+        var lostCount = bets.Count(b => b.Result == "LOSS") + combos.Count(c => c.Result == "LOSS");
+        var pendingCount = bets.Count(b => b.Result == "PENDING") + combos.Count(c => c.Result == "PENDING");
+        var totalCount = bets.Count + combos.Count;
+        var winRate = totalCount > 0 ? (double)wonCount / totalCount : 0;
+
+        var recentBets = bets
+            .Select(b => (CreatedAt: b.CreatedAt, Item: new BetHistoryItem
             {
                 Id = b.Id,
                 MatchId = b.MatchId,
@@ -66,7 +69,20 @@ public class GetPortfolioEndpoint : EndpointWithoutRequest<GetPortfolioResponse>
                 Stake = b.Stake,
                 Result = b.Result,
                 Winnings = b.Winnings
-            })
+            }))
+            .Concat(combos.Select(c => (CreatedAt: c.CreatedAt, Item: new BetHistoryItem
+            {
+                Id = c.Id,
+                MatchId = null,
+                Match = $"Combiné {c.Legs.Count} matchs (" + string.Join(", ", c.Legs.Select(l => $"{l.HomeTeam} vs {l.AwayTeam}")) + ")",
+                BetType = "COMBO",
+                Stake = c.Stake,
+                Result = c.Result,
+                Winnings = c.Winnings
+            })))
+            .OrderByDescending(x => x.CreatedAt)
+            .Take(10)
+            .Select(x => x.Item)
             .ToList();
 
         await Send.OkAsync(new GetPortfolioResponse
@@ -74,10 +90,10 @@ public class GetPortfolioEndpoint : EndpointWithoutRequest<GetPortfolioResponse>
             TotalStaked = totalStaked,
             TotalWinnings = totalWinnings,
             CurrentBalance = currentBalance,
-            TotalBets = bets.Count,
-            WonBets = wonBets,
-            LostBets = lostBets,
-            PendingBets = pendingBets,
+            TotalBets = totalCount,
+            WonBets = wonCount,
+            LostBets = lostCount,
+            PendingBets = pendingCount,
             WinRate = winRate,
             RecentBets = recentBets
         });

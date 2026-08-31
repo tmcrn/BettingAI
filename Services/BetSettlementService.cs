@@ -4,10 +4,11 @@ using Microsoft.EntityFrameworkCore;
 
 namespace BettingAI.Services;
 
-// Closes the loop the AI needs to actually learn: finds bets still marked
-// PENDING whose match has had time to finish, fetches the real final score,
-// marks each bet WIN/LOSS, and refreshes the LearningNotebook stats that
-// feed back into the next Mistral prompt.
+// Closes the loop the AI needs to actually learn: finds bets (and combo
+// legs) still marked PENDING whose match has had time to finish, fetches
+// the real final score, marks each WIN/LOSS, resolves any combo whose legs
+// are now all known, and refreshes the LearningNotebook stats that feed
+// back into the next Mistral prompt.
 public class BetSettlementService
 {
     private static readonly TimeSpan SettlementBuffer = TimeSpan.FromHours(2);
@@ -25,6 +26,20 @@ public class BetSettlementService
 
     public async Task<int> SettlePendingBetsAsync(CancellationToken ct = default)
     {
+        var settledCount = 0;
+        settledCount += await SettleSingleBetsAsync(ct);
+        settledCount += await SettleComboLegsAsync(ct);
+
+        if (settledCount > 0)
+        {
+            await RefreshLearningNotebookAsync(ct);
+        }
+
+        return settledCount;
+    }
+
+    private async Task<int> SettleSingleBetsAsync(CancellationToken ct)
+    {
         var pendingBets = await _context.Bets
             .Where(b => b.Result == "PENDING")
             .ToListAsync(ct);
@@ -39,7 +54,6 @@ public class BetSettlementService
             var matchId = group.Key;
             if (string.IsNullOrEmpty(matchId)) continue;
 
-            // Don't check too early - give the match time to actually finish
             var referenceDate = group.First().MatchUtcDate ?? group.First().CreatedAt;
             if (referenceDate + SettlementBuffer > now) continue;
 
@@ -52,41 +66,117 @@ public class BetSettlementService
 
             foreach (var bet in group)
             {
-                var won = DetermineOutcome(bet.BetType, result, status.HomeScore, status.AwayScore);
+                var won = DetermineOutcome(bet.BetType, bet.Selection, result, status.HomeScore, status.AwayScore);
                 bet.Result = won ? "WIN" : "LOSS";
                 bet.Winnings = won ? bet.Stake * 2 : 0;
                 settledCount++;
 
                 if (won)
-                {
                     await _discord.NotifyBetWonAsync(bet);
-                }
                 else
-                {
                     await _discord.NotifyBetLostAsync(bet);
-                }
             }
         }
 
         if (settledCount > 0)
         {
             await _context.SaveChangesAsync(ct);
-            await RefreshLearningNotebookAsync(ct);
         }
 
         return settledCount;
     }
 
-    public static bool DetermineOutcome(string? betType, string result, int homeScore, int awayScore)
+    private async Task<int> SettleComboLegsAsync(CancellationToken ct)
     {
+        var pendingLegs = await _context.ComboLegs
+            .Include(l => l.BetCombo)
+            .ThenInclude(c => c!.Legs)
+            .Where(l => l.Result == "PENDING")
+            .ToListAsync(ct);
+
+        if (pendingLegs.Count == 0) return 0;
+
+        var now = DateTime.UtcNow;
+        var settledLegCount = 0;
+        var affectedCombos = new HashSet<int>();
+
+        foreach (var group in pendingLegs.GroupBy(l => l.MatchId))
+        {
+            var matchId = group.Key;
+            if (string.IsNullOrEmpty(matchId)) continue;
+
+            var referenceDate = group.First().MatchUtcDate ?? DateTime.UtcNow.AddHours(-3);
+            if (referenceDate + SettlementBuffer > now) continue;
+
+            var status = await _footballDataService.GetMatchStatusAsync(matchId, referenceDate);
+            if (status == null || !status.Finished) continue;
+
+            var result = status.HomeScore > status.AwayScore ? "HOME_WIN"
+                : status.HomeScore < status.AwayScore ? "AWAY_WIN"
+                : "DRAW";
+
+            foreach (var leg in group)
+            {
+                var won = DetermineOutcome(leg.BetType, null, result, status.HomeScore, status.AwayScore);
+                leg.Result = won ? "WIN" : "LOSS";
+                settledLegCount++;
+                affectedCombos.Add(leg.BetComboId);
+            }
+        }
+
+        if (settledLegCount == 0) return 0;
+
+        await _context.SaveChangesAsync(ct);
+
+        // Now finalize any combo whose outcome is now determined: LOSS as
+        // soon as any leg loses (no need to wait for the rest), WIN only
+        // once every leg has won.
+        foreach (var comboId in affectedCombos)
+        {
+            var combo = await _context.BetCombos
+                .Include(c => c.Legs)
+                .FirstOrDefaultAsync(c => c.Id == comboId, ct);
+            if (combo == null || combo.Result != "PENDING") continue;
+
+            if (combo.Legs.Any(l => l.Result == "LOSS"))
+            {
+                combo.Result = "LOSS";
+                combo.Winnings = 0;
+                await _context.SaveChangesAsync(ct);
+                await _discord.NotifyComboLostAsync(combo);
+            }
+            else if (combo.Legs.All(l => l.Result == "WIN"))
+            {
+                combo.Result = "WIN";
+                combo.Winnings = combo.Stake * combo.CombinedOdds;
+                await _context.SaveChangesAsync(ct);
+                await _discord.NotifyComboWonAsync(combo);
+            }
+            // else: some legs still PENDING and none lost yet - stays PENDING
+        }
+
+        return settledLegCount;
+    }
+
+    public static bool DetermineOutcome(string? betType, string? selection, string result, int homeScore, int awayScore)
+    {
+        decimal ParseLine(decimal fallback) =>
+            decimal.TryParse(selection, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var line)
+                ? line
+                : fallback;
+
         return betType switch
         {
             "HOME_WIN" => result == "HOME_WIN",
             "AWAY_WIN" => result == "AWAY_WIN",
             "DRAW" => result == "DRAW",
+            "HOME_WIN_OR_DRAW" => result == "HOME_WIN" || result == "DRAW",
+            "AWAY_WIN_OR_DRAW" => result == "AWAY_WIN" || result == "DRAW",
             "BOTH_TEAMS_SCORE" => homeScore > 0 && awayScore > 0,
-            "OVER_GOALS" => (homeScore + awayScore) > 2.5m,
-            "UNDER_GOALS" => (homeScore + awayScore) < 2.5m,
+            "OVER_GOALS" => (homeScore + awayScore) > ParseLine(2.5m),
+            "UNDER_GOALS" => (homeScore + awayScore) < ParseLine(2.5m),
+            "HOME_OVER_GOALS" => homeScore > ParseLine(1.5m),
+            "AWAY_OVER_GOALS" => awayScore > ParseLine(1.5m),
             _ => false
         };
     }

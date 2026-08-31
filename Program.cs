@@ -20,6 +20,10 @@ builder.Services.AddHttpClient<DiscordNotificationService>();
 // l'IA de réellement apprendre de ses résultats, sans dépendre d'un cron externe.
 builder.Services.AddHostedService<AutoSettlementBackgroundService>();
 
+// 🤖 Décide de nouveaux paris toutes les 45min, sur les matchs qui démarrent
+// dans l'heure qui suit - remplace la dépendance à un cron externe.
+builder.Services.AddHostedService<AutoDecideBetsBackgroundService>();
+
 // ⚡ FASTENDPOINTS
 builder.Services.AddFastEndpoints();
 

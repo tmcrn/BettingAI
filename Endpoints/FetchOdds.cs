@@ -11,12 +11,14 @@ public class FetchOddsRequest
 
 public class OddData
 {
+    // Real 1X2 odds scraped from Sofascore - the only market we have
+    // verified real pricing for. Goal markets (BTTS, over/under) used to be
+    // hardcoded fake numbers here (1.85/1.75/2.05, always, never real) -
+    // removed rather than fabricated. The AI reasons about those markets
+    // from xG stats confidence alone now, not a fake EV.
     public decimal HomeWin { get; set; }
     public decimal Draw { get; set; }
     public decimal AwayWin { get; set; }
-    public decimal BothTeamsScore { get; set; }
-    public decimal OverGoals { get; set; }
-    public decimal UnderGoals { get; set; }
 }
 
 public class FetchOddsResponse
@@ -61,10 +63,7 @@ public class FetchOddsEndpoint : Endpoint<FetchOddsRequest, FetchOddsResponse>
             {
                 HomeWin = oddsDict["homeWin"],
                 Draw = oddsDict["draw"],
-                AwayWin = oddsDict["awayWin"],
-                BothTeamsScore = 1.85m,
-                OverGoals = 1.75m,
-                UnderGoals = 2.05m
+                AwayWin = oddsDict["awayWin"]
             };
 
             await Send.OkAsync(new FetchOddsResponse

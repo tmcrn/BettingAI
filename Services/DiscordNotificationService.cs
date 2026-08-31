@@ -78,6 +78,79 @@ public class DiscordNotificationService
         }
     });
 
+    public Task NotifyComboPlacedAsync(BetCombo combo) => SendAsync(new
+    {
+        embeds = new[]
+        {
+            new
+            {
+                title = $"🎰 Nouveau combiné placé ({combo.Legs.Count} matchs)",
+                color = 0x9b59b6, // violet
+                fields = BuildComboFields(combo, includeLegResults: false),
+                timestamp = DateTime.UtcNow.ToString("o")
+            }
+        }
+    });
+
+    public Task NotifyComboWonAsync(BetCombo combo) => SendAsync(new
+    {
+        embeds = new[]
+        {
+            new
+            {
+                title = "✅ Combiné gagné !",
+                color = 0x2ecc71,
+                fields = BuildComboFields(combo, includeLegResults: true, extra: new
+                {
+                    name = "Gains",
+                    value = $"{(combo.Winnings ?? 0):0.00}€",
+                    inline = true
+                }),
+                timestamp = DateTime.UtcNow.ToString("o")
+            }
+        }
+    });
+
+    public Task NotifyComboLostAsync(BetCombo combo) => SendAsync(new
+    {
+        embeds = new[]
+        {
+            new
+            {
+                title = "❌ Combiné perdu",
+                color = 0xe74c3c,
+                fields = BuildComboFields(combo, includeLegResults: true),
+                timestamp = DateTime.UtcNow.ToString("o")
+            }
+        }
+    });
+
+    private static object[] BuildComboFields(BetCombo combo, bool includeLegResults, object? extra = null)
+    {
+        var fields = new List<object>();
+
+        foreach (var leg in combo.Legs)
+        {
+            var legLabel = includeLegResults ? $"{leg.Result switch { "WIN" => "✅", "LOSS" => "❌", _ => "⏳" }} " : "";
+            fields.Add(new
+            {
+                name = $"{legLabel}{leg.HomeTeam} vs {leg.AwayTeam}",
+                value = $"{leg.BetType} @ {leg.Odds:0.00}",
+                inline = false
+            });
+        }
+
+        fields.Add(new { name = "Mise", value = $"{combo.Stake:0.00}€", inline = true });
+        fields.Add(new { name = "Cote combinée", value = $"{combo.CombinedOdds:0.00}", inline = true });
+        if (extra != null) fields.Add(extra);
+        if (!string.IsNullOrWhiteSpace(combo.Reasoning))
+        {
+            fields.Add(new { name = "Raisonnement", value = combo.Reasoning, inline = false });
+        }
+
+        return fields.ToArray();
+    }
+
     private async Task SendAsync(object payload)
     {
         if (string.IsNullOrWhiteSpace(_webhookUrl)) return; // Discord non configuré
