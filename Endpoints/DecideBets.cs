@@ -210,7 +210,7 @@ Format:
 }
 Combo confidence is the product of each leg's individual confidence - keep stakes small (0.3-0.6€) since combined risk is much higher. You can still place separate single bets on other matches in the same batch alongside a combo.
 
-EVALUATE EVERY MATCH INDEPENDENTLY: go through each match in AVAILABLE MATCHES one at a time and judge it entirely on its own - whether match #1 got a bet has zero bearing on whether match #2, #3, etc. also deserve one. Do NOT stop scanning after finding one good bet elsewhere in the list; do NOT treat this as "pick the single best match of the batch". If three separate matches each clear the confidence bar for some bet type, that's three bets, not one. The only valid reason to skip a specific match is that MATCH failing every threshold above on its own stats - never because another match already got picked.
+EVALUATE EVERY MATCH INDEPENDENTLY: go through each match in AVAILABLE MATCHES one at a time and judge it entirely on its own - whether match #1 got a bet has zero bearing on whether match #2, #3, etc. also deserve one. Do NOT stop scanning after finding one good bet elsewhere in the list; do NOT treat this as ""pick the single best match of the batch"". If three separate matches each clear the confidence bar for some bet type, that's three bets, not one. The only valid reason to skip a specific match is that MATCH failing every threshold above on its own stats - never because another match already got picked.
 
 DIVERSIFY: Propose different bet types across matches when the stats support them.
 
