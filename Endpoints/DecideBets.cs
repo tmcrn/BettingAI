@@ -146,10 +146,24 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
 
         var currentTime = DateTime.UtcNow;
 
+        // Stake sizing is tied to the real portfolio balance (already net of
+        // every other PENDING bet's stake - see AutoDecideBets) rather than
+        // fixed euro amounts, so it naturally shrinks when a lot is already
+        // committed and grows when the bankroll is healthy. A floor keeps
+        // this from collapsing to near-zero stakes while the balance is
+        // temporarily negative purely from other bets still being PENDING
+        // (they may still win and bring it back up).
+        var effectiveBankroll = Math.Max(req.CurrentBalance, 2m);
+        var lowStake = Math.Round(effectiveBankroll * 0.05m, 2);
+        var medStake = Math.Round(effectiveBankroll * 0.10m, 2);
+        var highStake = Math.Round(effectiveBankroll * 0.15m, 2);
+
         // 🤖 PROMPT INTELLIGENT - AVEC COTES RÉELLES UNIQUEMENT
         var prompt = $@"CURRENT TIME: {currentTime:yyyy-MM-dd HH:mm:ss} UTC
 
 ⚠️ CRITICAL INSTRUCTION: You MUST respond ONLY with valid JSON array. No explanations, no text before or after. Output starts with [ and ends with ]. Any text outside JSON will break parsing.
+
+CURRENT PORTFOLIO BALANCE: {req.CurrentBalance:F2}€ - this already accounts for every euro staked on your OTHER currently-pending bets, it's what's actually available right now, not your original bankroll. Size every stake below off of it.
 
 You are an expert AI sports betting system that learns from experience and diversifies betting types.
 
@@ -175,7 +189,7 @@ BET TYPES YOU CAN USE - decide purely from the xG/form/stats data above. Odds (w
 6. UNDER_GOALS (selection = line): if combined xG < line and confidence > 0.55
 7. HOME_OVER_GOALS / AWAY_OVER_GOALS (selection = line, e.g. ""1.5""): if that team's xG > line and confidence > 0.55
 
-Vary stakes by conviction: low confidence (0.4-0.55) = 0.5€, medium (0.55-0.7) = 1.0€, high (0.7+) = 1.5€.
+Vary stakes by conviction, sized off your CURRENT balance above (not a fixed amount): low confidence (0.4-0.55) ≈ {lowStake}€, medium (0.55-0.7) ≈ {medStake}€, high (0.7+) ≈ {highStake}€. If the balance is low or negative right now (a lot already committed to other pending bets), stay smaller and more selective rather than piling on.
 
 NOT AVAILABLE - do not use, no data source exists for these: PLAYER_SCORER, PLAYER_ASSIST.
 
@@ -251,6 +265,32 @@ REMEMBER: Start with [ immediately. No preamble. No markdown. Just JSON.";
                         var savedBets = new List<Bet>();
                         var savedCombos = new List<BetCombo>();
 
+                        // The AI re-evaluates the same still-upcoming matches every cron cycle
+                        // (a match sits in the 1h window across several 45-min cycles as kickoff
+                        // approaches) with no memory of what it already bet - it kept proposing
+                        // the exact same match+type, stacking stakes on an identical position
+                        // several times over. Track every (matchId, betType, selection) already
+                        // PENDING - existing DB rows plus whatever gets saved in this batch - and
+                        // reject an exact repeat rather than trust the prompt to self-police it.
+                        var existingKeys = new HashSet<(string MatchId, string BetType, string? Selection)>(
+                            (await _context.Bets.Where(b => b.Result == "PENDING").Select(b => new { b.MatchId, b.BetType, b.Selection }).ToListAsync(ct))
+                                .Where(b => b.MatchId != null && b.BetType != null)
+                                .Select(b => (b.MatchId!, b.BetType!, b.Selection))
+                        );
+                        existingKeys.UnionWith(
+                            (await _context.ComboLegs.Where(l => l.Result == "PENDING").Select(l => new { l.MatchId, l.BetType }).ToListAsync(ct))
+                                .Where(l => l.MatchId != null && l.BetType != null)
+                                .Select(l => (l.MatchId!, l.BetType!, (string?)null))
+                        );
+
+                        // Runaway-batch safety net, not a risk-appetite cap: nothing here
+                        // second-guesses a well-reasoned bet, it just stops accepting MORE
+                        // new stakes once this single cycle would have driven the balance
+                        // implausibly deep into the red (e.g. a malformed response with far
+                        // too many bets). Bets already accepted this cycle stay accepted.
+                        const decimal hardBalanceFloor = -20m;
+                        var projectedBalance = req.CurrentBalance;
+
                         foreach (var bet in betsArray)
                         {
                             if (bet.Type == "COMBO")
@@ -261,11 +301,20 @@ REMEMBER: Start with [ immediately. No preamble. No markdown. Just JSON.";
                                     continue; // never falls through to the single-bet path with a null MatchId
                                 }
 
-                                var combo = TryBuildCombo(bet, req.Matches, resolvedOdds, debugLog);
+                                if (projectedBalance - bet.Stake < hardBalanceFloor)
+                                {
+                                    debugLog.Add($"COMBO REJECTED: would push projected balance below {hardBalanceFloor}€ this cycle");
+                                    continue;
+                                }
+
+                                var combo = TryBuildCombo(bet, req.Matches, resolvedOdds, existingKeys, debugLog);
                                 if (combo != null)
                                 {
                                     _context.BetCombos.Add(combo);
                                     savedCombos.Add(combo);
+                                    projectedBalance -= combo.Stake;
+                                    foreach (var leg in combo.Legs)
+                                        if (leg.MatchId != null && leg.BetType != null) existingKeys.Add((leg.MatchId, leg.BetType, null));
                                 }
                                 continue;
                             }
@@ -288,6 +337,25 @@ REMEMBER: Start with [ immediately. No preamble. No markdown. Just JSON.";
                                 continue;
                             }
 
+                            var effectiveMatchId = sourceMatch?.RealMatchId ?? bet.MatchId!;
+                            var dedupKey = (effectiveMatchId, bet.Type ?? "", bet.Selection);
+                            if (existingKeys.Contains(dedupKey))
+                            {
+                                debugLog.Add($"BET REJECTED: duplicate of an existing PENDING bet " +
+                                    $"({bet.HomeTeam} vs {bet.AwayTeam}, {bet.Type}" +
+                                    $"{(bet.Selection != null ? $" [{bet.Selection}]" : "")})");
+                                continue;
+                            }
+
+                            if (projectedBalance - bet.Stake < hardBalanceFloor)
+                            {
+                                debugLog.Add($"BET REJECTED: would push projected balance below {hardBalanceFloor}€ this cycle");
+                                continue;
+                            }
+
+                            existingKeys.Add(dedupKey);
+                            projectedBalance -= bet.Stake;
+
                             var stake = bet.Stake;
 
                             // Odds are never a gate on the decision - the AI already decided
@@ -304,7 +372,7 @@ REMEMBER: Start with [ immediately. No preamble. No markdown. Just JSON.";
 
                             var dbBet = new Bet
                             {
-                                MatchId = sourceMatch?.RealMatchId ?? bet.MatchId,
+                                MatchId = effectiveMatchId,
                                 HomeTeam = bet.HomeTeam,
                                 AwayTeam = bet.AwayTeam,
                                 BetType = bet.Type,
@@ -405,6 +473,7 @@ REMEMBER: Start with [ immediately. No preamble. No markdown. Just JSON.";
         BetDecision bet,
         List<FootballMatch> matches,
         Dictionary<string, (decimal home, decimal draw, decimal away)> resolvedOdds,
+        HashSet<(string MatchId, string BetType, string? Selection)> existingKeys,
         List<string> debugLog)
     {
         var legs = new List<ComboLeg>();
@@ -429,6 +498,17 @@ REMEMBER: Start with [ immediately. No preamble. No markdown. Just JSON.";
             if (sourceMatch?.RealMatchId == null)
             {
                 debugLog.Add($"COMBO REJECTED: could not resolve real match id for leg matchId='{legDecision.MatchId}'");
+                return null;
+            }
+
+            // Same guard as single bets: don't let a combo re-stake a match+type
+            // that's already an existing PENDING bet/leg (or another leg earlier
+            // in this same batch) - reject the whole combo rather than silently
+            // drop just that leg, since a partial combo isn't what the AI proposed.
+            if (existingKeys.Contains((sourceMatch.RealMatchId, legDecision.Type, null)))
+            {
+                debugLog.Add($"COMBO REJECTED: leg duplicates an existing PENDING bet " +
+                    $"(matchId='{legDecision.MatchId}', type='{legDecision.Type}')");
                 return null;
             }
 

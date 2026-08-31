@@ -106,9 +106,14 @@ public class AutoDecideBetsEndpoint : Endpoint<AutoDecideBetsRequest, AutoDecide
             Console.WriteLine($"✓ {matchesWithOdds.Count} matchs à analyser ({matchesWithRealOdds} avec cotes réelles)");
 
             // 3️⃣ Appelle decide-bets avec les matchs trouvés
-            var settledBetsWinnings = _db.Bets.Where(b => b.Result != "PENDING").Sum(b => b.Winnings) ?? 0;
-            var settledCombosWinnings = _db.BetCombos.Where(c => c.Result != "PENDING").Sum(c => c.Winnings) ?? 0;
-            var balance = settledBetsWinnings + settledCombosWinnings + 10;
+            // Same formula as GetPortfolio: 10 + gains réglés - TOUTES les mises
+            // (y compris les paris encore PENDING). L'ancien calcul ne comptait
+            // que les gains réglés, donc l'IA voyait toujours ~10€ de marge même
+            // avec des dizaines d'euros déjà engagés sur des paris en attente.
+            var settledWinnings = (_db.Bets.Where(b => b.Result != "PENDING").Sum(b => b.Winnings) ?? 0)
+                + (_db.BetCombos.Where(c => c.Result != "PENDING").Sum(c => c.Winnings) ?? 0);
+            var totalStaked = _db.Bets.Sum(b => b.Stake) + _db.BetCombos.Sum(c => c.Stake);
+            var balance = 10 + settledWinnings - totalStaked;
 
             // 🔧 UTILISER LES INDICES comme IDs
             var decideBetsPayload = new
