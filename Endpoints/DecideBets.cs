@@ -70,6 +70,11 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
 
         // 📊 RÉCUPÈRE ANALYSES DÉTAILLÉES + COMPOSITIONS
         var analysisPerMatch = new Dictionary<string, string>();
+        // Same ATTACKING EDGE value shown to the AI, kept keyed by match.Id so the
+        // save loop can enforce the "don't bet against your own edge" rule in code
+        // instead of trusting the prompt instruction alone - confirmed live that
+        // Mistral still picks the contradicting side even when told not to.
+        var attackEdgeByMatch = new Dictionary<string, string>();
         foreach (var match in req.Matches)
         {
             try
@@ -103,6 +108,8 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
                         : awayExpected - homeExpected > 0.2m ? "AWAY" : "EVEN";
                     var formEdge = analysis.HomeFormLast5 - analysis.AwayFormLast5 > 0.3m ? "HOME"
                         : analysis.AwayFormLast5 - analysis.HomeFormLast5 > 0.3m ? "AWAY" : "EVEN";
+
+                    attackEdgeByMatch[match.Id ?? "unknown"] = xgEdge;
 
                     analysisPerMatch[match.Id ?? "unknown"] =
                         $"Home xG: {analysis.HomeXG} | Away xG: {analysis.AwayXG}\n" +
@@ -336,7 +343,7 @@ REMEMBER: Start with [ immediately. No preamble. No markdown. Just JSON.";
                                     continue;
                                 }
 
-                                var combo = TryBuildCombo(bet, req.Matches, resolvedOdds, existingKeys, debugLog);
+                                var combo = TryBuildCombo(bet, req.Matches, resolvedOdds, existingKeys, attackEdgeByMatch, debugLog);
                                 if (combo != null)
                                 {
                                     _context.BetCombos.Add(combo);
@@ -373,6 +380,24 @@ REMEMBER: Start with [ immediately. No preamble. No markdown. Just JSON.";
                                 debugLog.Add($"BET REJECTED: duplicate of an existing PENDING bet " +
                                     $"({bet.HomeTeam} vs {bet.AwayTeam}, {bet.Type}" +
                                     $"{(bet.Selection != null ? $" [{bet.Selection}]" : "")})");
+                                continue;
+                            }
+
+                            // Code-level enforcement of the "don't bet against your own edge"
+                            // prompt rule - confirmed live that Mistral still picks the
+                            // contradicting side even when explicitly told not to (e.g. betting
+                            // HOME_WIN_OR_DRAW while ATTACKING EDGE said AWAY, with reasoning
+                            // that didn't even correctly restate the numbers). The prompt allows
+                            // going against the edge with a stated reason (H2H, injuries,
+                            // fatigue), but code can't judge reasoning quality, so this is a
+                            // hard reject rather than a soft nudge.
+                            var favoredSide = GetFavoredSide(bet.Type);
+                            if (favoredSide != null && bet.MatchId != null &&
+                                attackEdgeByMatch.TryGetValue(bet.MatchId, out var edgeForMatch) &&
+                                edgeForMatch != "EVEN" && edgeForMatch != favoredSide)
+                            {
+                                debugLog.Add($"BET REJECTED: '{bet.Type}' favors {favoredSide} but ATTACKING EDGE says {edgeForMatch} " +
+                                    $"({bet.HomeTeam} vs {bet.AwayTeam})");
                                 continue;
                             }
 
@@ -520,6 +545,17 @@ REMEMBER: Start with [ immediately. No preamble. No markdown. Just JSON.";
         };
     }
 
+    // Which side a bet type leans on, for checking it against the
+    // pre-computed ATTACKING EDGE. null for types that don't favor either
+    // side specifically (DRAW, BOTH_TEAMS_SCORE, OVER/UNDER_GOALS - a total,
+    // not attributable to one team).
+    private static string? GetFavoredSide(string? betType) => betType switch
+    {
+        "HOME_WIN" or "HOME_WIN_OR_DRAW" or "HOME_OVER_GOALS" => "HOME",
+        "AWAY_WIN" or "AWAY_WIN_OR_DRAW" or "AWAY_OVER_GOALS" => "AWAY",
+        _ => null
+    };
+
     // Builds a BetCombo from the AI's proposal. Legs can be any bet type -
     // the decision itself is stats-driven, not odds-gated. When a leg's
     // real 1X2 odds are resolvable it's priced for real; otherwise it falls
@@ -533,6 +569,7 @@ REMEMBER: Start with [ immediately. No preamble. No markdown. Just JSON.";
         List<FootballMatch> matches,
         Dictionary<string, (decimal home, decimal draw, decimal away)> resolvedOdds,
         HashSet<(string MatchId, string BetType, string? Selection)> existingKeys,
+        Dictionary<string, string> attackEdgeByMatch,
         List<string> debugLog)
     {
         var legs = new List<ComboLeg>();
@@ -576,6 +613,21 @@ REMEMBER: Start with [ immediately. No preamble. No markdown. Just JSON.";
             if (sourceMatch?.RealMatchId == null)
             {
                 debugLog.Add($"COMBO REJECTED: could not resolve real match id for leg matchId='{legDecision.MatchId}'");
+                return null;
+            }
+
+            // Same guard as single bets: don't let a leg bet against our own
+            // pre-computed ATTACKING EDGE for that match (e.g. HOME_WIN while
+            // the edge, computed server-side from xG vs the opponent's
+            // defense, says AWAY) - confirmed live that the prompt-only rule
+            // wasn't enough to stop Mistral from doing exactly this.
+            var favoredSideForLeg = GetFavoredSide(legDecision.Type);
+            if (favoredSideForLeg != null &&
+                attackEdgeByMatch.TryGetValue(legDecision.MatchId, out var edgeForLeg) &&
+                edgeForLeg != "EVEN" && edgeForLeg != favoredSideForLeg)
+            {
+                debugLog.Add($"COMBO REJECTED: leg '{legDecision.Type}' favors {favoredSideForLeg} but ATTACKING EDGE says {edgeForLeg} " +
+                    $"(matchId='{legDecision.MatchId}')");
                 return null;
             }
 
