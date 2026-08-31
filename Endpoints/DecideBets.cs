@@ -179,7 +179,7 @@ Vary stakes by conviction: low confidence (0.4-0.55) = 0.5€, medium (0.55-0.7)
 
 NOT AVAILABLE - do not use, no data source exists for these: PLAYER_SCORER, PLAYER_ASSIST.
 
-COMBO BETS (paris combinés): you may propose a combo across 2-4 DIFFERENT matches, mixing ANY of the bet types above freely based on stats - not restricted to 1X2 types. Format:
+COMBO BETS (paris combinés) - an actual tool to reach for, not just a technical option: when you look at this batch of matches and find 2-4 where the stats genuinely support a pick each, combining them into one combo is a legitimate way to swing for a much bigger payout than any single bet could give you - that's the whole point of a combo, and you should propose one whenever you believe the compounded risk is worth what it pays if it lands. Don't hold back on a combo just because the combined odds/probability is low; that's expected and fine, it's still a real risk you can choose to take. Mix ANY of the bet types above freely across legs - not restricted to 1X2 types. Format:
 {
   ""type"": ""COMBO"",
   ""stake"": 0.5,
@@ -190,7 +190,7 @@ COMBO BETS (paris combinés): you may propose a combo across 2-4 DIFFERENT match
     { ""matchId"": ""1"", ""type"": ""AWAY_WIN_OR_DRAW"" }
   ]
 }
-Combo confidence is the product of each leg's individual confidence - keep stakes small (0.3-0.6€) since combined risk is much higher.
+Combo confidence is the product of each leg's individual confidence - keep stakes small (0.3-0.6€) since combined risk is much higher. You can still place separate single bets on other matches in the same batch alongside a combo.
 
 DIVERSIFY: Propose different bet types across matches when the stats support them. Don't force a bet on every match - it's fine to skip a match entirely if nothing qualifies.
 
