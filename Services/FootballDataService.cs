@@ -195,7 +195,15 @@ public class FootballDataService
             {
                 var doc = await GetAsync($"{_baseUrl}/matches?dateFrom={dateFrom}&dateTo={dateTo}", ct);
                 if (doc == null) continue;
-                if (!doc.RootElement.TryGetProperty("matches", out var matchesArray)) continue;
+                if (!doc.RootElement.TryGetProperty("matches", out var matchesArray))
+                {
+                    // A 200 OK with no "matches" key is unexpected (quota message,
+                    // different error shape, etc.) - GetAsync only logs on a non-2xx
+                    // status, so without this we'd silently skip every chunk with
+                    // zero visibility into why, which is exactly what happened.
+                    Console.WriteLine($"football-data.org: 200 OK but no 'matches' key for {dateFrom}..{dateTo} - body: {doc.RootElement}");
+                    continue;
+                }
 
                 foreach (var fixture in matchesArray.EnumerateArray())
                 {
