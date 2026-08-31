@@ -89,14 +89,25 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
                     // arithmetic wrong (e.g. betting HOME_WIN while its own reasoning
                     // stated away xG was double home xG). Spelling out "favors AWAY"
                     // in plain text removes that failure mode entirely.
-                    var xgEdge = analysis.HomeXG - analysis.AwayXG > 0.2m ? "HOME"
-                        : analysis.AwayXG - analysis.HomeXG > 0.2m ? "AWAY" : "EVEN";
+                    //
+                    // ATTACKING EDGE used to compare raw xG head-to-head (home.xG vs
+                    // away.xG), ignoring defense entirely - confirmed live on Toulouse
+                    // (xG 1.35, xGA 1.35) vs Lille (xG 1.54, xGA 1.07): the 0.19 xG gap
+                    // rounded down to EVEN, hiding Lille's much stronger defense (xGA
+                    // 1.07 vs 1.35), the clearer signal of the two and the one the real
+                    // market agreed with. Now it's each team's own attack against the
+                    // OTHER team's defense - the actual matchup, not attack vs attack.
+                    var homeExpected = (analysis.HomeXG + analysis.AwayXGA) / 2m;
+                    var awayExpected = (analysis.AwayXG + analysis.HomeXGA) / 2m;
+                    var xgEdge = homeExpected - awayExpected > 0.2m ? "HOME"
+                        : awayExpected - homeExpected > 0.2m ? "AWAY" : "EVEN";
                     var formEdge = analysis.HomeFormLast5 - analysis.AwayFormLast5 > 0.3m ? "HOME"
                         : analysis.AwayFormLast5 - analysis.HomeFormLast5 > 0.3m ? "AWAY" : "EVEN";
 
                     analysisPerMatch[match.Id ?? "unknown"] =
-                        $"Home xG: {analysis.HomeXG} | Away xG: {analysis.AwayXG} => ATTACKING EDGE: {xgEdge}\n" +
+                        $"Home xG: {analysis.HomeXG} | Away xG: {analysis.AwayXG}\n" +
                         $"Home xGA (goals conceded): {analysis.HomeXGA} | Away xGA: {analysis.AwayXGA}\n" +
+                        $"Home expected scoring vs this defense: {homeExpected:0.00} | Away expected scoring vs this defense: {awayExpected:0.00} => ATTACKING EDGE: {xgEdge}\n" +
                         $"Home form (last 5): {analysis.HomeFormLast5} | Away form (last 5): {analysis.AwayFormLast5} => FORM EDGE: {formEdge}\n" +
                         $"H2H wins - Home: {analysis.HomeWinsH2H} | Away: {analysis.AwayWinsH2H}\n" +
                         $"Key factors: {analysis.AnalysisSummary}";
@@ -178,7 +189,7 @@ REAL 1X2 ODDS FROM BOOKMAKERS (for context only - these affect payout size on a 
 AVAILABLE MATCHES:
 " + matchsInfo + @"
 
-Each match's analysis above already tells you the ATTACKING EDGE and FORM EDGE (HOME, AWAY, or EVEN) - this is the result of comparing both teams' numbers for you. Use it directly instead of re-deriving it: if ATTACKING EDGE says AWAY, the away team is the one with the higher xG, full stop. This applies to ANY bet type that leans on one team's attack, not just who-wins markets: never say a team has the attacking edge, or bet on that team's own goals (HOME_OVER_GOALS/AWAY_OVER_GOALS), when ATTACKING EDGE names the OTHER side - if you want to go against the edges, you need a specific stated reason (H2H, missing key players, fatigue) in your reasoning, not a restated version of the number that contradicts your own pick.
+Each match's analysis above already tells you the ATTACKING EDGE and FORM EDGE (HOME, AWAY, or EVEN) - this is the result of comparing both teams' numbers for you. ATTACKING EDGE weighs each team's own attack against the OTHER team's defense (""expected scoring vs this defense""), not just raw xG head-to-head - it's the more accurate read, so use it directly instead of re-deriving your own from the raw xG/xGA lines above. If ATTACKING EDGE says AWAY, the away team is the one expected to do more damage against this specific opponent, full stop. This applies to ANY bet type that leans on one team's attack, not just who-wins markets: never say a team has the attacking edge, or bet on that team's own goals (HOME_OVER_GOALS/AWAY_OVER_GOALS), when ATTACKING EDGE names the OTHER side - if you want to go against the edges, you need a specific stated reason (H2H, missing key players, fatigue) in your reasoning, not a restated version of the number that contradicts your own pick.
 
 BET TYPES YOU CAN USE - decide purely from the xG/form/stats data above. Odds (when listed) are NOT a signal to weigh and are NOT required to bet - they only affect the payout of a bet that wins, nothing more. Do not avoid a bet just because a match has no odds listed, and do not let a big/small odds number talk you out of a pick your stats support. You are allowed to take real risks when the stats back it up - these confidence bars are deliberately low, lean toward betting when a match gives you a real read rather than skipping it.
 1. HOME_WIN / AWAY_WIN: which side your stats (xG, xGA, form, H2H) favor, if confidence > 0.45
