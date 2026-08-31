@@ -22,8 +22,8 @@ builder.Services.AddHttpClient<DiscordNotificationService>();
 // l'IA de réellement apprendre de ses résultats, sans dépendre d'un cron externe.
 builder.Services.AddHostedService<AutoSettlementBackgroundService>();
 
-// 🤖 Décide de nouveaux paris toutes les 45min, sur les matchs qui démarrent
-// dans l'heure qui suit - remplace la dépendance à un cron externe.
+// 🤖 Décide des paris du jour une fois par jour (8h heure de Paris), sur tous
+// les matchs restants de la journée - remplace la dépendance à un cron externe.
 builder.Services.AddHostedService<AutoDecideBetsBackgroundService>();
 
 // 📊 Recalcule TeamStats une fois par jour à partir des vrais résultats
@@ -34,6 +34,20 @@ builder.Services.AddHostedService<TeamStatsRefreshBackgroundService>();
 builder.Services.AddFastEndpoints();
 
 var app = builder.Build();
+
+// 🗄️ Applique automatiquement toute migration EF en attente au démarrage.
+// Son absence a mordu une fois pour de vrai: la migration AddSelectionToComboLeg
+// était bien dans le code déployé mais n'a jamais touché le vrai betting.db,
+// donc toute tentative de sauvegarde de pari (même un pari simple, dans la
+// même requête groupée) plantait silencieusement avec "no such column:
+// c.Selection" - sans jamais atteindre un point où l'erreur remontait
+// clairement ailleurs que dans analysisUsed. Plus besoin d'un `dotnet ef
+// database update` manuel après chaque déploiement.
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<BettingContext>();
+    db.Database.Migrate();
+}
 
 // 🌐 MIDDLEWARE
 app.UseStaticFiles();
