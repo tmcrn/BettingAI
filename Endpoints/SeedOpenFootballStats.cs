@@ -6,7 +6,9 @@ namespace BettingAI.Endpoints;
 public class SeedOpenFootballStatsRequest
 {
     [QueryParam]
-    public string? Season { get; set; } // e.g. "2026-27" - defaults to the current season
+    // e.g. "2026-27", or a comma-separated list "2026-27,2025-26,2024-25" -
+    // defaults to the current season + the 2 previous ones when omitted.
+    public string? Season { get; set; }
 }
 
 public class SeedOpenFootballStatsResponse
@@ -16,10 +18,14 @@ public class SeedOpenFootballStatsResponse
     public int TeamsUpdated { get; set; }
 }
 
-// One-time deeper historical backfill from openfootball/football.json
-// (public domain, no API key) - covers the whole season so far instead of
-// just the last 45 days. The daily football-data.org refresh
-// (TeamStatsRefreshBackgroundService) naturally takes back over from here.
+// Alternative/manual multi-season backfill from openfootball/football.json
+// (public domain, no API key). NOT used by the automatic daily refresh -
+// TeamStatsRefreshBackgroundService uses football-data.org instead, whose
+// team-name spelling is the one every live lookup (AnalyzeMatch, upcoming
+// matches) is keyed against. This endpoint is here as a fallback if
+// football-data.org is ever unavailable; running it will overwrite
+// TeamStats until the next automatic football-data.org refresh takes back
+// over (each source clears the table before writing its own numbers).
 public class SeedOpenFootballStatsEndpoint : Endpoint<SeedOpenFootballStatsRequest, SeedOpenFootballStatsResponse>
 {
     private readonly TeamStatsSeedingService _seedingService;

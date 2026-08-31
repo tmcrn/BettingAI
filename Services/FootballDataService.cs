@@ -164,8 +164,21 @@ public class FootballDataService
         var earliestDate = today.AddDays(-daysBack);
         const int chunkSpanDays = 8; // 9-day inclusive window per request, safely under the 10-day cap
 
+        // daysBack can now span multiple seasons (see TeamStatsSeedingService.DaysBack),
+        // which means dozens of chunked requests in one run - the free tier caps at
+        // 10 requests/minute, so pace them out instead of firing them back to back
+        // (a burst would just start getting rate-limited partway through and silently
+        // lose the tail of the window).
+        var isFirstChunk = true;
+
         for (var chunkFrom = earliestDate; chunkFrom <= today; chunkFrom = chunkFrom.AddDays(chunkSpanDays + 1))
         {
+            if (!isFirstChunk)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(6.5));
+            }
+            isFirstChunk = false;
+
             var chunkTo = chunkFrom.AddDays(chunkSpanDays);
             if (chunkTo > today) chunkTo = today;
 
