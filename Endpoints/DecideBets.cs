@@ -111,11 +111,29 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
 
                     attackEdgeByMatch[match.Id ?? "unknown"] = xgEdge;
 
+                    // Margin-of-victory-weighted recent form + shared-opponent
+                    // reasoning (per the user's own heuristic: "Monaco vient
+                    // d'écraser Marseille qui a elle-même écrasé Strasbourg
+                    // 4-0..."), on top of the plain win/draw/loss FORM EDGE
+                    // above. Informational only for now - not a hard
+                    // guardrail like ATTACKING EDGE, since a shared opponent
+                    // is a noisier signal (different matchday, different
+                    // context) than our own xG/xGA numbers.
+                    var homeResults = await _context.TeamRecentResults
+                        .Where(r => r.TeamName == match.HomeTeam)
+                        .ToListAsync(ct);
+                    var awayResults = await _context.TeamRecentResults
+                        .Where(r => r.TeamName == match.AwayTeam)
+                        .ToListAsync(ct);
+                    var momentum = FormMomentumAnalyzer.Compute(match.HomeTeam ?? "", match.AwayTeam ?? "", homeResults, awayResults);
+
                     analysisPerMatch[match.Id ?? "unknown"] =
                         $"Home xG: {analysis.HomeXG} | Away xG: {analysis.AwayXG}\n" +
                         $"Home xGA (goals conceded): {analysis.HomeXGA} | Away xGA: {analysis.AwayXGA}\n" +
                         $"Home expected scoring vs this defense: {homeExpected:0.00} | Away expected scoring vs this defense: {awayExpected:0.00} => ATTACKING EDGE: {xgEdge}\n" +
                         $"Home form (last 5): {analysis.HomeFormLast5} | Away form (last 5): {analysis.AwayFormLast5} => FORM EDGE: {formEdge}\n" +
+                        $"Home momentum (recent results, weighted by margin and recency): {momentum.HomeMomentum:0.00} | Away momentum: {momentum.AwayMomentum:0.00} => MOMENTUM EDGE: {momentum.Edge}\n" +
+                        (momentum.CommonOpponentNote != null ? $"{momentum.CommonOpponentNote}\n" : "") +
                         $"H2H wins - Home: {analysis.HomeWinsH2H} | Away: {analysis.AwayWinsH2H}\n" +
                         $"Key factors: {analysis.AnalysisSummary}";
                 }
@@ -199,6 +217,8 @@ AVAILABLE MATCHES:
 " + matchsInfo + @"
 
 Each match's analysis above already tells you the ATTACKING EDGE and FORM EDGE (HOME, AWAY, or EVEN) - this is the result of comparing both teams' numbers for you. ATTACKING EDGE weighs each team's own attack against the OTHER team's defense (""expected scoring vs this defense""), not just raw xG head-to-head - it's the more accurate read, so use it directly instead of re-deriving your own from the raw xG/xGA lines above. If ATTACKING EDGE says AWAY, the away team is the one expected to do more damage against this specific opponent, full stop. This applies to ANY bet type that leans on one team's attack, not just who-wins markets: never say a team has the attacking edge, or bet on that team's own goals (HOME_OVER_GOALS/AWAY_OVER_GOALS), when ATTACKING EDGE names the OTHER side - if you want to go against the edges, you need a specific stated reason (H2H, missing key players, fatigue) in your reasoning, not a restated version of the number that contradicts your own pick.
+
+MOMENTUM EDGE is a third, complementary signal: unlike FORM EDGE (a flat win/draw/loss average), it weighs recent results by how BIG the win/loss was and how recent it was - a team that just crushed someone 4-0 has more momentum than one that scraped a 1-0. When a ""Adversaire commun récent"" line is present, both teams have recently played the same third team - read it like you would by hand (e.g. ""Monaco a battu Marseille 2-0, Strasbourg a perdu contre Marseille 4-0"" => Monaco is the side showing more strength against a common measuring stick). Treat MOMENTUM EDGE and the common-opponent note as supporting context that can reinforce ATTACKING EDGE or add real weight to a DRAW/upset pick when it clearly disagrees with it - it's a real signal, not just decoration, but it's noisier than ATTACKING EDGE (different matchday, different context each time), so it doesn't override the hard rule above: you still can't bet a team's own goals or that team winning against what ATTACKING EDGE says without a stated reason.
 
 BET TYPES YOU CAN USE - decide purely from the xG/form/stats data above. Odds (when listed) are NOT a signal to weigh and are NOT required to bet - they only affect the payout of a bet that wins, nothing more. Do not avoid a bet just because a match has no odds listed, and do not let a big/small odds number talk you out of a pick your stats support. You are allowed to take real risks when the stats back it up - these confidence bars are deliberately low, lean toward betting when a match gives you a real read rather than skipping it.
 1. HOME_WIN / AWAY_WIN: which side your stats (xG, xGA, form, H2H) favor, if confidence > 0.45

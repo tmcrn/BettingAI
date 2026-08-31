@@ -42,6 +42,13 @@ public class TeamStatsSeedingService
     private const int DaysBack = 760;
     private const int FormWindow = 5;
 
+    // How many of each team's most recent matches to keep as individual
+    // TeamRecentResult rows (opponent + score), for the margin-of-victory
+    // and common-opponent reasoning in FormMomentumAnalyzer. Wider than
+    // FormWindow (5) so a common opponent has more chance of showing up in
+    // both teams' recent history even if it wasn't in either side's last 5.
+    private const int RecentResultsWindow = 10;
+
     private static readonly string[] OpenFootballLeagueCodes = { "en.1", "es.1", "it.1", "de.1", "fr.1" };
 
     // A seed run now makes dozens of paced requests over several minutes -
@@ -207,29 +214,32 @@ public class TeamStatsSeedingService
         CancellationToken ct)
     {
         // Every prior match a team played, most recent first, across both
-        // "team1" (home) and "team2" (away) fixtures.
-        var perTeam = new Dictionary<string, List<(DateTime Date, int GoalsFor, int GoalsAgainst)>>();
+        // "team1" (home) and "team2" (away) fixtures. Opponent+IsHome kept
+        // alongside the score (not just aggregated away) so it can also
+        // be persisted per-match into TeamRecentResults below.
+        var perTeam = new Dictionary<string, List<(DateTime Date, string Opponent, int GoalsFor, int GoalsAgainst, bool IsHome)>>();
 
-        void Record(string team, DateTime date, int goalsFor, int goalsAgainst)
+        void Record(string team, DateTime date, string opponent, int goalsFor, int goalsAgainst, bool isHome)
         {
             if (!perTeam.TryGetValue(team, out var list))
             {
-                list = new List<(DateTime, int, int)>();
+                list = new List<(DateTime, string, int, int, bool)>();
                 perTeam[team] = list;
             }
-            list.Add((date, goalsFor, goalsAgainst));
+            list.Add((date, opponent, goalsFor, goalsAgainst, isHome));
         }
 
         foreach (var m in matches)
         {
-            Record(m.Team1, m.Date, m.Score1, m.Score2);
-            Record(m.Team2, m.Date, m.Score2, m.Score1);
+            Record(m.Team1, m.Date, m.Team2, m.Score1, m.Score2, isHome: true);
+            Record(m.Team2, m.Date, m.Team1, m.Score2, m.Score1, isHome: false);
         }
 
         // Old/stale rows (test-seed fakes, or a previous run from the other
         // source) would otherwise sit alongside these under different name
         // strings and never get matched by AnalyzeMatch again.
         _context.TeamStats.RemoveRange(_context.TeamStats);
+        _context.TeamRecentResults.RemoveRange(_context.TeamRecentResults);
 
         var now = DateTime.UtcNow;
 
@@ -251,6 +261,19 @@ public class TeamStatsSeedingService
             // <1.3 = average).
             var formPoints = last5.Sum(g => g.GoalsFor > g.GoalsAgainst ? 2 : g.GoalsFor == g.GoalsAgainst ? 1 : 0);
             var formLast5 = last5.Count > 0 ? Math.Round((decimal)formPoints / last5.Count, 2) : 0;
+
+            foreach (var g in games.Take(RecentResultsWindow))
+            {
+                _context.TeamRecentResults.Add(new TeamRecentResult
+                {
+                    TeamName = team,
+                    OpponentName = g.Opponent,
+                    MatchDate = g.Date,
+                    GoalsFor = g.GoalsFor,
+                    GoalsAgainst = g.GoalsAgainst,
+                    IsHome = g.IsHome
+                });
+            }
 
             var daysSinceLastMatch = (int)(now - games[0].Date).TotalDays;
             var matchesLast7Days = games.Count(g => (now - g.Date).TotalDays <= 7);

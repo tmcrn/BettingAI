@@ -9,6 +9,7 @@ public class BettingContext : DbContext
 
     public DbSet<Bet> Bets { get; set; }
     public DbSet<TeamStats> TeamStats { get; set; }
+    public DbSet<TeamRecentResult> TeamRecentResults { get; set; }
     public DbSet<MatchContext> MatchContexts { get; set; }
     public DbSet<LearningNotebook> LearningNotebook { get; set; }
     public DbSet<BetCombo> BetCombos { get; set; }
@@ -52,6 +53,14 @@ public class BettingContext : DbContext
             entity.Property(e => e.MatchId).IsRequired();
             entity.Property(e => e.BetType).IsRequired();
             entity.Property(e => e.Odds).HasPrecision(10, 2);
+        });
+
+        modelBuilder.Entity<TeamRecentResult>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.TeamName).IsRequired();
+            entity.Property(e => e.OpponentName).IsRequired();
+            entity.HasIndex(e => e.TeamName);
         });
     }
 }
