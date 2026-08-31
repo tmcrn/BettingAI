@@ -23,6 +23,7 @@ public class BetData
 
 public class AutoDecideBetsRequest
 {
+    [QueryParam]
     public int? WindowHours { get; set; }
 }
 

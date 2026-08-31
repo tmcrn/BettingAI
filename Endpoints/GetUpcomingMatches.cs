@@ -6,6 +6,7 @@ namespace BettingAI.Endpoints;
 
 public class GetUpcomingMatchesRequest
 {
+    [QueryParam]
     public int? WindowHours { get; set; }
 }
 
