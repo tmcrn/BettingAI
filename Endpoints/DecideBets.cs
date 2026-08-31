@@ -20,6 +20,13 @@ public class DecideBetsResponse
     public List<BetDecision> Bets { get; set; } = new();
     public string? AiThinking { get; set; }
     public string? AnalysisUsed { get; set; }
+    // The actual per-match stats text handed to the model (ATTACKING EDGE,
+    // FORM EDGE, MOMENTUM EDGE, common-opponent note...) - AnalysisUsed above
+    // is only the save-loop's debug log (rejections, save counts), it never
+    // carried the underlying numbers, so there was no way to check via curl
+    // whether a given signal actually made it into the prompt for a specific
+    // match without reading server logs.
+    public string? StatsAnalysis { get; set; }
 }
 
 public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse>
@@ -527,7 +534,8 @@ REMEMBER: Start with [ immediately. No preamble. No markdown. Just JSON.";
         {
             Bets = bets,
             AiThinking = jsonResponse,
-            AnalysisUsed = string.Join(" | ", debugLog)
+            AnalysisUsed = string.Join(" | ", debugLog),
+            StatsAnalysis = analysisInfo
         });
     }
 
