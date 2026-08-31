@@ -44,6 +44,15 @@ public class TeamStatsSeedingService
 
     private static readonly string[] OpenFootballLeagueCodes = { "en.1", "es.1", "it.1", "de.1", "fr.1" };
 
+    // A seed run now makes dozens of paced requests over several minutes -
+    // two overlapping runs (e.g. a manual call fired right after the daily
+    // background refresh started, or a re-run right after a Ctrl-C'd one
+    // that keeps running server-side) would double up on football-data.org's
+    // 10 req/min cap and both come back empty. Shared across instances
+    // (this service is scoped per-request) so any seed method blocks any
+    // other rather than racing it.
+    private static readonly SemaphoreSlim _seedLock = new(1, 1);
+
     private readonly BettingContext _context;
     private readonly FootballDataService _footballDataService;
     private readonly HttpClient _httpClient;
@@ -57,17 +66,29 @@ public class TeamStatsSeedingService
 
     public async Task<(bool Success, string Message, int TeamsUpdated)> SeedFromRealMatchesAsync(CancellationToken ct = default)
     {
-        var matches = await _footballDataService.GetFinishedMatchesAsync(DaysBack);
-        if (matches.Count == 0)
+        if (!await _seedLock.WaitAsync(0, ct))
         {
-            return (false, "Aucun match terminé trouvé sur la période", 0);
+            return (false, "Un seeding TeamStats est déjà en cours (refresh auto ou appel précédent) - réessaie dans quelques minutes", 0);
         }
 
-        var generic = matches
-            .Select(m => (m.HomeTeam, m.AwayTeam, m.HomeScore, m.AwayScore, m.UtcDate))
-            .ToList();
+        try
+        {
+            var matches = await _footballDataService.GetFinishedMatchesAsync(DaysBack, ct);
+            if (matches.Count == 0)
+            {
+                return (false, "Aucun match terminé trouvé sur la période", 0);
+            }
 
-        return await AggregateAndSaveAsync(generic, $"{matches.Count} matchs réels ({DaysBack} derniers jours, football-data.org)", ct);
+            var generic = matches
+                .Select(m => (m.HomeTeam, m.AwayTeam, m.HomeScore, m.AwayScore, m.UtcDate))
+                .ToList();
+
+            return await AggregateAndSaveAsync(generic, $"{matches.Count} matchs réels ({DaysBack} derniers jours, football-data.org)", ct);
+        }
+        finally
+        {
+            _seedLock.Release();
+        }
     }
 
     // One-time deeper backfill from openfootball's public-domain JSON
@@ -83,71 +104,83 @@ public class TeamStatsSeedingService
     // list ("2026-27,2025-26,2024-25") to override the default 3-season window.
     public async Task<(bool Success, string Message, int TeamsUpdated)> SeedFromOpenFootballAsync(string? seasonsParam = null, CancellationToken ct = default)
     {
-        var seasons = string.IsNullOrWhiteSpace(seasonsParam)
-            ? DefaultSeasons()
-            : seasonsParam.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
-
-        var allMatches = new List<(string Team1, string Team2, int Score1, int Score2, DateTime Date)>();
-
-        foreach (var season in seasons)
+        if (!await _seedLock.WaitAsync(0, ct))
         {
-            foreach (var code in OpenFootballLeagueCodes)
+            return (false, "Un seeding TeamStats est déjà en cours (refresh auto ou appel précédent) - réessaie dans quelques minutes", 0);
+        }
+
+        try
+        {
+            var seasons = string.IsNullOrWhiteSpace(seasonsParam)
+                ? DefaultSeasons()
+                : seasonsParam.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+
+            var allMatches = new List<(string Team1, string Team2, int Score1, int Score2, DateTime Date)>();
+
+            foreach (var season in seasons)
             {
-                try
+                foreach (var code in OpenFootballLeagueCodes)
                 {
-                    var url = $"https://raw.githubusercontent.com/openfootball/football.json/master/{season}/{code}.json";
-                    var response = await _httpClient.GetAsync(url, ct);
-                    if (!response.IsSuccessStatusCode)
+                    try
                     {
-                        Console.WriteLine($"openfootball {code} ({season}): HTTP {response.StatusCode}");
-                        continue;
-                    }
-
-                    var content = await response.Content.ReadAsStringAsync(ct);
-                    using var doc = JsonDocument.Parse(content);
-                    if (!doc.RootElement.TryGetProperty("matches", out var matchesArray)) continue;
-
-                    foreach (var m in matchesArray.EnumerateArray())
-                    {
-                        // Not played yet - no "score" (or no "ft") at all for future fixtures.
-                        if (!m.TryGetProperty("score", out var scoreEl)) continue;
-                        if (!scoreEl.TryGetProperty("ft", out var ftEl) || ftEl.ValueKind != JsonValueKind.Array || ftEl.GetArrayLength() < 2) continue;
-
-                        var dateStr = m.TryGetProperty("date", out var dateEl) ? dateEl.GetString() : null;
-                        if (dateStr == null || !DateTime.TryParse(
-                                dateStr,
-                                System.Globalization.CultureInfo.InvariantCulture,
-                                System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal,
-                                out var date))
+                        var url = $"https://raw.githubusercontent.com/openfootball/football.json/master/{season}/{code}.json";
+                        var response = await _httpClient.GetAsync(url, ct);
+                        if (!response.IsSuccessStatusCode)
                         {
+                            Console.WriteLine($"openfootball {code} ({season}): HTTP {response.StatusCode}");
                             continue;
                         }
 
-                        allMatches.Add((
-                            m.GetProperty("team1").GetString() ?? "",
-                            m.GetProperty("team2").GetString() ?? "",
-                            ftEl[0].GetInt32(),
-                            ftEl[1].GetInt32(),
-                            date
-                        ));
+                        var content = await response.Content.ReadAsStringAsync(ct);
+                        using var doc = JsonDocument.Parse(content);
+                        if (!doc.RootElement.TryGetProperty("matches", out var matchesArray)) continue;
+
+                        foreach (var m in matchesArray.EnumerateArray())
+                        {
+                            // Not played yet - no "score" (or no "ft") at all for future fixtures.
+                            if (!m.TryGetProperty("score", out var scoreEl)) continue;
+                            if (!scoreEl.TryGetProperty("ft", out var ftEl) || ftEl.ValueKind != JsonValueKind.Array || ftEl.GetArrayLength() < 2) continue;
+
+                            var dateStr = m.TryGetProperty("date", out var dateEl) ? dateEl.GetString() : null;
+                            if (dateStr == null || !DateTime.TryParse(
+                                    dateStr,
+                                    System.Globalization.CultureInfo.InvariantCulture,
+                                    System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal,
+                                    out var date))
+                            {
+                                continue;
+                            }
+
+                            allMatches.Add((
+                                m.GetProperty("team1").GetString() ?? "",
+                                m.GetProperty("team2").GetString() ?? "",
+                                ftEl[0].GetInt32(),
+                                ftEl[1].GetInt32(),
+                                date
+                            ));
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"openfootball {code} ({season}) error: {ex.Message}");
                     }
                 }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"openfootball {code} ({season}) error: {ex.Message}");
-                }
             }
-        }
 
-        if (allMatches.Count == 0)
+            if (allMatches.Count == 0)
+            {
+                return (false, $"Aucun match joué trouvé pour les saisons {string.Join(", ", seasons)}", 0);
+            }
+
+            return await AggregateAndSaveAsync(
+                allMatches,
+                $"{allMatches.Count} matchs réels (saisons {string.Join(", ", seasons)}, openfootball.json)",
+                ct);
+        }
+        finally
         {
-            return (false, $"Aucun match joué trouvé pour les saisons {string.Join(", ", seasons)}", 0);
+            _seedLock.Release();
         }
-
-        return await AggregateAndSaveAsync(
-            allMatches,
-            $"{allMatches.Count} matchs réels (saisons {string.Join(", ", seasons)}, openfootball.json)",
-            ct);
     }
 
     private static List<string> DefaultSeasons()

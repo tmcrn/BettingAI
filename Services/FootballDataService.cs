@@ -47,7 +47,7 @@ public class FootballDataService
     // Fetches (or reuses a cached copy of) a GET request's raw body. On an
     // API failure (rate limit included), falls back to a stale cached copy
     // rather than giving up entirely.
-    private async Task<JsonDocument?> GetAsync(string url)
+    private async Task<JsonDocument?> GetAsync(string url, CancellationToken ct = default)
     {
         lock (_cacheLock)
         {
@@ -59,7 +59,7 @@ public class FootballDataService
 
         SetupHeaders();
 
-        var response = await _httpClient.GetAsync(url);
+        var response = await _httpClient.GetAsync(url, ct);
 
         if (!response.IsSuccessStatusCode)
         {
@@ -157,7 +157,7 @@ public class FootballDataService
     // each its own request (cheap: football-data.org allows 10/min and a
     // 45-day seed is only 5 chunks). Used to seed TeamStats with real
     // derived numbers instead of the old hardcoded test data.
-    public async Task<List<FinishedMatch>> GetFinishedMatchesAsync(int daysBack)
+    public async Task<List<FinishedMatch>> GetFinishedMatchesAsync(int daysBack, CancellationToken ct = default)
     {
         var results = new List<FinishedMatch>();
         var today = DateTime.UtcNow.Date;
@@ -168,14 +168,20 @@ public class FootballDataService
         // which means dozens of chunked requests in one run - the free tier caps at
         // 10 requests/minute, so pace them out instead of firing them back to back
         // (a burst would just start getting rate-limited partway through and silently
-        // lose the tail of the window).
+        // lose the tail of the window). ct is threaded through so a client that gives
+        // up on the request (e.g. a curl someone Ctrl-C'd) actually stops this loop
+        // instead of continuing to burn requests in the background - a second call
+        // started right after would otherwise race the still-running first one and
+        // both would get rate-limited into returning nothing.
         var isFirstChunk = true;
 
         for (var chunkFrom = earliestDate; chunkFrom <= today; chunkFrom = chunkFrom.AddDays(chunkSpanDays + 1))
         {
+            ct.ThrowIfCancellationRequested();
+
             if (!isFirstChunk)
             {
-                await Task.Delay(TimeSpan.FromSeconds(6.5));
+                await Task.Delay(TimeSpan.FromSeconds(6.5), ct);
             }
             isFirstChunk = false;
 
@@ -187,7 +193,7 @@ public class FootballDataService
 
             try
             {
-                var doc = await GetAsync($"{_baseUrl}/matches?dateFrom={dateFrom}&dateTo={dateTo}");
+                var doc = await GetAsync($"{_baseUrl}/matches?dateFrom={dateFrom}&dateTo={dateTo}", ct);
                 if (doc == null) continue;
                 if (!doc.RootElement.TryGetProperty("matches", out var matchesArray)) continue;
 
