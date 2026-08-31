@@ -24,23 +24,16 @@ public class DecideBetsResponse
 
 public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse>
 {
-    // Leg/bet types priced from real scraped 1X2 odds (home/draw/away).
-    // Combos are restricted to these - never fabricate combined odds for a
-    // market we can't price.
-    private static readonly HashSet<string> RealOddsTypes = new()
+    // The AI decides every bet type purely from TeamStats/xG/form - never
+    // gated on whether real odds exist. Real odds, when Sofascore has them,
+    // are used ONLY to compute the actual payout on settlement (a realistic
+    // portfolio number) - never to block or steer the decision itself.
+    // These are the types priceable from real scraped 1X2 odds (home/draw/away);
+    // everything else falls back to a flat 2x payout multiplier.
+    private static readonly HashSet<string> OneXTwoFamilyTypes = new()
     {
         "HOME_WIN", "AWAY_WIN", "DRAW", "HOME_WIN_OR_DRAW", "AWAY_WIN_OR_DRAW"
     };
-
-    // Goal-based markets we have no real market odds for (Sofascore's scraped
-    // mainLine only covers 1X2). Usable for single bets on xG/stats
-    // confidence alone, but stake-capped since there's no verified edge.
-    private static readonly HashSet<string> StatsOnlyTypes = new()
-    {
-        "BOTH_TEAMS_SCORE", "OVER_GOALS", "UNDER_GOALS", "HOME_OVER_GOALS", "AWAY_OVER_GOALS"
-    };
-
-    private const decimal StatsOnlyStakeCap = 0.5m;
 
     private readonly BettingContext _context;
     private readonly HttpClient _httpClient;
@@ -146,30 +139,26 @@ You are an expert AI sports betting system that learns from experience and diver
 DETAILED MATCH ANALYSIS WITH COMPOSITIONS:
 " + analysisInfo + @"
 
-REAL 1X2 ODDS FROM BOOKMAKERS (the only market with verified real pricing - if a match has no odds listed here, it means real odds aren't published yet and you MUST NOT bet on it):
+REAL 1X2 ODDS FROM BOOKMAKERS (for context only - these affect payout size on a winning bet, nothing else. A match with no odds listed is perfectly fine to bet on from stats alone; do not skip it and do not treat a listed odds number as a signal about who is favored):
 " + oddsInfo + @"
 
 AVAILABLE MATCHES:
 " + matchsInfo + @"
 
-BET TYPES YOU CAN USE:
+BET TYPES YOU CAN USE - decide purely from the xG/form/stats data above. Odds (when listed) are NOT a signal to weigh and are NOT required to bet - they only affect the payout of a bet that wins, nothing more. Do not avoid a bet just because a match has no odds listed, and do not let a big/small odds number talk you out of a pick your stats support. You are allowed to take real risks when the stats back it up.
+1. HOME_WIN / AWAY_WIN: which side your stats (xG, xGA, form, H2H) favor, if confidence > 0.55
+2. DRAW: if the two teams look closely matched on stats and confidence > 0.40
+3. HOME_WIN_OR_DRAW / AWAY_WIN_OR_DRAW (double chance): if confidence > 0.60 for the double outcome
+4. BOTH_TEAMS_SCORE: if xGA (both teams) > 1.5 and confidence > 0.55
+5. OVER_GOALS (selection = line, e.g. ""2.5""): if combined xG > line and confidence > 0.55
+6. UNDER_GOALS (selection = line): if combined xG < line and confidence > 0.55
+7. HOME_OVER_GOALS / AWAY_OVER_GOALS (selection = line, e.g. ""1.5""): if that team's xG > line and confidence > 0.55
 
-Priced with REAL odds above - calculate real EV, bet with confidence:
-1. HOME_WIN / AWAY_WIN: only if confidence > 0.65 AND real odds > 1.8
-2. DRAW: only if confidence > 0.40 AND real draw odds > 3.0 (draws are hard to predict, be conservative)
-3. HOME_WIN_OR_DRAW / AWAY_WIN_OR_DRAW (double chance): combined implied odds = 1 / (1/mainOdds + 1/drawOdds). Use when confidence > 0.70 for the double outcome.
-4. Check VALUE: Expected Value = (Confidence * Odds) - 1 must be positive. Only recommend if EV is positive.
-5. Vary stakes by EV: risky (EV 5-10%) = 0.8€, medium (10-20%) = 1.0€, safe (20%+) = 1.5€
-
-NOT priced (no real market odds available from our data source) - use ONLY the xG/stats data above, confidence-only, NO fabricated odds or EV claim, stake capped at 0.5€:
-6. BOTH_TEAMS_SCORE: if xGA (both teams) > 1.5 and confidence > 0.55
-7. OVER_GOALS (selection = line, e.g. ""2.5""): if combined xG > line and confidence > 0.55
-8. UNDER_GOALS (selection = line): if combined xG < line and confidence > 0.55
-9. HOME_OVER_GOALS / AWAY_OVER_GOALS (selection = line, e.g. ""1.5""): if that team's xG > line and confidence > 0.55
+Vary stakes by conviction: low confidence (0.4-0.55) = 0.5€, medium (0.55-0.7) = 1.0€, high (0.7+) = 1.5€.
 
 NOT AVAILABLE - do not use, no data source exists for these: PLAYER_SCORER, PLAYER_ASSIST.
 
-COMBO BETS (paris combinés): you may propose a combo across 2-4 DIFFERENT matches, using ONLY the real-odds types above (HOME_WIN, AWAY_WIN, DRAW, HOME_WIN_OR_DRAW, AWAY_WIN_OR_DRAW) since only those can be priced for real - never combine stats-only types into a combo. Format:
+COMBO BETS (paris combinés): you may propose a combo across 2-4 DIFFERENT matches, mixing ANY of the bet types above freely based on stats - not restricted to 1X2 types. Format:
 {
   ""type"": ""COMBO"",
   ""stake"": 0.5,
@@ -182,7 +171,7 @@ COMBO BETS (paris combinés): you may propose a combo across 2-4 DIFFERENT match
 }
 Combo confidence is the product of each leg's individual confidence - keep stakes small (0.3-0.6€) since combined risk is much higher.
 
-DIVERSIFY: Propose different bet types across matches when conditions are met and have positive EV. Don't force a bet on every match - it's fine to skip a match entirely if nothing qualifies.
+DIVERSIFY: Propose different bet types across matches when the stats support them. Don't force a bet on every match - it's fine to skip a match entirely if nothing qualifies.
 
 RESPONSE FORMAT - ONLY JSON ARRAY, NO TEXT:
 [
@@ -194,7 +183,7 @@ RESPONSE FORMAT - ONLY JSON ARRAY, NO TEXT:
     ""selection"": null,
     ""stake"": 1.0,
     ""confidence"": 0.68,
-    ""reasoning"": ""Real odds 1.9, EV +6.9%""
+    ""reasoning"": ""Home xG 1.9 vs away xG 0.8 over last 5 matches, strong home form""
   }
 ]
 
@@ -279,30 +268,17 @@ REMEMBER: Start with [ immediately. No preamble. No markdown. Just JSON.";
                             }
 
                             var stake = bet.Stake;
-                            decimal? realOdds = null;
-                            var isRealOddsType = RealOddsTypes.Contains(bet.Type ?? "");
 
-                            if (isRealOddsType && bet.MatchId != null && resolvedOdds.TryGetValue(bet.MatchId, out var o))
+                            // Odds are never a gate on the decision - the AI already decided
+                            // purely from stats above. If real 1X2 odds happen to exist for a
+                            // priceable type, resolve them ONLY so settlement can pay out a
+                            // realistic amount; otherwise BetSettlementService falls back to a
+                            // flat 2x multiplier. Missing odds never blocks or caps the bet.
+                            decimal? realOdds = null;
+                            if (bet.MatchId != null && OneXTwoFamilyTypes.Contains(bet.Type ?? "") &&
+                                resolvedOdds.TryGetValue(bet.MatchId, out var o))
                             {
                                 realOdds = ResolveLegOdds(bet.Type, o);
-                            }
-                            else if (StatsOnlyTypes.Contains(bet.Type ?? ""))
-                            {
-                                // No real market odds exist for this type - cap exposure regardless
-                                // of what the AI proposed as a safety net.
-                                stake = Math.Min(stake, StatsOnlyStakeCap);
-                            }
-
-                            // The prompt tells the AI not to bet HOME_WIN/AWAY_WIN/DRAW/double-chance
-                            // without real odds listed - but a 7B model doesn't reliably follow that,
-                            // and did exactly this live (bet HOME_WIN_OR_DRAW on a match Sofascore had
-                            // no odds for, with an invented confidence number). Enforce it in code:
-                            // no resolved real odds, no real-odds-type bet, full stop.
-                            if (isRealOddsType && realOdds == null)
-                            {
-                                debugLog.Add($"BET REJECTED: '{bet.Type}' needs real odds but none were resolved for " +
-                                    $"{bet.HomeTeam} vs {bet.AwayTeam} (matchId='{bet.MatchId}') - AI ignored the no-odds instruction");
-                                continue;
                             }
 
                             var dbBet = new Bet
@@ -396,10 +372,14 @@ REMEMBER: Start with [ immediately. No preamble. No markdown. Just JSON.";
         };
     }
 
-    // Builds a BetCombo from the AI's proposal, resolving each leg against
-    // real scraped odds. Returns null (rejecting the whole combo) rather
-    // than fabricating a leg's odds when it can't be verified - same
-    // principle as single bets: no priced market, no bet.
+    // Builds a BetCombo from the AI's proposal. Legs can be any bet type -
+    // the decision itself is stats-driven, not odds-gated. When a leg's
+    // real 1X2 odds are resolvable it's priced for real; otherwise it falls
+    // back to a flat 2x multiplier for that leg, same as a single bet with
+    // no real odds. A combo is only rejected for structural reasons
+    // (duplicate match, unresolvable match id), never for lacking odds.
+    private const decimal DefaultLegOdds = 2m;
+
     private static BetCombo? TryBuildCombo(
         BetDecision bet,
         List<FootballMatch> matches,
@@ -412,9 +392,9 @@ REMEMBER: Start with [ immediately. No preamble. No markdown. Just JSON.";
 
         foreach (var legDecision in bet.Legs!)
         {
-            if (legDecision.MatchId == null || legDecision.Type == null || !RealOddsTypes.Contains(legDecision.Type))
+            if (legDecision.MatchId == null || legDecision.Type == null)
             {
-                debugLog.Add($"COMBO REJECTED: leg has unsupported type '{legDecision.Type}'");
+                debugLog.Add("COMBO REJECTED: leg missing matchId or type");
                 return null;
             }
 
@@ -431,20 +411,15 @@ REMEMBER: Start with [ immediately. No preamble. No markdown. Just JSON.";
                 return null;
             }
 
-            if (!resolvedOdds.TryGetValue(legDecision.MatchId, out var oddsTuple))
+            decimal? legOdds = null;
+            if (OneXTwoFamilyTypes.Contains(legDecision.Type) &&
+                resolvedOdds.TryGetValue(legDecision.MatchId, out var oddsTuple))
             {
-                debugLog.Add($"COMBO REJECTED: no real odds available for leg matchId='{legDecision.MatchId}'");
-                return null;
+                legOdds = ResolveLegOdds(legDecision.Type, oddsTuple);
             }
+            var effectiveLegOdds = legOdds ?? DefaultLegOdds;
 
-            var legOdds = ResolveLegOdds(legDecision.Type, oddsTuple);
-            if (legOdds == null)
-            {
-                debugLog.Add($"COMBO REJECTED: could not price leg type '{legDecision.Type}'");
-                return null;
-            }
-
-            combinedOdds *= legOdds.Value;
+            combinedOdds *= effectiveLegOdds;
 
             legs.Add(new ComboLeg
             {
@@ -452,7 +427,7 @@ REMEMBER: Start with [ immediately. No preamble. No markdown. Just JSON.";
                 HomeTeam = sourceMatch.HomeTeam,
                 AwayTeam = sourceMatch.AwayTeam,
                 BetType = legDecision.Type,
-                Odds = legOdds.Value,
+                Odds = effectiveLegOdds,
                 MatchUtcDate = sourceMatch.UtcDate,
                 Result = "PENDING"
             });

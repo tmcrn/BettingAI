@@ -53,7 +53,7 @@ public class RecordMatchResultEndpoint : Endpoint<RecordMatchResultRequest, Reco
             if (won)
             {
                 bet.Result = "WIN";
-                bet.Winnings = bet.Stake * 2;  // Cotes simples : x2
+                bet.Winnings = bet.Stake * (bet.Odds ?? 2m);  // Vraie cote si connue, sinon x2 par défaut
                 totalWinnings += bet.Winnings.Value;
                 await _discord.NotifyBetWonAsync(bet);
             }

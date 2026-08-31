@@ -68,7 +68,10 @@ public class BetSettlementService
             {
                 var won = DetermineOutcome(bet.BetType, bet.Selection, result, status.HomeScore, status.AwayScore);
                 bet.Result = won ? "WIN" : "LOSS";
-                bet.Winnings = won ? bet.Stake * 2 : 0;
+                // Real odds (when Sofascore had them at decision time) price the payout for
+                // real; otherwise fall back to a flat 2x - odds never influenced whether this
+                // bet was placed, only how much it pays out now that it won.
+                bet.Winnings = won ? bet.Stake * (bet.Odds ?? 2m) : 0;
                 settledCount++;
 
                 if (won)
