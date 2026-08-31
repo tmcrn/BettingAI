@@ -27,11 +27,15 @@ public class ResetSystemEndpoint : EndpointWithoutRequest<ResetSystemResponse>
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        // Clear ALL data
+        // Clears betting history/portfolio state only. TeamStats is
+        // deliberately left alone: seeding it now takes ~8-10 minutes
+        // (paced requests across a 2-season window - see
+        // TeamStatsSeedingService), and it's refreshed automatically every
+        // day anyway, so wiping it here would just force a manual reseed
+        // for no benefit - a reset is about the betting history, not stats.
         _context.Bets.RemoveRange(_context.Bets);
         _context.ComboLegs.RemoveRange(_context.ComboLegs);
         _context.BetCombos.RemoveRange(_context.BetCombos);
-        _context.TeamStats.RemoveRange(_context.TeamStats);
         _context.MatchContexts.RemoveRange(_context.MatchContexts);
         _context.LearningNotebook.RemoveRange(_context.LearningNotebook);
 
@@ -40,7 +44,7 @@ public class ResetSystemEndpoint : EndpointWithoutRequest<ResetSystemResponse>
         await Send.OkAsync(new ResetSystemResponse
         {
             Success = true,
-            Message = "System reset: Portefeuille = 10€, Historique supprimé, Prêt pour vrai test"
+            Message = "System reset: Portefeuille = 10€, Historique supprimé (TeamStats conservé), Prêt pour vrai test"
         });
     }
 }
