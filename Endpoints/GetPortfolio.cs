@@ -97,7 +97,16 @@ public class GetPortfolioEndpoint : EndpointWithoutRequest<GetPortfolioResponse>
             {
                 Id = c.Id,
                 MatchId = null,
-                Match = $"Combiné {c.Legs.Count} matchs",
+                // "Combiné N matchs" used Legs.Count directly, which counts
+                // legs, not distinct matches - wrong now that a same-match
+                // combo (multiple legs on ONE match, e.g. HOME_WIN +
+                // OVER_GOALS) is common again since the OUTCOME/GOALS merge.
+                // Count distinct match ids: a same-match combo names that one
+                // match instead of claiming "2 matchs" for something that's
+                // actually one.
+                Match = c.Legs.Select(l => l.MatchId).Distinct().Count() == 1
+                    ? $"Combiné - {c.Legs.First().HomeTeam} vs {c.Legs.First().AwayTeam}"
+                    : $"Combiné {c.Legs.Select(l => l.MatchId).Distinct().Count()} matchs",
                 BetType = "COMBO",
                 Stake = c.Stake,
                 Result = c.Result,

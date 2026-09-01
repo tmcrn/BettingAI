@@ -391,6 +391,7 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
         // Any other shape (only one side produced something, or the GOALS
         // side stayed empty) is left exactly as already saved.
         void MergeOutcomeAndGoalsIntoCombo(
+            string shortMatchId,
             List<Bet> outcomeBets, List<BetCombo> outcomeCombos,
             List<Bet> goalsBets, List<BetCombo> goalsCombos)
         {
@@ -407,8 +408,12 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
                 _context.Bets.Remove(outcomeBet);
                 savedBets.Remove(outcomeBet);
 
-                var outcomeOdds = OneXTwoFamilyTypes.Contains(outcomeBet.BetType ?? "") && outcomeBet.MatchId != null &&
-                    resolvedOdds.TryGetValue(outcomeBet.MatchId, out var o1) ? ResolveLegOdds(outcomeBet.BetType, o1) : null;
+                // resolvedOdds is keyed by the short per-request match id (e.g. "0"),
+                // not the real match id stored on the saved Bet - use shortMatchId,
+                // not outcomeBet.MatchId, or this always misses and falls back to
+                // the flat 2x default even when real odds exist.
+                var outcomeOdds = OneXTwoFamilyTypes.Contains(outcomeBet.BetType ?? "") &&
+                    resolvedOdds.TryGetValue(shortMatchId, out var o1) ? ResolveLegOdds(outcomeBet.BetType, o1) : null;
                 var effectiveOutcomeOdds = outcomeOdds ?? DefaultLegOdds;
 
                 combo.Legs.Add(new ComboLeg
@@ -445,8 +450,10 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
             savedBets.Remove(outcomeBet);
             savedBets.Remove(goalsBet);
 
-            decimal? LegOdds(Bet b) => OneXTwoFamilyTypes.Contains(b.BetType ?? "") && b.MatchId != null &&
-                resolvedOdds.TryGetValue(b.MatchId, out var o) ? ResolveLegOdds(b.BetType, o) : null;
+            // Same fix as above: resolvedOdds is keyed by the short per-request
+            // match id, not the real match id saved on the Bet entities.
+            decimal? LegOdds(Bet b) => OneXTwoFamilyTypes.Contains(b.BetType ?? "") &&
+                resolvedOdds.TryGetValue(shortMatchId, out var o) ? ResolveLegOdds(b.BetType, o) : null;
             var outcomeLegOdds = LegOdds(outcomeBet) ?? DefaultLegOdds;
             var goalsLegOdds = LegOdds(goalsBet) ?? DefaultLegOdds;
 
@@ -508,10 +515,11 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
         foreach (var match in req.Matches)
         {
             if (match.Id == null) continue;
+            var shortMatchId = match.Id;
 
             var matchLabel = $"{match.HomeTeam} vs {match.AwayTeam}";
-            analysisPerMatch.TryGetValue(match.Id, out var matchAnalysis);
-            oddsPerMatch.TryGetValue(match.Id, out var matchOdds);
+            analysisPerMatch.TryGetValue(shortMatchId, out var matchAnalysis);
+            oddsPerMatch.TryGetValue(shortMatchId, out var matchOdds);
             var effectiveAnalysis = matchAnalysis ?? "Pas de données statistiques disponibles pour ce match.";
             var effectiveOdds = matchOdds ?? "Pas de cotes réelles disponibles pour ce match.";
 
@@ -535,7 +543,7 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
             // User asked for this explicitly: when both calls land a bet on
             // the same match, show it as one combo ticket rather than two
             // separate PENDING rows - see MergeOutcomeAndGoalsIntoCombo above.
-            MergeOutcomeAndGoalsIntoCombo(outcomeBets, outcomeCombos, goalsBets, goalsCombos);
+            MergeOutcomeAndGoalsIntoCombo(shortMatchId, outcomeBets, outcomeCombos, goalsBets, goalsCombos);
         }
 
         await _context.SaveChangesAsync(ct);
