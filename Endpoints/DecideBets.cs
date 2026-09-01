@@ -210,9 +210,15 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
         // projectedBalance/savedBets/savedCombos/debugLog with the loop below
         // by closure, the same running state a single call used to mutate
         // directly - now reused for however many focused calls each match
-        // gets (see the OUTCOME/GOALS split below).
-        async Task ProcessPromptAsync(string prompt, string focusLabel)
+        // gets (see the OUTCOME/GOALS split below). Returns what THIS call
+        // specifically saved (a subset of savedBets/savedCombos) so the loop
+        // below can merge an OUTCOME bet and a GOALS bet on the same match
+        // into one combo ticket after the fact.
+        async Task<(List<Bet> newBets, List<BetCombo> newCombos)> ProcessPromptAsync(string prompt, string focusLabel)
         {
+            var newBets = new List<Bet>();
+            var newCombos = new List<BetCombo>();
+
             string? responseText;
             try
             {
@@ -221,17 +227,17 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
             catch (Exception ex)
             {
                 debugLog.Add($"[{focusLabel}] ERROR: {ex.Message}");
-                return;
+                return (newBets, newCombos);
             }
 
-            if (responseText == null) return; // no JSON array found even after a retry - already logged
+            if (responseText == null) return (newBets, newCombos); // no JSON array found even after a retry - already logged
 
             List<BetDecision>? betsArray;
             try
             {
                 int start = responseText.IndexOf('[');
                 int end = responseText.LastIndexOf(']');
-                if (start < 0 || end <= start) return;
+                if (start < 0 || end <= start) return (newBets, newCombos);
 
                 var jsonStr = responseText.Substring(start, end - start + 1);
                 var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
@@ -240,10 +246,10 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
             catch (Exception parseEx)
             {
                 debugLog.Add($"[{focusLabel}] PARSE ERROR: {parseEx.Message}");
-                return;
+                return (newBets, newCombos);
             }
 
-            if (betsArray == null || betsArray.Count == 0) return;
+            if (betsArray == null || betsArray.Count == 0) return (newBets, newCombos);
 
             foreach (var bet in betsArray)
             {
@@ -266,6 +272,7 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
                     {
                         _context.BetCombos.Add(combo);
                         savedCombos.Add(combo);
+                        newCombos.Add(combo);
                         projectedBalance -= combo.Stake;
                         foreach (var leg in combo.Legs)
                             if (leg.MatchId != null && leg.BetType != null) existingKeys.Add((leg.MatchId, leg.BetType, leg.Selection));
@@ -361,7 +368,123 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
                 };
                 _context.Bets.Add(dbBet);
                 savedBets.Add(dbBet);
+                newBets.Add(dbBet);
             }
+
+            return (newBets, newCombos);
+        }
+
+        // If an OUTCOME call and a GOALS call on the same match each
+        // independently produced exactly one single bet, the user wants
+        // those shown as ONE ticket rather than two separate PENDING rows -
+        // the classic "HOME_WIN + OVER_GOALS" same-match combo the AI itself
+        // used to be able to propose before OUTCOME/GOALS were split into
+        // separate calls (a combo needs both legs visible in the same
+        // prompt, which splitting deliberately gave up - see the comment
+        // above the call site). Rather than asking the model to do the
+        // merging, this reassembles it in code: un-save the two standalone
+        // Bet rows (harmless - nothing has hit the database yet, SaveChanges
+        // only runs once at the very end) and replace them with a single
+        // BetCombo carrying both as legs. If the GOALS call already built
+        // its OWN 2-leg combo (two goal-total types), the outcome bet is
+        // added as a third leg to that combo instead of building a new one.
+        // Any other shape (only one side produced something, or the GOALS
+        // side stayed empty) is left exactly as already saved.
+        void MergeOutcomeAndGoalsIntoCombo(
+            List<Bet> outcomeBets, List<BetCombo> outcomeCombos,
+            List<Bet> goalsBets, List<BetCombo> goalsCombos)
+        {
+            if (outcomeCombos.Count > 0) return; // OUTCOME never produces its own combo, but guard anyway
+            if (outcomeBets.Count != 1) return; // nothing to merge, or ambiguous - leave as-is
+
+            var outcomeBet = outcomeBets[0];
+
+            if (goalsCombos.Count == 1)
+            {
+                // GOALS already built its own 2-leg combo - fold the outcome
+                // bet into it as a third leg instead of leaving it standalone.
+                var combo = goalsCombos[0];
+                _context.Bets.Remove(outcomeBet);
+                savedBets.Remove(outcomeBet);
+
+                var outcomeOdds = OneXTwoFamilyTypes.Contains(outcomeBet.BetType ?? "") && outcomeBet.MatchId != null &&
+                    resolvedOdds.TryGetValue(outcomeBet.MatchId, out var o1) ? ResolveLegOdds(outcomeBet.BetType, o1) : null;
+                var effectiveOutcomeOdds = outcomeOdds ?? DefaultLegOdds;
+
+                combo.Legs.Add(new ComboLeg
+                {
+                    MatchId = outcomeBet.MatchId,
+                    HomeTeam = outcomeBet.HomeTeam,
+                    AwayTeam = outcomeBet.AwayTeam,
+                    BetType = outcomeBet.BetType,
+                    Selection = outcomeBet.Selection,
+                    Odds = effectiveOutcomeOdds,
+                    MatchUtcDate = outcomeBet.MatchUtcDate,
+                    Result = "PENDING"
+                });
+                combo.CombinedOdds *= effectiveOutcomeOdds;
+                combo.Confidence *= outcomeBet.Confidence;
+                combo.Reasoning = $"{outcomeBet.Reasoning} | {combo.Reasoning}";
+                // The combo's stake doesn't grow just because it picked up a
+                // third leg - refund what was provisionally deducted for the
+                // now-folded-in outcome bet so projectedBalance still matches
+                // what's actually staked (combo.Stake alone) for the rest of
+                // this cycle's remaining matches.
+                projectedBalance += outcomeBet.Stake;
+                debugLog.Add($"MERGED: OUTCOME bet folded into the GOALS combo for {outcomeBet.HomeTeam} vs {outcomeBet.AwayTeam}");
+                return;
+            }
+
+            if (goalsBets.Count != 1) return; // GOALS produced nothing, or something ambiguous - leave outcomeBet standalone
+
+            var goalsBet = goalsBets[0];
+
+            // Both single bets on the same match - merge into a new 2-leg combo.
+            _context.Bets.Remove(outcomeBet);
+            _context.Bets.Remove(goalsBet);
+            savedBets.Remove(outcomeBet);
+            savedBets.Remove(goalsBet);
+
+            decimal? LegOdds(Bet b) => OneXTwoFamilyTypes.Contains(b.BetType ?? "") && b.MatchId != null &&
+                resolvedOdds.TryGetValue(b.MatchId, out var o) ? ResolveLegOdds(b.BetType, o) : null;
+            var outcomeLegOdds = LegOdds(outcomeBet) ?? DefaultLegOdds;
+            var goalsLegOdds = LegOdds(goalsBet) ?? DefaultLegOdds;
+
+            // Combined risk is higher than either leg alone - the smaller of
+            // the two independently-decided stakes, same conservative
+            // instinct as the "keep stakes small" rule the AI itself follows
+            // when it builds a combo directly.
+            var mergedCombo = new BetCombo
+            {
+                Stake = Math.Min(outcomeBet.Stake, goalsBet.Stake),
+                Confidence = outcomeBet.Confidence * goalsBet.Confidence,
+                Reasoning = $"{outcomeBet.Reasoning} | {goalsBet.Reasoning}",
+                CombinedOdds = outcomeLegOdds * goalsLegOdds,
+                Result = "PENDING",
+                Legs = new List<ComboLeg>
+                {
+                    new ComboLeg
+                    {
+                        MatchId = outcomeBet.MatchId, HomeTeam = outcomeBet.HomeTeam, AwayTeam = outcomeBet.AwayTeam,
+                        BetType = outcomeBet.BetType, Selection = outcomeBet.Selection, Odds = outcomeLegOdds,
+                        MatchUtcDate = outcomeBet.MatchUtcDate, Result = "PENDING"
+                    },
+                    new ComboLeg
+                    {
+                        MatchId = goalsBet.MatchId, HomeTeam = goalsBet.HomeTeam, AwayTeam = goalsBet.AwayTeam,
+                        BetType = goalsBet.BetType, Selection = goalsBet.Selection, Odds = goalsLegOdds,
+                        MatchUtcDate = goalsBet.MatchUtcDate, Result = "PENDING"
+                    }
+                }
+            };
+
+            _context.BetCombos.Add(mergedCombo);
+            savedCombos.Add(mergedCombo);
+            // The two original stakes were both already deducted individually;
+            // only mergedCombo.Stake is actually being risked now, so refund
+            // the difference for the rest of this cycle's remaining matches.
+            projectedBalance += outcomeBet.Stake + goalsBet.Stake - mergedCombo.Stake;
+            debugLog.Add($"MERGED: OUTCOME + GOALS combined into one combo ticket for {outcomeBet.HomeTeam} vs {outcomeBet.AwayTeam}");
         }
 
         // TWO focused Ollama calls per match (OUTCOME, then GOALS) instead of
@@ -402,12 +525,17 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
             var (lowStake, medStake, highStake) = StakeTiers(projectedBalance);
             var header = BuildPromptHeader(currentTime, projectedBalance, learningNotebook, match, effectiveAnalysis, effectiveOdds);
             var outcomePrompt = BuildOutcomePrompt(header, match, lowStake, medStake, highStake);
-            await ProcessPromptAsync(outcomePrompt, $"{matchLabel} / OUTCOME");
+            var (outcomeBets, outcomeCombos) = await ProcessPromptAsync(outcomePrompt, $"{matchLabel} / OUTCOME");
 
             (lowStake, medStake, highStake) = StakeTiers(projectedBalance);
             header = BuildPromptHeader(currentTime, projectedBalance, learningNotebook, match, effectiveAnalysis, effectiveOdds);
             var goalsPrompt = BuildGoalsPrompt(header, match, lowStake, medStake, highStake);
-            await ProcessPromptAsync(goalsPrompt, $"{matchLabel} / GOALS");
+            var (goalsBets, goalsCombos) = await ProcessPromptAsync(goalsPrompt, $"{matchLabel} / GOALS");
+
+            // User asked for this explicitly: when both calls land a bet on
+            // the same match, show it as one combo ticket rather than two
+            // separate PENDING rows - see MergeOutcomeAndGoalsIntoCombo above.
+            MergeOutcomeAndGoalsIntoCombo(outcomeBets, outcomeCombos, goalsBets, goalsCombos);
         }
 
         await _context.SaveChangesAsync(ct);
