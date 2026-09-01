@@ -631,16 +631,38 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
         string prompt, string focusLabel, List<string> debugLog, List<string> rawResponses, CancellationToken ct)
     {
         const int maxAttempts = 2;
+        // Confirmed live: Ollama got OOM-killed mid-cycle by the WSL memory
+        // cap (its own prompt-cache growing across many distinct per-match
+        // prompts), and took ~8s to restart - every call to it during that
+        // window failed with "Connection refused", silently losing that
+        // match's decision for the rest of the cycle since a bare connection
+        // failure wasn't retried at all. Wait it out and retry instead of
+        // giving up on the first refused connection.
+        const int maxConnectionRetries = 3;
+        var connectionRetryDelay = TimeSpan.FromSeconds(10);
         var client = new HttpClient();
         var responseText = "";
 
         for (var attempt = 1; attempt <= maxAttempts; attempt++)
         {
-            var response = await client.PostAsJsonAsync(
-                "http://localhost:11434/api/generate",
-                new { model = "mistral", prompt = prompt, stream = false },
-                cancellationToken: ct
-            );
+            HttpResponseMessage response;
+            for (var connAttempt = 1; ; connAttempt++)
+            {
+                try
+                {
+                    response = await client.PostAsJsonAsync(
+                        "http://localhost:11434/api/generate",
+                        new { model = "mistral", prompt = prompt, stream = false },
+                        cancellationToken: ct
+                    );
+                    break;
+                }
+                catch (HttpRequestException ex) when (connAttempt < maxConnectionRetries)
+                {
+                    debugLog.Add($"[{focusLabel}] CONNECTION ERROR (retry {connAttempt}/{maxConnectionRetries}): {ex.Message}");
+                    await Task.Delay(connectionRetryDelay, ct);
+                }
+            }
 
             var jsonResponse = await response.Content.ReadAsStringAsync();
             rawResponses.Add(jsonResponse);
