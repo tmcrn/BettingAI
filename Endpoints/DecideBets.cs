@@ -204,67 +204,34 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
         const decimal hardBalanceFloor = -20m;
         var projectedBalance = req.CurrentBalance;
 
-        // One Ollama call PER MATCH instead of one giant call for the whole
-        // batch - confirmed live that cramming several matches plus the full
-        // rules/examples into one prompt made Mistral cross-contaminate: a
-        // real bet on Toulouse vs Lille came back with reasoning about
-        // "Rennes" and "Le Mans" - the exact team names used in this prompt's
-        // own worked example, copied wholesale instead of reasoning about the
-        // actual match. A short, single-match prompt leaves far less room for
-        // that (and the worked examples below now use obviously-fake
-        // placeholder names instead of real clubs, as a second layer of
-        // protection). Trade-off, accepted deliberately: this drops
-        // multi-match combos (a combo needs to see several matches at once to
-        // combine them) - same-match combos (e.g. HOME_WIN + that team's own
-        // OVER_GOALS line) are unaffected since both legs are still visible
-        // in a single match's prompt.
-        foreach (var match in req.Matches)
+        // Handles one Ollama call's worth of proposed bets end-to-end (retry,
+        // JSON extraction, per-bet dedup/floor checks, saving). A local
+        // function (not a separate method) so it can share existingKeys/
+        // projectedBalance/savedBets/savedCombos/debugLog with the loop below
+        // by closure, the same running state a single call used to mutate
+        // directly - now reused for however many focused calls each match
+        // gets (see the OUTCOME/GOALS split below).
+        async Task ProcessPromptAsync(string prompt, string focusLabel)
         {
-            if (match.Id == null) continue;
-
-            var matchLabel = $"{match.HomeTeam} vs {match.AwayTeam}";
-            analysisPerMatch.TryGetValue(match.Id, out var matchAnalysis);
-            oddsPerMatch.TryGetValue(match.Id, out var matchOdds);
-
-            // Recomputed from projectedBalance (not the original req.CurrentBalance)
-            // on every iteration - confirmed live gap: with 8 matches evaluated in
-            // sequence, matches #2 onward were still being shown the SAME starting
-            // balance even after earlier matches in this exact cycle had already
-            // committed stakes against it, so the model had no way to know its
-            // "current" balance was shrinking as the cycle went on. A floor keeps
-            // this from collapsing to near-zero stakes while temporarily negative
-            // purely from other bets still being PENDING (they may still win and
-            // bring it back up).
-            var effectiveBankroll = Math.Max(projectedBalance, 2m);
-            var lowStake = Math.Round(effectiveBankroll * 0.05m, 2);
-            var medStake = Math.Round(effectiveBankroll * 0.10m, 2);
-            var highStake = Math.Round(effectiveBankroll * 0.15m, 2);
-
-            var prompt = BuildSingleMatchPrompt(
-                currentTime, projectedBalance, learningNotebook, match,
-                matchAnalysis ?? "Pas de données statistiques disponibles pour ce match.",
-                matchOdds ?? "Pas de cotes réelles disponibles pour ce match.",
-                lowStake, medStake, highStake);
-
             string? responseText;
             try
             {
-                responseText = await CallOllamaWithRetryAsync(prompt, matchLabel, debugLog, rawResponses, ct);
+                responseText = await CallOllamaWithRetryAsync(prompt, focusLabel, debugLog, rawResponses, ct);
             }
             catch (Exception ex)
             {
-                debugLog.Add($"[{matchLabel}] ERROR: {ex.Message}");
-                continue;
+                debugLog.Add($"[{focusLabel}] ERROR: {ex.Message}");
+                return;
             }
 
-            if (responseText == null) continue; // no JSON array found even after a retry - already logged
+            if (responseText == null) return; // no JSON array found even after a retry - already logged
 
             List<BetDecision>? betsArray;
             try
             {
                 int start = responseText.IndexOf('[');
                 int end = responseText.LastIndexOf(']');
-                if (start < 0 || end <= start) continue;
+                if (start < 0 || end <= start) return;
 
                 var jsonStr = responseText.Substring(start, end - start + 1);
                 var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
@@ -272,11 +239,11 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
             }
             catch (Exception parseEx)
             {
-                debugLog.Add($"[{matchLabel}] PARSE ERROR: {parseEx.Message}");
-                continue;
+                debugLog.Add($"[{focusLabel}] PARSE ERROR: {parseEx.Message}");
+                return;
             }
 
-            if (betsArray == null || betsArray.Count == 0) continue;
+            if (betsArray == null || betsArray.Count == 0) return;
 
             foreach (var bet in betsArray)
             {
@@ -284,13 +251,13 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
                 {
                     if (bet.Legs == null || bet.Legs.Count < 2)
                     {
-                        debugLog.Add($"[{matchLabel}] COMBO REJECTED: fewer than 2 legs");
+                        debugLog.Add($"[{focusLabel}] COMBO REJECTED: fewer than 2 legs");
                         continue; // never falls through to the single-bet path with a null MatchId
                     }
 
                     if (projectedBalance - bet.Stake < hardBalanceFloor)
                     {
-                        debugLog.Add($"[{matchLabel}] COMBO REJECTED: would push projected balance below {hardBalanceFloor}€ this cycle");
+                        debugLog.Add($"[{focusLabel}] COMBO REJECTED: would push projected balance below {hardBalanceFloor}€ this cycle");
                         continue;
                     }
 
@@ -320,7 +287,7 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
                 // match would fail the whole batch's SaveChanges, so drop it instead.
                 if (sourceMatch?.RealMatchId == null && bet.MatchId == null)
                 {
-                    debugLog.Add($"[{matchLabel}] BET REJECTED: no matchId at all ({bet.HomeTeam} vs {bet.AwayTeam})");
+                    debugLog.Add($"[{focusLabel}] BET REJECTED: no matchId at all ({bet.HomeTeam} vs {bet.AwayTeam})");
                     continue;
                 }
 
@@ -328,7 +295,7 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
                 var dedupKey = (effectiveMatchId, bet.Type ?? "", bet.Selection);
                 if (existingKeys.Contains(dedupKey))
                 {
-                    debugLog.Add($"[{matchLabel}] BET REJECTED: duplicate of an existing PENDING bet " +
+                    debugLog.Add($"[{focusLabel}] BET REJECTED: duplicate of an existing PENDING bet " +
                         $"({bet.Type}{(bet.Selection != null ? $" [{bet.Selection}]" : "")})");
                     continue;
                 }
@@ -346,7 +313,7 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
 
                 if (projectedBalance - bet.Stake < hardBalanceFloor)
                 {
-                    debugLog.Add($"[{matchLabel}] BET REJECTED: would push projected balance below {hardBalanceFloor}€ this cycle");
+                    debugLog.Add($"[{focusLabel}] BET REJECTED: would push projected balance below {hardBalanceFloor}€ this cycle");
                     continue;
                 }
 
@@ -387,6 +354,52 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
                 _context.Bets.Add(dbBet);
                 savedBets.Add(dbBet);
             }
+        }
+
+        // TWO focused Ollama calls per match (OUTCOME, then GOALS) instead of
+        // one call covering every bet type - confirmed live that even with a
+        // "MANDATORY CHECK" instruction, Mistral kept defaulting to only a
+        // who-wins pick and never once reached for OVER_GOALS/UNDER_GOALS/
+        // BOTH_TEAMS_SCORE/HOME_OVER_GOALS/AWAY_OVER_GOALS across 8 matches in
+        // a row - a buried bullet point in a long list is easy to skip. Giving
+        // goal-total markets their own dedicated prompt, where they're the
+        // ONLY thing being asked about, makes them impossible to skip past.
+        // This also means the balance shown to the GOALS call already
+        // reflects whatever the OUTCOME call just staked on the SAME match,
+        // not just across different matches.
+        //
+        // This replaces the earlier "one call PER MATCH" design (itself a fix
+        // for cross-match contamination - see BuildPromptHeader) - multi-match
+        // combos were already dropped then; same-match combos are still
+        // possible but now only within a single call's own bet-type family
+        // (two goal-market legs, e.g. OVER_GOALS + BOTH_TEAMS_SCORE) since a
+        // combo needs both legs visible in the same prompt.
+        foreach (var match in req.Matches)
+        {
+            if (match.Id == null) continue;
+
+            var matchLabel = $"{match.HomeTeam} vs {match.AwayTeam}";
+            analysisPerMatch.TryGetValue(match.Id, out var matchAnalysis);
+            oddsPerMatch.TryGetValue(match.Id, out var matchOdds);
+            var effectiveAnalysis = matchAnalysis ?? "Pas de données statistiques disponibles pour ce match.";
+            var effectiveOdds = matchOdds ?? "Pas de cotes réelles disponibles pour ce match.";
+
+            // Recomputed from projectedBalance (not the original req.CurrentBalance)
+            // before EACH of the two calls below - confirmed live gap: with several
+            // matches evaluated in sequence, later matches were still being shown
+            // the SAME starting balance even after earlier ones in this exact cycle
+            // had already committed stakes against it. A floor keeps this from
+            // collapsing to near-zero stakes while temporarily negative purely from
+            // other bets still being PENDING (they may still win and bring it back up).
+            var (lowStake, medStake, highStake) = StakeTiers(projectedBalance);
+            var header = BuildPromptHeader(currentTime, projectedBalance, learningNotebook, match, effectiveAnalysis, effectiveOdds);
+            var outcomePrompt = BuildOutcomePrompt(header, match, lowStake, medStake, highStake);
+            await ProcessPromptAsync(outcomePrompt, $"{matchLabel} / OUTCOME");
+
+            (lowStake, medStake, highStake) = StakeTiers(projectedBalance);
+            header = BuildPromptHeader(currentTime, projectedBalance, learningNotebook, match, effectiveAnalysis, effectiveOdds);
+            var goalsPrompt = BuildGoalsPrompt(header, match, lowStake, medStake, highStake);
+            await ProcessPromptAsync(goalsPrompt, $"{matchLabel} / GOALS");
         }
 
         await _context.SaveChangesAsync(ct);
@@ -444,7 +457,24 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
         });
     }
 
-    // Calls Ollama for a single match's prompt, retrying once if the response
+    // Stake sizing is tied to the real portfolio balance (already net of
+    // every other PENDING bet's stake, including ones just placed earlier in
+    // this very cycle) rather than fixed euro amounts, so it naturally
+    // shrinks when a lot is already committed and grows when the bankroll is
+    // healthy. A floor keeps this from collapsing to near-zero stakes while
+    // temporarily negative purely from other bets still being PENDING (they
+    // may still win and bring it back up).
+    private static (decimal low, decimal med, decimal high) StakeTiers(decimal balance)
+    {
+        var effectiveBankroll = Math.Max(balance, 2m);
+        return (
+            Math.Round(effectiveBankroll * 0.05m, 2),
+            Math.Round(effectiveBankroll * 0.10m, 2),
+            Math.Round(effectiveBankroll * 0.15m, 2)
+        );
+    }
+
+    // Calls Ollama for a single prompt, retrying once if the response
     // contains no JSON array at all. Mistral occasionally derails completely
     // and returns prose instead of the requested JSON (e.g. "Understood,
     // here's a summary of the rules...") - confirmed live. That used to be
@@ -454,7 +484,7 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
     // Returns the extracted, trimmed response text once it contains a JSON
     // array, or null if both attempts failed to produce one.
     private static async Task<string?> CallOllamaWithRetryAsync(
-        string prompt, string matchLabel, List<string> debugLog, List<string> rawResponses, CancellationToken ct)
+        string prompt, string focusLabel, List<string> debugLog, List<string> rawResponses, CancellationToken ct)
     {
         const int maxAttempts = 2;
         var client = new HttpClient();
@@ -470,11 +500,11 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
 
             var jsonResponse = await response.Content.ReadAsStringAsync();
             rawResponses.Add(jsonResponse);
-            debugLog.Add($"[{matchLabel}] GOT RESPONSE (attempt {attempt}/{maxAttempts})");
+            debugLog.Add($"[{focusLabel}] GOT RESPONSE (attempt {attempt}/{maxAttempts})");
 
             var doc = JsonDocument.Parse(jsonResponse);
             responseText = doc.RootElement.GetProperty("response").GetString() ?? "";
-            debugLog.Add($"[{matchLabel}] RAW LENGTH: {responseText.Length}");
+            debugLog.Add($"[{focusLabel}] RAW LENGTH: {responseText.Length}");
 
             responseText = responseText.Trim();
             responseText = System.Text.RegularExpressions.Regex.Unescape(responseText);
@@ -486,26 +516,21 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
             }
 
             var snippet = responseText.Length > 200 ? responseText.Substring(0, 200) + "..." : responseText;
-            debugLog.Add($"[{matchLabel}] NO JSON ARRAY IN RESPONSE (attempt {attempt}/{maxAttempts}): \"{snippet}\"");
+            debugLog.Add($"[{focusLabel}] NO JSON ARRAY IN RESPONSE (attempt {attempt}/{maxAttempts}): \"{snippet}\"");
         }
 
         return null;
     }
 
-    // Builds the prompt for evaluating exactly ONE match. Deliberately short
-    // and focused - see the "one Ollama call PER MATCH" comment above the
-    // call site for why. The worked examples below use obviously-fake
-    // placeholder team names ("Équipe Domicile"/"Équipe Extérieur") rather
-    // than real club names, so that even if Mistral falls back to echoing an
-    // example instead of reasoning about the real match, it's immediately
-    // obvious in the output rather than silently looking like a real (wrong)
-    // pick - that's exactly how the "Rennes"/"Le Mans" contamination bug was
-    // spotted, and a placeholder that can never pass for a real team name
-    // closes it off at the source.
-    private static string BuildSingleMatchPrompt(
+    // Shared preamble for both the OUTCOME and GOALS prompts below - CURRENT
+    // TIME, critical JSON-only instruction, French reasoning instruction,
+    // portfolio balance, learning notebook, the match's own analysis/odds,
+    // and the ATTACKING EDGE/FORM EDGE/MOMENTUM EDGE explanation. Everything
+    // that differs between the two (which bet types, which worked examples)
+    // is appended by the caller.
+    private static string BuildPromptHeader(
         DateTime currentTime, decimal currentBalance, string learningNotebook,
-        FootballMatch match, string matchAnalysis, string matchOdds,
-        decimal lowStake, decimal medStake, decimal highStake)
+        FootballMatch match, string matchAnalysis, string matchOdds)
     {
         return $@"CURRENT TIME: {currentTime:yyyy-MM-dd HH:mm:ss} UTC
 
@@ -513,7 +538,7 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
 
 ⚠️ ""reasoning"" FIELD: write it in FRENCH, as a natural, human sentence a person would actually say - not a dump of the raw labels. Never just restate ""ATTACKING EDGE: AWAY, FORM EDGE: EVEN"" verbatim; translate what that means into plain French. Ground it in the real numbers for THIS match, just say it like a person explaining their pick, not a machine echoing variable names.
 
-CURRENT PORTFOLIO BALANCE: {currentBalance:F2}€ - this already accounts for every euro staked on your other currently-pending bets, it's what's actually available right now. Size your stake off of it.
+CURRENT PORTFOLIO BALANCE: {currentBalance:F2}€ - this already accounts for every euro staked on your other currently-pending bets (including any placed earlier in this same cycle), it's what's actually available right now. Size your stake off of it.
 
 You are an expert AI sports betting system that learns from experience. You are being asked to evaluate exactly ONE match right now - there is no other match in this decision, focus entirely on it.
 
@@ -529,28 +554,29 @@ REAL 1X2 ODDS FROM BOOKMAKERS (for context only - these affect payout size on a 
 
 The analysis above already tells you the ATTACKING EDGE and FORM EDGE (HOME, AWAY, or EVEN) - the result of comparing both teams' numbers for you. ATTACKING EDGE weighs each team's own attack against the OTHER team's defense (""expected scoring vs this defense""), not just raw xG head-to-head - use it directly instead of re-deriving your own from the raw xG/xGA lines above. If ATTACKING EDGE says AWAY, the away team is the one expected to do more damage against this specific opponent, full stop. This applies to ANY bet type that leans on one team's attack, not just who-wins markets: never say a team has the attacking edge, or bet on that team's own goals (HOME_OVER_GOALS/AWAY_OVER_GOALS), when ATTACKING EDGE names the OTHER side - if you want to go against the edges, you need a specific stated reason (H2H, missing key players, fatigue) in your reasoning, not a restated version of the number that contradicts your own pick.
 
-MOMENTUM EDGE is a third, complementary signal: unlike FORM EDGE (a flat win/draw/loss average), it weighs recent results by how BIG the win/loss was and how recent it was - a team that just crushed someone 4-0 has more momentum than one that scraped a 1-0. When an ""Adversaire commun récent"" line is present, both teams have recently played the same third team - read it like you would by hand (e.g. ""Monaco a battu Marseille 2-0, Strasbourg a perdu contre Marseille 4-0"" => Monaco is the side showing more strength against a common measuring stick). Treat MOMENTUM EDGE and the common-opponent note as supporting context that can reinforce ATTACKING EDGE or add real weight to a DRAW/upset pick when it clearly disagrees with it - it's a real signal, not just decoration, but it's noisier than ATTACKING EDGE, so it doesn't override the hard rule above.
+MOMENTUM EDGE is a third, complementary signal: unlike FORM EDGE (a flat win/draw/loss average), it weighs recent results by how BIG the win/loss was and how recent it was - a team that just crushed someone 4-0 has more momentum than one that scraped a 1-0. When an ""Adversaire commun récent"" line is present, both teams have recently played the same third team - read it like you would by hand (e.g. ""Monaco a battu Marseille 2-0, Strasbourg a perdu contre Marseille 4-0"" => Monaco is the side showing more strength against a common measuring stick). Treat MOMENTUM EDGE and the common-opponent note as supporting context that can reinforce ATTACKING EDGE or add real weight to a DRAW/upset pick when it clearly disagrees with it - it's a real signal, not just decoration, but it's noisier than ATTACKING EDGE, so it doesn't override the hard rule above.";
+    }
+
+    // OUTCOME-only prompt: who-wins / draw / double-chance markets. Kept
+    // completely separate from the GOALS prompt below (see the comment above
+    // the call site) so neither family of bet types has to compete for
+    // attention with the other inside one long list.
+    private static string BuildOutcomePrompt(
+        string header, FootballMatch match, decimal lowStake, decimal medStake, decimal highStake)
+    {
+        return header + $@"
 
 BET TYPES YOU CAN USE - decide purely from the xG/form/stats data above. Odds (when listed) are NOT a signal to weigh and are NOT required to bet - they only affect the payout of a bet that wins, nothing more. You are allowed to take real risks when the stats back it up - these confidence bars are deliberately low, lean toward betting when this match gives you a real read rather than skipping it.
 1. HOME_WIN / AWAY_WIN: which side the stats (xG, xGA, form, H2H) favor, if confidence > 0.45
 2. DRAW: if the two teams look closely matched on stats and confidence > 0.35
 3. HOME_WIN_OR_DRAW / AWAY_WIN_OR_DRAW (double chance): if confidence > 0.50 for the double outcome
-4. BOTH_TEAMS_SCORE: if xGA (both teams) > 1.5 and confidence > 0.45
-5. OVER_GOALS (selection = line, e.g. ""2.5""): if combined xG > line and confidence > 0.45
-6. UNDER_GOALS (selection = line): if combined xG < line and confidence > 0.45
-7. HOME_OVER_GOALS / AWAY_OVER_GOALS (selection = line, e.g. ""1.5""): if that team's OWN xG > line and confidence > 0.45 - this must agree with ATTACKING EDGE
 
-Goal-total markets (OVER_GOALS/UNDER_GOALS/BOTH_TEAMS_SCORE/HOME_OVER_GOALS/AWAY_OVER_GOALS) are their own independent read on the match, not a fallback for when you can't decide a winner - don't default to only a who-wins pick out of habit. MANDATORY CHECK for every match, regardless of what you decide on the who-wins side: look at combined xG against 2.5 (OVER_GOALS/UNDER_GOALS) and each team's own xG against 1.5 (HOME_OVER_GOALS/AWAY_OVER_GOALS) - these lines are always computable from the numbers you already have above, so actually run the comparison instead of skipping straight to a who-wins pick. Whenever the numbers clear a goals threshold, that's just as much a real signal as the win/draw read, and it's fine (encouraged, even) to bet BOTH a who-wins type AND a goals-total type on the same match when the stats genuinely support each independently - either as two separate entries in your response, or as a same-match combo (see below).
-
-NOT AVAILABLE - do not use, no data source exists for these: PLAYER_SCORER, PLAYER_ASSIST.
+This call is ONLY about who wins - goal totals (OVER_GOALS, BOTH_TEAMS_SCORE, etc.) are handled in a separate call for this same match, do not mention them here.
 
 Stake, sized off your CURRENT balance above (not a fixed amount): low confidence (0.35-0.5) ≈ {lowStake}€, medium (0.5-0.65) ≈ {medStake}€, high (0.65+) ≈ {highStake}€. If the balance is low or negative right now, stay smaller and more selective.
 
-SAME-MATCH COMBO (optional): since you're only looking at one match, a combo here means multiple legs on THIS match - e.g. HOME_WIN + that same team's HOME_OVER_GOALS line (""they win AND they score more than X""), which usually pays noticeably better combined than either leg alone. Only propose this when both legs are genuinely supported by the stats above. The only hard rule: never put two ""who wins"" legs (HOME_WIN, AWAY_WIN, DRAW, HOME_WIN_OR_DRAW, AWAY_WIN_OR_DRAW) together - they're either contradictory or redundant.
+RESPONSE FORMAT - ONLY JSON ARRAY, NO TEXT. Zero entries ([]) if this match doesn't clear any threshold above; otherwise exactly one entry (never more than one - HOME_WIN, AWAY_WIN, DRAW, HOME_WIN_OR_DRAW and AWAY_WIN_OR_DRAW can never coexist on the same match, so pick the single best one). matchId in your response must always be exactly ""{match.Id}"" - never invent or borrow a different one.
 
-RESPONSE FORMAT - ONLY JSON ARRAY, NO TEXT. Zero entries ([]) if this match doesn't clear any threshold. Otherwise, one or two entries: a single bet, one COMBO object, or (per the goal-total note above) two independent single-bet entries of different types on this same match - one who-wins type and one goals-total type, each with its own stake/confidence/reasoning. matchId in your response must always be exactly ""{match.Id}"" - never invent or borrow a different one.
-
-A single bet looks like:
 [
   {{
     ""matchId"": ""{match.Id}"",
@@ -564,6 +590,48 @@ A single bet looks like:
   }}
 ]
 
+REMEMBER: Start with [ immediately. No preamble. No markdown. Just JSON. [] is a valid, complete, correct answer.";
+    }
+
+    // GOALS-only prompt: total-goals markets. Split out on its own because,
+    // even with a "MANDATORY CHECK" instruction inside the combined prompt,
+    // Mistral kept defaulting to only a who-wins pick and never once reached
+    // for a goals-total type across 8 real matches in a row - confirmed
+    // live. Making this the ONLY thing asked about in its own call removes
+    // the option to skip past it.
+    private static string BuildGoalsPrompt(
+        string header, FootballMatch match, decimal lowStake, decimal medStake, decimal highStake)
+    {
+        return header + $@"
+
+BET TYPES YOU CAN USE - this call is ONLY about total goals, not who wins (that's handled in a separate call for this same match). Decide purely from the xG/xGA numbers above - they are ALWAYS enough to run every comparison below, so actually run them instead of returning an empty array out of habit:
+1. OVER_GOALS (selection = line, e.g. ""2.5""): if combined xG (home xG + away xG) > line and confidence > 0.45
+2. UNDER_GOALS (selection = line): if combined xG < line and confidence > 0.45
+3. BOTH_TEAMS_SCORE: if both teams' own xG are each > 1.0 (both sides look likely to score) and confidence > 0.45
+4. HOME_OVER_GOALS / AWAY_OVER_GOALS (selection = line, e.g. ""1.5""): if that team's OWN xG > line and confidence > 0.45 - this must agree with ATTACKING EDGE (don't bet a team's own goals against what ATTACKING EDGE says)
+
+Compute combined xG and compare it to 2.5 right now using the Home xG and Away xG numbers in MATCH ANALYSIS above - if it clears the line, that's OVER_GOALS; if it's clearly under, that's UNDER_GOALS. Do the same per-team comparison against 1.5 for HOME_OVER_GOALS/AWAY_OVER_GOALS. These are real, valid bets just like a who-wins pick - propose one whenever the numbers support it, don't leave the array empty just because you're unsure which single type to prefer.
+
+Stake, sized off your CURRENT balance above (not a fixed amount): low confidence (0.35-0.5) ≈ {lowStake}€, medium (0.5-0.65) ≈ {medStake}€, high (0.65+) ≈ {highStake}€. If the balance is low or negative right now, stay smaller and more selective.
+
+SAME-MATCH COMBO (optional): you can combine two DIFFERENT goal-total types on this match into one combo (e.g. OVER_GOALS + BOTH_TEAMS_SCORE) when both are genuinely supported by the stats - this pays better combined than either leg alone. Never combine a type with itself.
+
+RESPONSE FORMAT - ONLY JSON ARRAY, NO TEXT. Zero entries ([]) only if NONE of the 4 types above clear their threshold; otherwise one entry (a single bet) or, for a combo, one COMBO object with 2 legs. matchId must always be exactly ""{match.Id}"" - never invent or borrow a different one.
+
+A single bet looks like:
+[
+  {{
+    ""matchId"": ""{match.Id}"",
+    ""homeTeam"": ""Équipe Domicile"",
+    ""awayTeam"": ""Équipe Extérieur"",
+    ""type"": ""OVER_GOALS"",
+    ""selection"": ""2.5"",
+    ""stake"": 1.0,
+    ""confidence"": 0.55,
+    ""reasoning"": ""Phrase en français expliquant le pari à partir des vrais chiffres ci-dessus""
+  }}
+]
+
 A same-match combo looks like:
 [
   {{
@@ -572,13 +640,13 @@ A same-match combo looks like:
     ""confidence"": 0.45,
     ""reasoning"": ""Phrase en français expliquant pourquoi les deux résultats sont combinés"",
     ""legs"": [
-      {{ ""matchId"": ""{match.Id}"", ""type"": ""HOME_WIN"" }},
-      {{ ""matchId"": ""{match.Id}"", ""type"": ""HOME_OVER_GOALS"", ""selection"": ""2.5"" }}
+      {{ ""matchId"": ""{match.Id}"", ""type"": ""OVER_GOALS"", ""selection"": ""2.5"" }},
+      {{ ""matchId"": ""{match.Id}"", ""type"": ""BOTH_TEAMS_SCORE"" }}
     ]
   }}
 ]
 
-REMEMBER: Start with [ immediately. No preamble. No markdown. Just JSON. [] is a valid, complete, correct answer.";
+REMEMBER: Start with [ immediately. No preamble. No markdown. Just JSON.";
     }
 
     private static (decimal home, decimal draw, decimal away)? ParseOneXTwoOdds(string? oddsJson)
