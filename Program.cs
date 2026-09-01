@@ -13,6 +13,7 @@ builder.Services.AddScoped<OddsScraperService>();
 builder.Services.AddScoped<BetSettlementService>();
 builder.Services.AddScoped<TeamStatsSeedingService>();
 builder.Services.AddScoped<WinPredictionService>();
+builder.Services.AddScoped<OddsLearningService>();
 builder.Services.AddSingleton<CycleStatusService>();
 builder.Services.AddHttpClient();
 builder.Services.AddHttpClient<FootballDataService>();

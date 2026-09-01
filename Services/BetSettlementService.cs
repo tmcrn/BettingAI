@@ -34,9 +34,11 @@ public class BetSettlementService
     private readonly FootballDataService _footballDataService;
     private readonly DiscordNotificationService _discord;
     private readonly WinPredictionService _winPrediction;
+    private readonly OddsLearningService _oddsLearning;
 
-    public BetSettlementService(BettingContext context, FootballDataService footballDataService, DiscordNotificationService discord, WinPredictionService winPrediction)
+    public BetSettlementService(BettingContext context, FootballDataService footballDataService, DiscordNotificationService discord, WinPredictionService winPrediction, OddsLearningService oddsLearning)
     {
+        _oddsLearning = oddsLearning;
         _context = context;
         _footballDataService = footballDataService;
         _discord = discord;
@@ -266,7 +268,13 @@ public class BetSettlementService
         var result = homeScore > awayScore ? "HOME_WIN" : homeScore < awayScore ? "AWAY_WIN" : "DRAW";
         var won = DetermineOutcome(bet.BetType, bet.Selection, result, homeScore, awayScore);
 
-        if (realOdds.HasValue) bet.Odds = realOdds;
+        if (realOdds.HasValue)
+        {
+            bet.Odds = realOdds;
+            // Real odds the user reported at settlement - same training
+            // signal as SetOddsEndpoint, for OddsLearningService.
+            await _oddsLearning.RecordRealOddsAsync(bet.BetType, realOdds.Value, ct);
+        }
         bet.Result = won ? "WIN" : "LOSS";
         bet.Winnings = won ? bet.Stake * (bet.Odds ?? EstimateOddsFromConfidence(bet.Confidence)) : 0;
         await TrainModelAsync(bet.EdgeAlignmentFeature, bet.FormAlignmentFeature, bet.MomentumAlignmentFeature, bet.Confidence, won, ct);
@@ -296,7 +304,11 @@ public class BetSettlementService
         var result = homeScore > awayScore ? "HOME_WIN" : homeScore < awayScore ? "AWAY_WIN" : "DRAW";
         var won = DetermineOutcome(leg.BetType, leg.Selection, result, homeScore, awayScore);
 
-        if (realOdds.HasValue) leg.Odds = realOdds.Value;
+        if (realOdds.HasValue)
+        {
+            leg.Odds = realOdds.Value;
+            await _oddsLearning.RecordRealOddsAsync(leg.BetType, realOdds.Value, ct);
+        }
         leg.Result = won ? "WIN" : "LOSS";
         await TrainModelAsync(leg.EdgeAlignmentFeature, leg.FormAlignmentFeature, leg.MomentumAlignmentFeature, leg.Confidence, won, ct);
 

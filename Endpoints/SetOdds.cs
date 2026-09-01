@@ -1,4 +1,5 @@
 using BettingAI.Data;
+using BettingAI.Services;
 using FastEndpoints;
 using Microsoft.EntityFrameworkCore;
 
@@ -25,10 +26,12 @@ public class SetOddsResponse
 public class SetOddsEndpoint : Endpoint<SetOddsRequest, SetOddsResponse>
 {
     private readonly BettingContext _context;
+    private readonly OddsLearningService _oddsLearning;
 
-    public SetOddsEndpoint(BettingContext context)
+    public SetOddsEndpoint(BettingContext context, OddsLearningService oddsLearning)
     {
         _context = context;
+        _oddsLearning = oddsLearning;
     }
 
     public override void Configure()
@@ -61,6 +64,10 @@ public class SetOddsEndpoint : Endpoint<SetOddsRequest, SetOddsResponse>
 
             bet.Odds = req.Odds;
             await _context.SaveChangesAsync(ct);
+            // Real odds the user typed in - a genuine training example for
+            // OddsLearningService, same idea as WinPredictionService but for
+            // "what does this bet type's real market odds usually look like".
+            await _oddsLearning.RecordRealOddsAsync(bet.BetType, req.Odds, ct);
             await Send.OkAsync(new SetOddsResponse { Success = true, Message = $"✅ Cote mise à jour: {req.Odds}" });
             return;
         }
@@ -98,6 +105,7 @@ public class SetOddsEndpoint : Endpoint<SetOddsRequest, SetOddsResponse>
             }
 
             await _context.SaveChangesAsync(ct);
+            await _oddsLearning.RecordRealOddsAsync(leg.BetType, req.Odds, ct);
             await Send.OkAsync(new SetOddsResponse { Success = true, Message = $"✅ Cote de la jambe mise à jour: {req.Odds}" });
             return;
         }

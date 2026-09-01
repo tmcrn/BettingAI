@@ -53,13 +53,15 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
     private readonly HttpClient _httpClient;
     private readonly DiscordNotificationService _discord;
     private readonly WinPredictionService _winPrediction;
+    private readonly OddsLearningService _oddsLearning;
 
-    public DecideBetsEndpoint(BettingContext context, HttpClient httpClient, DiscordNotificationService discord, WinPredictionService winPrediction)
+    public DecideBetsEndpoint(BettingContext context, HttpClient httpClient, DiscordNotificationService discord, WinPredictionService winPrediction, OddsLearningService oddsLearning)
     {
         _context = context;
         _httpClient = httpClient;
         _discord = discord;
         _winPrediction = winPrediction;
+        _oddsLearning = oddsLearning;
     }
 
     public override void Configure()
@@ -213,6 +215,14 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
             catch { }
         }
 
+        // Learned real-odds averages per bet type (from Sofascore-resolved
+        // odds and hand-entered corrections via SetOddsEndpoint/ManualSettle)
+        // - fetched once here rather than once per leg, table stays tiny.
+        // See EstimateOdds/OddsLearningService.MinSample below for how this
+        // replaces the old flat DefaultLegOdds guess once enough real data
+        // exists for a given type.
+        var learnedOdds = await _oddsLearning.GetAllAsync(ct);
+
         var currentTime = DateTime.UtcNow;
 
         var debugLog = new List<string>();
@@ -306,7 +316,7 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
                         continue;
                     }
 
-                    var combo = TryBuildCombo(bet, req.Matches, resolvedOdds, existingKeys, rawEdgesPerMatch, debugLog);
+                    var combo = TryBuildCombo(bet, req.Matches, resolvedOdds, existingKeys, rawEdgesPerMatch, learnedOdds, debugLog);
                     if (combo != null)
                     {
                         _context.BetCombos.Add(combo);
@@ -468,7 +478,7 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
                 // the flat 2x default even when real odds exist.
                 var outcomeOdds = OneXTwoFamilyTypes.Contains(outcomeBet.BetType ?? "") &&
                     resolvedOdds.TryGetValue(shortMatchId, out var o1) ? ResolveLegOdds(outcomeBet.BetType, o1) : null;
-                var effectiveOutcomeOdds = outcomeOdds ?? DefaultLegOdds;
+                var effectiveOutcomeOdds = outcomeOdds ?? EstimateOdds(outcomeBet.BetType, learnedOdds);
 
                 combo.Legs.Add(new ComboLeg
                 {
@@ -516,8 +526,8 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
             // match id, not the real match id saved on the Bet entities.
             decimal? LegOdds(Bet b) => OneXTwoFamilyTypes.Contains(b.BetType ?? "") &&
                 resolvedOdds.TryGetValue(shortMatchId, out var o) ? ResolveLegOdds(b.BetType, o) : null;
-            var outcomeLegOdds = LegOdds(outcomeBet) ?? DefaultLegOdds;
-            var goalsLegOdds = LegOdds(goalsBet) ?? DefaultLegOdds;
+            var outcomeLegOdds = LegOdds(outcomeBet) ?? EstimateOdds(outcomeBet.BetType, learnedOdds);
+            var goalsLegOdds = LegOdds(goalsBet) ?? EstimateOdds(goalsBet.BetType, learnedOdds);
 
             // Combined risk is higher than either leg alone - the smaller of
             // the two independently-decided stakes, same conservative
@@ -943,10 +953,22 @@ REMEMBER: Start with [ immediately. No preamble. No markdown. Just JSON.";
     // Builds a BetCombo from the AI's proposal. Legs can be any bet type -
     // the decision itself is stats-driven, not odds-gated. When a leg's
     // real 1X2 odds are resolvable it's priced for real; otherwise it falls
-    // back to a flat 2x multiplier for that leg, same as a single bet with
-    // no real odds. A combo is only rejected for structural reasons
-    // (duplicate match, unresolvable match id), never for lacking odds.
+    // back to EstimateOdds (a learned per-type average once enough real
+    // odds have been seen, else this same flat 2x guess as before) - same
+    // as a single bet with no real odds. A combo is only rejected for
+    // structural reasons (duplicate match, unresolvable match id), never
+    // for lacking odds.
     private const decimal DefaultLegOdds = 2m;
+
+    // Prefers OddsLearningService's learned average for this bet type once
+    // it has enough real observations (MinSample) to mean something; falls
+    // back to the flat DefaultLegOdds guess otherwise - never fabricates
+    // confidence in a 1-2 sample average, same discipline as
+    // WinPredictionService's SampleCount gating.
+    private static decimal EstimateOdds(string? betType, Dictionary<string, (decimal Average, int SampleCount)> learnedOdds) =>
+        betType != null && learnedOdds.TryGetValue(betType, out var stat) && stat.SampleCount >= OddsLearningService.MinSample
+            ? stat.Average
+            : DefaultLegOdds;
 
     private static BetCombo? TryBuildCombo(
         BetDecision bet,
@@ -954,6 +976,7 @@ REMEMBER: Start with [ immediately. No preamble. No markdown. Just JSON.";
         Dictionary<string, (decimal home, decimal draw, decimal away)> resolvedOdds,
         HashSet<(string MatchId, string BetType, string? Selection)> existingKeys,
         Dictionary<string, (decimal xg, decimal form, decimal momentum)> rawEdgesPerMatch,
+        Dictionary<string, (decimal Average, int SampleCount)> learnedOdds,
         List<string> debugLog)
     {
         var legs = new List<ComboLeg>();
@@ -1023,7 +1046,7 @@ REMEMBER: Start with [ immediately. No preamble. No markdown. Just JSON.";
             {
                 legOdds = ResolveLegOdds(legDecision.Type, oddsTuple);
             }
-            var effectiveLegOdds = legOdds ?? DefaultLegOdds;
+            var effectiveLegOdds = legOdds ?? EstimateOdds(legDecision.Type, learnedOdds);
 
             combinedOdds *= effectiveLegOdds;
 
