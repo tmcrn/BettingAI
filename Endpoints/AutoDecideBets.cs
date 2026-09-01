@@ -59,6 +59,16 @@ public class AutoDecideBetsEndpoint : Endpoint<AutoDecideBetsRequest, AutoDecide
         {
             Console.WriteLine("🤖 AUTO-DECIDE-BETS STARTED");
 
+            // The default HttpClient.Timeout (100s) used to be plenty for the old
+            // one-call-per-match design. Now that decide-bets makes TWO Ollama
+            // calls per match (OUTCOME + GOALS), a batch of 8-9 matches routinely
+            // takes well over 100s end to end - confirmed live: "The request was
+            // canceled due to the configured HttpClient.Timeout of 100 seconds
+            // elapsing" on a real cycle, silently killing the whole batch instead
+            // of just one slow call. Must be set before this client makes its
+            // first request this instance (HttpClient throws if changed after).
+            _httpClient.Timeout = TimeSpan.FromMinutes(10);
+
             // 0️⃣ Règle d'abord les paris d'hier (ou de plus tôt aujourd'hui) avant de
             // décider les nouveaux - le LearningNotebook reflète les vrais résultats
             // les plus récents au moment où l'IA raisonne, plutôt que d'attendre le
