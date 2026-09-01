@@ -93,12 +93,18 @@ public class FootballDataService
     private static int GetScoreOrZero(JsonElement fullTime, string side) =>
         fullTime.TryGetProperty(side, out var val) && val.ValueKind != JsonValueKind.Null ? val.GetInt32() : 0;
 
-    public async Task<List<FootballMatch>> GetUpcomingMatchesAsync(int windowHours = 24)
+    // minHours lets a caller ask for a slice that doesn't start at "now" -
+    // e.g. minHours=72, windowHours=96 for "matches between 72h and 96h
+    // from now" (used to test the AI on a later slice without re-touching
+    // matches an earlier call already bet on). Defaults to 0 (the
+    // original "from now" behavior).
+    public async Task<List<FootballMatch>> GetUpcomingMatchesAsync(int windowHours = 24, int minHours = 0)
     {
         try
         {
             var matches = new List<FootballMatch>();
             var now = DateTime.UtcNow;
+            var windowStart = now.AddHours(minHours);
             var windowEnd = now.AddHours(windowHours);
 
             // dateTo appears to behave as an EXCLUSIVE bound (confirmed live:
@@ -134,8 +140,9 @@ public class FootballDataService
 
                 var matchTime = ParseUtcDate(fixture.GetProperty("utcDate").GetString()!);
 
-                // SKIP if match is outside 24h window
-                if (matchTime < now || matchTime > windowEnd) continue;
+                // SKIP if match is outside [windowStart, windowEnd] - windowStart is
+                // "now" unless minHours shifts it later for a specific slice.
+                if (matchTime < windowStart || matchTime > windowEnd) continue;
 
                 var fullTime = fixture.GetProperty("score").GetProperty("fullTime");
 

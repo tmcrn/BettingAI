@@ -28,6 +28,13 @@ public class AutoDecideBetsRequest
     // of today" (hours until midnight Europe/Paris) - see HoursUntilEndOfDayParis.
     [QueryParam]
     public int? WindowHours { get; set; }
+
+    // Start of the window in hours from now (default 0 = "now"). Set to
+    // e.g. 72 with WindowHours=96 to run a cycle only on matches between
+    // 72h and 96h from now - useful to test a later slice of the schedule
+    // without re-touching matches an earlier cycle already bet on.
+    [QueryParam]
+    public int? MinHours { get; set; }
 }
 
 public class AutoDecideBetsEndpoint : Endpoint<AutoDecideBetsRequest, AutoDecideResponse>
@@ -89,7 +96,8 @@ public class AutoDecideBetsEndpoint : Endpoint<AutoDecideBetsRequest, AutoDecide
             // seul passage, pas juste une fenêtre glissante étroite. windowHours reste
             // surchargeable manuellement (bouton "Forcer un cycle" du dashboard, tests).
             var windowHours = req.WindowHours ?? HoursUntilEndOfDayParis();
-            var upcomingMatches = await GetUpcomingMatches(windowHours);
+            var minHours = req.MinHours ?? 0;
+            var upcomingMatches = await GetUpcomingMatches(windowHours, minHours);
             if (upcomingMatches == null || upcomingMatches.Count == 0)
             {
                 // No Discord notification here on purpose (an empty window is the
@@ -98,7 +106,7 @@ public class AutoDecideBetsEndpoint : Endpoint<AutoDecideBetsRequest, AutoDecide
                 // with zero external visibility, which reads as "the cron is
                 // broken" from the outside. CycleStatusService/GetCycleStatus
                 // exists so that can be checked on demand instead of guessed at.
-                _cycleStatus.Record("no_matches", 0, 0, $"Aucun match dans les {windowHours}h qui suivent");
+                _cycleStatus.Record("no_matches", 0, 0, $"Aucun match entre {minHours}h et {windowHours}h qui suivent");
                 await Send.OkAsync(new AutoDecideResponse
                 {
                     Success = false,
@@ -300,12 +308,12 @@ public class AutoDecideBetsEndpoint : Endpoint<AutoDecideBetsRequest, AutoDecide
         return Math.Max(1, (int)Math.Ceiling(hours));
     }
 
-    private async Task<List<dynamic>?> GetUpcomingMatches(int windowHours)
+    private async Task<List<dynamic>?> GetUpcomingMatches(int windowHours, int minHours = 0)
     {
         try
         {
             // Appelle l'endpoint interne
-            var response = await _httpClient.GetAsync($"http://localhost:5255/api/matches/upcoming?windowHours={windowHours}");
+            var response = await _httpClient.GetAsync($"http://localhost:5255/api/matches/upcoming?windowHours={windowHours}&minHours={minHours}");
 
             if (!response.IsSuccessStatusCode) return null;
 
