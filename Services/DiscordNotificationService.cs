@@ -124,17 +124,18 @@ public class DiscordNotificationService
         }
     });
 
+    // Legs.Count counts LEGS, not distinct matches - wrong for a same-match
+    // combo (e.g. HOME_WIN + OVER_GOALS, both legs on ONE match), which used
+    // to say "(2 matchs)" for something that's really one match.
+    private static int DistinctMatchCount(BetCombo combo) => combo.Legs.Select(l => l.MatchId).Distinct().Count();
+
     public Task NotifyComboPlacedAsync(BetCombo combo) => SendAsync(new
     {
         embeds = new[]
         {
             new
             {
-                // Legs.Count counts LEGS, not distinct matches - wrong for a
-                // same-match combo (e.g. HOME_WIN + OVER_GOALS, both legs on
-                // ONE match), which used to say "(2 matchs)" for something
-                // that's really one match. Count distinct match ids instead.
-                title = $"🎰 Nouveau combiné placé ({combo.Legs.Select(l => l.MatchId).Distinct().Count()} matchs)",
+                title = $"🎰 Nouveau combiné placé ({(DistinctMatchCount(combo) == 1 ? "1 match" : $"{DistinctMatchCount(combo)} matchs")})",
                 color = 0x9b59b6, // violet
                 fields = BuildComboFields(combo, includeLegResults: false),
                 timestamp = DateTime.UtcNow.ToString("o")
