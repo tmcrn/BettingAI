@@ -130,7 +130,11 @@ public class DiscordNotificationService
         {
             new
             {
-                title = $"🎰 Nouveau combiné placé ({combo.Legs.Count} matchs)",
+                // Legs.Count counts LEGS, not distinct matches - wrong for a
+                // same-match combo (e.g. HOME_WIN + OVER_GOALS, both legs on
+                // ONE match), which used to say "(2 matchs)" for something
+                // that's really one match. Count distinct match ids instead.
+                title = $"🎰 Nouveau combiné placé ({combo.Legs.Select(l => l.MatchId).Distinct().Count()} matchs)",
                 color = 0x9b59b6, // violet
                 fields = BuildComboFields(combo, includeLegResults: false),
                 timestamp = DateTime.UtcNow.ToString("o")
@@ -175,13 +179,23 @@ public class DiscordNotificationService
     {
         var fields = new List<object>();
 
-        foreach (var leg in combo.Legs)
+        // Group by match - a same-match combo (2+ legs on ONE match, e.g.
+        // HOME_WIN + OVER_GOALS) now shows as a single field naming that one
+        // match with both types joined ("HOME_WIN @ 2.00 + OVER_GOALS @
+        // 2.00"), instead of one field per leg that read as if the combo
+        // spanned two different matches when it's really just one.
+        foreach (var legGroup in combo.Legs.GroupBy(l => l.MatchId))
         {
-            var legLabel = includeLegResults ? $"{leg.Result switch { "WIN" => "✅", "LOSS" => "❌", _ => "⏳" }} " : "";
+            var first = legGroup.First();
+            var typesText = string.Join(" + ", legGroup.Select(leg =>
+            {
+                var legLabel = includeLegResults ? $"{leg.Result switch { "WIN" => "✅", "LOSS" => "❌", _ => "⏳" }} " : "";
+                return $"{legLabel}{leg.BetType} @ {leg.Odds:0.00}";
+            }));
             fields.Add(new
             {
-                name = $"{legLabel}{leg.HomeTeam} vs {leg.AwayTeam}",
-                value = $"{leg.BetType} @ {leg.Odds:0.00}",
+                name = $"{first.HomeTeam} vs {first.AwayTeam}",
+                value = typesText,
                 inline = false
             });
         }
