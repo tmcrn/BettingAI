@@ -66,9 +66,6 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
             req.Matches = new List<FootballMatch>();
         }
 
-        var matchsInfo = string.Join("\n", req.Matches.Select(m =>
-            $"- {m.HomeTeam} vs {m.AwayTeam} [ID: {m.Id}]"));
-
         // 🧠 RÉCUPÈRE LEARNING NOTEBOOK
         var learningResponse = await _httpClient.GetAsync("http://localhost:5255/api/learning-notebook", ct);
         var learningData = await learningResponse.Content.ReadAsStringAsync();
@@ -177,9 +174,6 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
             catch { }
         }
 
-        var oddsInfo = string.Join("\n\n", oddsPerMatch.Select(kv =>
-            $"Match {kv.Key} Odds: {kv.Value}"));
-
         var currentTime = DateTime.UtcNow;
 
         // Stake sizing is tied to the real portfolio balance (already net of
@@ -194,361 +188,393 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
         var medStake = Math.Round(effectiveBankroll * 0.10m, 2);
         var highStake = Math.Round(effectiveBankroll * 0.15m, 2);
 
-        // 🤖 PROMPT INTELLIGENT - AVEC COTES RÉELLES UNIQUEMENT
-        var prompt = $@"CURRENT TIME: {currentTime:yyyy-MM-dd HH:mm:ss} UTC
-
-⚠️ CRITICAL INSTRUCTION: You MUST respond ONLY with valid JSON array. No explanations, no text before or after. Output starts with [ and ends with ]. Any text outside JSON will break parsing.
-
-⚠️ ""reasoning"" FIELD: write it in FRENCH, as a natural, human sentence a person would actually say - not a dump of the raw labels. Never just restate ""ATTACKING EDGE: AWAY, FORM EDGE: EVEN"" verbatim; translate what that means into plain French (e.g. ""Lille encaisse beaucoup moins que Toulouse n'attaque, et les deux équipes sont dans une forme similaire - je pars sur une victoire extérieure""). Ground it in the real numbers, just say it like a person explaining their pick, not a machine echoing variable names.
-
-CURRENT PORTFOLIO BALANCE: {req.CurrentBalance:F2}€ - this already accounts for every euro staked on your OTHER currently-pending bets, it's what's actually available right now, not your original bankroll. Size every stake below off of it.
-
-You are an expert AI sports betting system that learns from experience and diversifies betting types.
-
-" + learningNotebook + @"
-
-DETAILED MATCH ANALYSIS WITH COMPOSITIONS:
-" + analysisInfo + @"
-
-REAL 1X2 ODDS FROM BOOKMAKERS (for context only - these affect payout size on a winning bet, nothing else. A match with no odds listed is perfectly fine to bet on from stats alone; do not skip it and do not treat a listed odds number as a signal about who is favored):
-" + oddsInfo + @"
-
-AVAILABLE MATCHES:
-" + matchsInfo + @"
-
-Each match's analysis above already tells you the ATTACKING EDGE and FORM EDGE (HOME, AWAY, or EVEN) - this is the result of comparing both teams' numbers for you. ATTACKING EDGE weighs each team's own attack against the OTHER team's defense (""expected scoring vs this defense""), not just raw xG head-to-head - it's the more accurate read, so use it directly instead of re-deriving your own from the raw xG/xGA lines above. If ATTACKING EDGE says AWAY, the away team is the one expected to do more damage against this specific opponent, full stop. This applies to ANY bet type that leans on one team's attack, not just who-wins markets: never say a team has the attacking edge, or bet on that team's own goals (HOME_OVER_GOALS/AWAY_OVER_GOALS), when ATTACKING EDGE names the OTHER side - if you want to go against the edges, you need a specific stated reason (H2H, missing key players, fatigue) in your reasoning, not a restated version of the number that contradicts your own pick.
-
-MOMENTUM EDGE is a third, complementary signal: unlike FORM EDGE (a flat win/draw/loss average), it weighs recent results by how BIG the win/loss was and how recent it was - a team that just crushed someone 4-0 has more momentum than one that scraped a 1-0. When a ""Adversaire commun récent"" line is present, both teams have recently played the same third team - read it like you would by hand (e.g. ""Monaco a battu Marseille 2-0, Strasbourg a perdu contre Marseille 4-0"" => Monaco is the side showing more strength against a common measuring stick). Treat MOMENTUM EDGE and the common-opponent note as supporting context that can reinforce ATTACKING EDGE or add real weight to a DRAW/upset pick when it clearly disagrees with it - it's a real signal, not just decoration, but it's noisier than ATTACKING EDGE (different matchday, different context each time), so it doesn't override the hard rule above: you still can't bet a team's own goals or that team winning against what ATTACKING EDGE says without a stated reason.
-
-BET TYPES YOU CAN USE - decide purely from the xG/form/stats data above. Odds (when listed) are NOT a signal to weigh and are NOT required to bet - they only affect the payout of a bet that wins, nothing more. Do not avoid a bet just because a match has no odds listed, and do not let a big/small odds number talk you out of a pick your stats support. You are allowed to take real risks when the stats back it up - these confidence bars are deliberately low, lean toward betting when a match gives you a real read rather than skipping it.
-1. HOME_WIN / AWAY_WIN: which side your stats (xG, xGA, form, H2H) favor, if confidence > 0.45
-2. DRAW: if the two teams look closely matched on stats and confidence > 0.35
-3. HOME_WIN_OR_DRAW / AWAY_WIN_OR_DRAW (double chance): if confidence > 0.50 for the double outcome
-4. BOTH_TEAMS_SCORE: if xGA (both teams) > 1.5 and confidence > 0.45
-5. OVER_GOALS (selection = line, e.g. ""2.5""): if combined xG > line and confidence > 0.45
-6. UNDER_GOALS (selection = line): if combined xG < line and confidence > 0.45
-7. HOME_OVER_GOALS / AWAY_OVER_GOALS (selection = line, e.g. ""1.5""): if that team's OWN xG > line and confidence > 0.45 - this must agree with ATTACKING EDGE (e.g. don't pick HOME_OVER_GOALS when ATTACKING EDGE says AWAY)
-
-Vary stakes by conviction, sized off your CURRENT balance above (not a fixed amount): low confidence (0.35-0.5) ≈ {lowStake}€, medium (0.5-0.65) ≈ {medStake}€, high (0.65+) ≈ {highStake}€. If the balance is low or negative right now (a lot already committed to other pending bets), stay smaller and more selective rather than piling on.
-
-NOT AVAILABLE - do not use, no data source exists for these: PLAYER_SCORER, PLAYER_ASSIST.
-
-COMBO BETS (paris combinés) - an actual tool to reach for, not just a technical option: when you look at this batch of matches and find 2-4 where the stats genuinely support a pick each, combining them into one combo is a legitimate way to swing for a much bigger payout than any single bet could give you - that's the whole point of a combo, and you should propose one whenever you believe the compounded risk is worth what it pays if it lands. Don't hold back on a combo just because the combined odds/probability is low; that's expected and fine, it's still a real risk you can choose to take. Mix ANY of the bet types above freely across legs - not restricted to 1X2 types.
-
-Legs don't have to be on different matches - a SAME-MATCH combo (multiple legs on one match) is a classic move when a single match strongly supports more than one angle: e.g. HOME_WIN + that same team's HOME_OVER_GOALS line (""they win AND they score more than X"") usually pays noticeably better combined than either leg alone. The only hard rule: never put two ""who wins"" legs (HOME_WIN, AWAY_WIN, DRAW, HOME_WIN_OR_DRAW, AWAY_WIN_OR_DRAW) on the same match together - they're either contradictory or redundant with each other. Everything else can be combined with itself across matches or on the same one.
-
-Format:
-{
-  ""type"": ""COMBO"",
-  ""stake"": 0.5,
-  ""confidence"": 0.45,
-  ""reasoning"": ""Rennes est solide à domicile et Le Mans encaisse beaucoup en ce moment - je combine les deux résultats sur ce match"",
-  ""legs"": [
-    { ""matchId"": ""0"", ""type"": ""HOME_WIN"" },
-    { ""matchId"": ""0"", ""type"": ""HOME_OVER_GOALS"", ""selection"": ""2.5"" }
-  ]
-}
-Combo confidence is the product of each leg's individual confidence - keep stakes small (0.3-0.6€) since combined risk is much higher. You can still place separate single bets on other matches in the same batch alongside a combo.
-
-EVALUATE EVERY MATCH INDEPENDENTLY: go through each match in AVAILABLE MATCHES one at a time and judge it entirely on its own - whether match #1 got a bet has zero bearing on whether match #2, #3, etc. also deserve one. Do NOT stop scanning after finding one good bet elsewhere in the list; do NOT treat this as ""pick the single best match of the batch"". If three separate matches each clear the confidence bar for some bet type, that's three bets, not one. The only valid reason to skip a specific match is that MATCH failing every threshold above on its own stats - never because another match already got picked.
-
-DIVERSIFY: Propose different bet types across matches when the stats support them.
-
-RESPONSE FORMAT - ONLY JSON ARRAY, NO TEXT. One array entry per match that clears its threshold - below is an example with TWO separate matches that both qualified, not a cap of one:
-[
-  {
-    ""matchId"": ""0"",
-    ""homeTeam"": ""Rennes"",
-    ""awayTeam"": ""Le Mans"",
-    ""type"": ""HOME_WIN"",
-    ""selection"": null,
-    ""stake"": 1.0,
-    ""confidence"": 0.68,
-    ""reasoning"": ""Rennes attaque beaucoup mieux que Le Mans ne défend, et leur forme récente est excellente - je pars sur une victoire à domicile""
-  },
-  {
-    ""matchId"": ""2"",
-    ""homeTeam"": ""Marseille"",
-    ""awayTeam"": ""Nice"",
-    ""type"": ""OVER_GOALS"",
-    ""selection"": ""2.5"",
-    ""stake"": 0.7,
-    ""confidence"": 0.5,
-    ""reasoning"": ""Les deux équipes attaquent bien en ce moment, un match avec plus de 2.5 buts semble probable""
-  }
-]
-
-REMEMBER: Start with [ immediately. No preamble. No markdown. Just JSON.";
-
-        var jsonResponse = "";
-        var bets = new List<BetDecision>();
         var debugLog = new List<string>();
+        var rawResponses = new List<string>();
+        var savedBets = new List<Bet>();
+        var savedCombos = new List<BetCombo>();
 
-        try
+        // Same dedup/floor tracking as before, now shared ACROSS the per-match
+        // loop below (a bet saved while evaluating match #2 must still be
+        // visible when evaluating match #5, and the balance floor has to
+        // accumulate across the whole cycle, not reset per match).
+        var existingKeys = new HashSet<(string MatchId, string BetType, string? Selection)>(
+            (await _context.Bets.Where(b => b.Result == "PENDING").Select(b => new { b.MatchId, b.BetType, b.Selection }).ToListAsync(ct))
+                .Where(b => b.MatchId != null && b.BetType != null)
+                .Select(b => (b.MatchId!, b.BetType!, b.Selection))
+        );
+        existingKeys.UnionWith(
+            (await _context.ComboLegs.Where(l => l.Result == "PENDING").Select(l => new { l.MatchId, l.BetType, l.Selection }).ToListAsync(ct))
+                .Where(l => l.MatchId != null && l.BetType != null)
+                .Select(l => (l.MatchId!, l.BetType!, l.Selection))
+        );
+
+        // Runaway-batch safety net, not a risk-appetite cap: nothing here
+        // second-guesses a well-reasoned bet, it just stops accepting MORE
+        // new stakes once this single cycle would have driven the balance
+        // implausibly deep into the red. Bets already accepted this cycle
+        // stay accepted.
+        const decimal hardBalanceFloor = -20m;
+        var projectedBalance = req.CurrentBalance;
+
+        // One Ollama call PER MATCH instead of one giant call for the whole
+        // batch - confirmed live that cramming several matches plus the full
+        // rules/examples into one prompt made Mistral cross-contaminate: a
+        // real bet on Toulouse vs Lille came back with reasoning about
+        // "Rennes" and "Le Mans" - the exact team names used in this prompt's
+        // own worked example, copied wholesale instead of reasoning about the
+        // actual match. A short, single-match prompt leaves far less room for
+        // that (and the worked examples below now use obviously-fake
+        // placeholder names instead of real clubs, as a second layer of
+        // protection). Trade-off, accepted deliberately: this drops
+        // multi-match combos (a combo needs to see several matches at once to
+        // combine them) - same-match combos (e.g. HOME_WIN + that team's own
+        // OVER_GOALS line) are unaffected since both legs are still visible
+        // in a single match's prompt.
+        foreach (var match in req.Matches)
         {
-            var client = new HttpClient();
+            if (match.Id == null) continue;
 
+            var matchLabel = $"{match.HomeTeam} vs {match.AwayTeam}";
+            analysisPerMatch.TryGetValue(match.Id, out var matchAnalysis);
+            oddsPerMatch.TryGetValue(match.Id, out var matchOdds);
+
+            var prompt = BuildSingleMatchPrompt(
+                currentTime, req.CurrentBalance, learningNotebook, match,
+                matchAnalysis ?? "Pas de données statistiques disponibles pour ce match.",
+                matchOdds ?? "Pas de cotes réelles disponibles pour ce match.",
+                lowStake, medStake, highStake);
+
+            string? responseText;
             try
             {
-                // Mistral occasionally derails completely and returns prose instead of
-                // the requested JSON array - confirmed live, a response that just said
-                // "Understood. Here's a summary of the rules..." and paraphrased the
-                // prompt's instructions back instead of producing any decisions. That
-                // used to be swallowed silently: bets stayed empty, debugLog only ever
-                // said "GOT RESPONSE | RAW LENGTH: n" with zero indication of why, and
-                // the cycle then reported a "no bet met the criteria" reason that isn't
-                // what actually happened. One retry, since this looks like a random
-                // derailment rather than a deterministic prompt problem - if it fails
-                // twice in a row, at least the real response text is now logged instead
-                // of requiring server-log archaeology to find out what happened.
-                const int maxAttempts = 2;
-                var responseText = "";
+                responseText = await CallOllamaWithRetryAsync(prompt, matchLabel, debugLog, rawResponses, ct);
+            }
+            catch (Exception ex)
+            {
+                debugLog.Add($"[{matchLabel}] ERROR: {ex.Message}");
+                continue;
+            }
 
-                for (var attempt = 1; attempt <= maxAttempts; attempt++)
-                {
-                    var response = await client.PostAsJsonAsync(
-                        "http://localhost:11434/api/generate",
-                        new { model = "mistral", prompt = prompt, stream = false },
-                        cancellationToken: ct
-                    );
+            if (responseText == null) continue; // no JSON array found even after a retry - already logged
 
-                    jsonResponse = await response.Content.ReadAsStringAsync();
-                    debugLog.Add($"GOT RESPONSE (attempt {attempt}/{maxAttempts})");
-
-                    var doc = JsonDocument.Parse(jsonResponse);
-                    responseText = doc.RootElement.GetProperty("response").GetString() ?? "";
-
-                    debugLog.Add($"RAW LENGTH: {responseText.Length}");
-
-                    responseText = responseText.Trim();
-                    responseText = System.Text.RegularExpressions.Regex.Unescape(responseText);
-                    responseText = responseText.Replace("\\n", "").Replace("  ", "");
-
-                    if (responseText.Contains('[') && responseText.LastIndexOf(']') > responseText.IndexOf('['))
-                    {
-                        break;
-                    }
-
-                    var snippet = responseText.Length > 200 ? responseText.Substring(0, 200) + "..." : responseText;
-                    debugLog.Add($"NO JSON ARRAY IN RESPONSE (attempt {attempt}/{maxAttempts}): \"{snippet}\"");
-                }
-
+            List<BetDecision>? betsArray;
+            try
+            {
                 int start = responseText.IndexOf('[');
                 int end = responseText.LastIndexOf(']');
+                if (start < 0 || end <= start) continue;
 
-                if (start >= 0 && end > start)
-                {
-                    var jsonStr = responseText.Substring(start, end - start + 1);
-                    var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-                    var betsArray = JsonSerializer.Deserialize<List<BetDecision>>(jsonStr, options);
-
-                    if (betsArray != null && betsArray.Count > 0)
-                    {
-                        var savedBets = new List<Bet>();
-                        var savedCombos = new List<BetCombo>();
-
-                        // The AI re-evaluates the same still-upcoming matches every cron cycle
-                        // (a match sits in the 1h window across several 45-min cycles as kickoff
-                        // approaches) with no memory of what it already bet - it kept proposing
-                        // the exact same match+type, stacking stakes on an identical position
-                        // several times over. Track every (matchId, betType, selection) already
-                        // PENDING - existing DB rows plus whatever gets saved in this batch - and
-                        // reject an exact repeat rather than trust the prompt to self-police it.
-                        var existingKeys = new HashSet<(string MatchId, string BetType, string? Selection)>(
-                            (await _context.Bets.Where(b => b.Result == "PENDING").Select(b => new { b.MatchId, b.BetType, b.Selection }).ToListAsync(ct))
-                                .Where(b => b.MatchId != null && b.BetType != null)
-                                .Select(b => (b.MatchId!, b.BetType!, b.Selection))
-                        );
-                        existingKeys.UnionWith(
-                            (await _context.ComboLegs.Where(l => l.Result == "PENDING").Select(l => new { l.MatchId, l.BetType, l.Selection }).ToListAsync(ct))
-                                .Where(l => l.MatchId != null && l.BetType != null)
-                                .Select(l => (l.MatchId!, l.BetType!, l.Selection))
-                        );
-
-                        // Runaway-batch safety net, not a risk-appetite cap: nothing here
-                        // second-guesses a well-reasoned bet, it just stops accepting MORE
-                        // new stakes once this single cycle would have driven the balance
-                        // implausibly deep into the red (e.g. a malformed response with far
-                        // too many bets). Bets already accepted this cycle stay accepted.
-                        const decimal hardBalanceFloor = -20m;
-                        var projectedBalance = req.CurrentBalance;
-
-                        foreach (var bet in betsArray)
-                        {
-                            if (bet.Type == "COMBO")
-                            {
-                                if (bet.Legs == null || bet.Legs.Count < 2)
-                                {
-                                    debugLog.Add("COMBO REJECTED: fewer than 2 legs");
-                                    continue; // never falls through to the single-bet path with a null MatchId
-                                }
-
-                                if (projectedBalance - bet.Stake < hardBalanceFloor)
-                                {
-                                    debugLog.Add($"COMBO REJECTED: would push projected balance below {hardBalanceFloor}€ this cycle");
-                                    continue;
-                                }
-
-                                var combo = TryBuildCombo(bet, req.Matches, resolvedOdds, existingKeys, debugLog);
-                                if (combo != null)
-                                {
-                                    _context.BetCombos.Add(combo);
-                                    savedCombos.Add(combo);
-                                    projectedBalance -= combo.Stake;
-                                    foreach (var leg in combo.Legs)
-                                        if (leg.MatchId != null && leg.BetType != null) existingKeys.Add((leg.MatchId, leg.BetType, leg.Selection));
-                                }
-                                continue;
-                            }
-
-                            // The AI echoes back the index-based id we sent it. Resolve it against
-                            // the original request to recover the real match id + kickoff time,
-                            // otherwise settlement can never look the match back up later.
-                            var sourceMatch = req.Matches.FirstOrDefault(m => m.Id == bet.MatchId);
-                            if (sourceMatch?.RealMatchId == null)
-                            {
-                                Console.WriteLine($"⚠️ Could not resolve real match id for AI matchId='{bet.MatchId}' " +
-                                    $"({bet.HomeTeam} vs {bet.AwayTeam}) - this bet may never auto-settle");
-                            }
-
-                            // MatchId is a required column - a bet we truly can't attach to any
-                            // match would fail the whole batch's SaveChanges, so drop it instead.
-                            if (sourceMatch?.RealMatchId == null && bet.MatchId == null)
-                            {
-                                debugLog.Add($"BET REJECTED: no matchId at all ({bet.HomeTeam} vs {bet.AwayTeam})");
-                                continue;
-                            }
-
-                            var effectiveMatchId = sourceMatch?.RealMatchId ?? bet.MatchId!;
-                            var dedupKey = (effectiveMatchId, bet.Type ?? "", bet.Selection);
-                            if (existingKeys.Contains(dedupKey))
-                            {
-                                debugLog.Add($"BET REJECTED: duplicate of an existing PENDING bet " +
-                                    $"({bet.HomeTeam} vs {bet.AwayTeam}, {bet.Type}" +
-                                    $"{(bet.Selection != null ? $" [{bet.Selection}]" : "")})");
-                                continue;
-                            }
-
-                            // The hard "don't bet against your own edge" code guardrail that
-                            // used to sit here has been removed on purpose: the AI is meant to
-                            // be free to bet on any match with any type, including one that
-                            // contradicts ATTACKING EDGE, because part of what it's supposed to
-                            // learn from is being wrong sometimes - blocking that outright was
-                            // second-guessing a pick rather than catching a structural bug.
-                            // ATTACKING EDGE is still computed and shown to it as context in the
-                            // prompt; it's just no longer enforced in code. Duplicate-bet
-                            // prevention (above) and the balance floor (below) stay - those guard
-                            // against real structural/integrity issues, not against risk-taking.
-
-                            if (projectedBalance - bet.Stake < hardBalanceFloor)
-                            {
-                                debugLog.Add($"BET REJECTED: would push projected balance below {hardBalanceFloor}€ this cycle");
-                                continue;
-                            }
-
-                            existingKeys.Add(dedupKey);
-                            projectedBalance -= bet.Stake;
-
-                            var stake = bet.Stake;
-
-                            // Odds are never a gate on the decision - the AI already decided
-                            // purely from stats above. If real 1X2 odds happen to exist for a
-                            // priceable type, resolve them ONLY so settlement can pay out a
-                            // realistic amount; otherwise BetSettlementService falls back to a
-                            // flat 2x multiplier. Missing odds never blocks or caps the bet.
-                            decimal? realOdds = null;
-                            if (bet.MatchId != null && OneXTwoFamilyTypes.Contains(bet.Type ?? "") &&
-                                resolvedOdds.TryGetValue(bet.MatchId, out var o))
-                            {
-                                realOdds = ResolveLegOdds(bet.Type, o);
-                            }
-
-                            var dbBet = new Bet
-                            {
-                                MatchId = effectiveMatchId,
-                                // Prefer our own verified team names over the AI's echo, same
-                                // principle as effectiveMatchId - confirmed live: the model
-                                // wrote matchId "0" (correctly resolving to the real match) but
-                                // paired it with a DIFFERENT match's team names, saving a bet
-                                // attached to the right match yet displaying the wrong one.
-                                HomeTeam = sourceMatch?.HomeTeam ?? bet.HomeTeam,
-                                AwayTeam = sourceMatch?.AwayTeam ?? bet.AwayTeam,
-                                BetType = bet.Type,
-                                Selection = bet.Selection,
-                                Stake = stake,
-                                Confidence = bet.Confidence ?? 0,
-                                Reasoning = bet.Reasoning,
-                                Result = "PENDING",
-                                MatchUtcDate = sourceMatch?.UtcDate,
-                                Odds = realOdds
-                            };
-                            _context.Bets.Add(dbBet);
-                            savedBets.Add(dbBet);
-                        }
-                        await _context.SaveChangesAsync(ct);
-
-                        // Report what was actually PERSISTED, not the AI's raw proposal -
-                        // betsArray still includes anything rejected along the way
-                        // (duplicate of an existing PENDING bet, projected balance floor,
-                        // unresolvable match id...), so echoing it back made the response
-                        // claim a bet was placed even when it had just been silently
-                        // rejected as a duplicate.
-                        bets = savedBets.Select(b => new BetDecision
-                        {
-                            MatchId = b.MatchId,
-                            HomeTeam = b.HomeTeam,
-                            AwayTeam = b.AwayTeam,
-                            Type = b.BetType,
-                            Selection = b.Selection,
-                            Stake = b.Stake,
-                            Confidence = b.Confidence,
-                            Reasoning = b.Reasoning
-                        })
-                        .Concat(savedCombos.Select(c => new BetDecision
-                        {
-                            Type = "COMBO",
-                            Stake = c.Stake,
-                            Confidence = c.Confidence,
-                            Reasoning = c.Reasoning
-                        }))
-                        .ToList();
-                        debugLog.Add($"SAVED {savedBets.Count} bets, {savedCombos.Count} combos");
-
-                        foreach (var savedBet in savedBets)
-                        {
-                            await _discord.NotifyBetPlacedAsync(savedBet);
-                        }
-                        foreach (var savedCombo in savedCombos)
-                        {
-                            await _discord.NotifyComboPlacedAsync(savedCombo);
-                        }
-
-                        // Update learning
-                        await _httpClient.PostAsJsonAsync(
-                            "http://localhost:5255/api/update-learning",
-                            new { betId = 0, result = "PENDING" },
-                            cancellationToken: ct
-                        );
-                    }
-                }
+                var jsonStr = responseText.Substring(start, end - start + 1);
+                var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                betsArray = JsonSerializer.Deserialize<List<BetDecision>>(jsonStr, options);
             }
             catch (Exception parseEx)
             {
-                debugLog.Add($"PARSE ERROR: {parseEx.Message}");
+                debugLog.Add($"[{matchLabel}] PARSE ERROR: {parseEx.Message}");
+                continue;
+            }
+
+            if (betsArray == null || betsArray.Count == 0) continue;
+
+            foreach (var bet in betsArray)
+            {
+                if (bet.Type == "COMBO")
+                {
+                    if (bet.Legs == null || bet.Legs.Count < 2)
+                    {
+                        debugLog.Add($"[{matchLabel}] COMBO REJECTED: fewer than 2 legs");
+                        continue; // never falls through to the single-bet path with a null MatchId
+                    }
+
+                    if (projectedBalance - bet.Stake < hardBalanceFloor)
+                    {
+                        debugLog.Add($"[{matchLabel}] COMBO REJECTED: would push projected balance below {hardBalanceFloor}€ this cycle");
+                        continue;
+                    }
+
+                    var combo = TryBuildCombo(bet, req.Matches, resolvedOdds, existingKeys, debugLog);
+                    if (combo != null)
+                    {
+                        _context.BetCombos.Add(combo);
+                        savedCombos.Add(combo);
+                        projectedBalance -= combo.Stake;
+                        foreach (var leg in combo.Legs)
+                            if (leg.MatchId != null && leg.BetType != null) existingKeys.Add((leg.MatchId, leg.BetType, leg.Selection));
+                    }
+                    continue;
+                }
+
+                // The AI echoes back the index-based id we sent it. Resolve it against
+                // the original request to recover the real match id + kickoff time,
+                // otherwise settlement can never look the match back up later.
+                var sourceMatch = req.Matches.FirstOrDefault(m => m.Id == bet.MatchId);
+                if (sourceMatch?.RealMatchId == null)
+                {
+                    Console.WriteLine($"⚠️ Could not resolve real match id for AI matchId='{bet.MatchId}' " +
+                        $"({bet.HomeTeam} vs {bet.AwayTeam}) - this bet may never auto-settle");
+                }
+
+                // MatchId is a required column - a bet we truly can't attach to any
+                // match would fail the whole batch's SaveChanges, so drop it instead.
+                if (sourceMatch?.RealMatchId == null && bet.MatchId == null)
+                {
+                    debugLog.Add($"[{matchLabel}] BET REJECTED: no matchId at all ({bet.HomeTeam} vs {bet.AwayTeam})");
+                    continue;
+                }
+
+                var effectiveMatchId = sourceMatch?.RealMatchId ?? bet.MatchId!;
+                var dedupKey = (effectiveMatchId, bet.Type ?? "", bet.Selection);
+                if (existingKeys.Contains(dedupKey))
+                {
+                    debugLog.Add($"[{matchLabel}] BET REJECTED: duplicate of an existing PENDING bet " +
+                        $"({bet.Type}{(bet.Selection != null ? $" [{bet.Selection}]" : "")})");
+                    continue;
+                }
+
+                // The hard "don't bet against your own edge" code guardrail that
+                // used to sit here has been removed on purpose: the AI is meant to
+                // be free to bet on any match with any type, including one that
+                // contradicts ATTACKING EDGE, because part of what it's supposed to
+                // learn from is being wrong sometimes - blocking that outright was
+                // second-guessing a pick rather than catching a structural bug.
+                // ATTACKING EDGE is still computed and shown to it as context in the
+                // prompt; it's just no longer enforced in code. Duplicate-bet
+                // prevention (above) and the balance floor (below) stay - those guard
+                // against real structural/integrity issues, not against risk-taking.
+
+                if (projectedBalance - bet.Stake < hardBalanceFloor)
+                {
+                    debugLog.Add($"[{matchLabel}] BET REJECTED: would push projected balance below {hardBalanceFloor}€ this cycle");
+                    continue;
+                }
+
+                existingKeys.Add(dedupKey);
+                projectedBalance -= bet.Stake;
+
+                // Odds are never a gate on the decision - the AI already decided
+                // purely from stats above. If real 1X2 odds happen to exist for a
+                // priceable type, resolve them ONLY so settlement can pay out a
+                // realistic amount; otherwise BetSettlementService falls back to a
+                // flat 2x multiplier. Missing odds never blocks or caps the bet.
+                decimal? realOdds = null;
+                if (bet.MatchId != null && OneXTwoFamilyTypes.Contains(bet.Type ?? "") &&
+                    resolvedOdds.TryGetValue(bet.MatchId, out var o))
+                {
+                    realOdds = ResolveLegOdds(bet.Type, o);
+                }
+
+                var dbBet = new Bet
+                {
+                    MatchId = effectiveMatchId,
+                    // Prefer our own verified team names over the AI's echo, same
+                    // principle as effectiveMatchId - confirmed live: the model
+                    // wrote matchId "0" (correctly resolving to the real match) but
+                    // paired it with a DIFFERENT match's team names, saving a bet
+                    // attached to the right match yet displaying the wrong one.
+                    HomeTeam = sourceMatch?.HomeTeam ?? bet.HomeTeam,
+                    AwayTeam = sourceMatch?.AwayTeam ?? bet.AwayTeam,
+                    BetType = bet.Type,
+                    Selection = bet.Selection,
+                    Stake = bet.Stake,
+                    Confidence = bet.Confidence ?? 0,
+                    Reasoning = bet.Reasoning,
+                    Result = "PENDING",
+                    MatchUtcDate = sourceMatch?.UtcDate,
+                    Odds = realOdds
+                };
+                _context.Bets.Add(dbBet);
+                savedBets.Add(dbBet);
             }
         }
-        catch (Exception ex)
+
+        await _context.SaveChangesAsync(ct);
+
+        // Report what was actually PERSISTED, not the AI's raw proposal -
+        // rejections along the way (duplicate of an existing PENDING bet,
+        // projected balance floor, unresolvable match id...) never make it
+        // into savedBets/savedCombos, so this can't misreport a rejected bet
+        // as placed.
+        var bets = savedBets.Select(b => new BetDecision
         {
-            debugLog.Add($"ERROR: {ex.Message}");
+            MatchId = b.MatchId,
+            HomeTeam = b.HomeTeam,
+            AwayTeam = b.AwayTeam,
+            Type = b.BetType,
+            Selection = b.Selection,
+            Stake = b.Stake,
+            Confidence = b.Confidence,
+            Reasoning = b.Reasoning
+        })
+        .Concat(savedCombos.Select(c => new BetDecision
+        {
+            Type = "COMBO",
+            Stake = c.Stake,
+            Confidence = c.Confidence,
+            Reasoning = c.Reasoning
+        }))
+        .ToList();
+        debugLog.Add($"SAVED {savedBets.Count} bets, {savedCombos.Count} combos");
+
+        foreach (var savedBet in savedBets)
+        {
+            await _discord.NotifyBetPlacedAsync(savedBet);
+        }
+        foreach (var savedCombo in savedCombos)
+        {
+            await _discord.NotifyComboPlacedAsync(savedCombo);
+        }
+
+        if (savedBets.Count > 0 || savedCombos.Count > 0)
+        {
+            await _httpClient.PostAsJsonAsync(
+                "http://localhost:5255/api/update-learning",
+                new { betId = 0, result = "PENDING" },
+                cancellationToken: ct
+            );
         }
 
         await Send.OkAsync(new DecideBetsResponse
         {
             Bets = bets,
-            AiThinking = jsonResponse,
+            AiThinking = string.Join("\n---\n", rawResponses),
             AnalysisUsed = string.Join(" | ", debugLog),
             StatsAnalysis = analysisInfo
         });
+    }
+
+    // Calls Ollama for a single match's prompt, retrying once if the response
+    // contains no JSON array at all. Mistral occasionally derails completely
+    // and returns prose instead of the requested JSON (e.g. "Understood,
+    // here's a summary of the rules...") - confirmed live. That used to be
+    // swallowed silently with zero indication of why; now a snippet of the
+    // actual response text is logged when it fails so this is diagnosable
+    // from AnalysisUsed directly instead of requiring journalctl archaeology.
+    // Returns the extracted, trimmed response text once it contains a JSON
+    // array, or null if both attempts failed to produce one.
+    private static async Task<string?> CallOllamaWithRetryAsync(
+        string prompt, string matchLabel, List<string> debugLog, List<string> rawResponses, CancellationToken ct)
+    {
+        const int maxAttempts = 2;
+        var client = new HttpClient();
+        var responseText = "";
+
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            var response = await client.PostAsJsonAsync(
+                "http://localhost:11434/api/generate",
+                new { model = "mistral", prompt = prompt, stream = false },
+                cancellationToken: ct
+            );
+
+            var jsonResponse = await response.Content.ReadAsStringAsync();
+            rawResponses.Add(jsonResponse);
+            debugLog.Add($"[{matchLabel}] GOT RESPONSE (attempt {attempt}/{maxAttempts})");
+
+            var doc = JsonDocument.Parse(jsonResponse);
+            responseText = doc.RootElement.GetProperty("response").GetString() ?? "";
+            debugLog.Add($"[{matchLabel}] RAW LENGTH: {responseText.Length}");
+
+            responseText = responseText.Trim();
+            responseText = System.Text.RegularExpressions.Regex.Unescape(responseText);
+            responseText = responseText.Replace("\\n", "").Replace("  ", "");
+
+            if (responseText.Contains('[') && responseText.LastIndexOf(']') > responseText.IndexOf('['))
+            {
+                return responseText;
+            }
+
+            var snippet = responseText.Length > 200 ? responseText.Substring(0, 200) + "..." : responseText;
+            debugLog.Add($"[{matchLabel}] NO JSON ARRAY IN RESPONSE (attempt {attempt}/{maxAttempts}): \"{snippet}\"");
+        }
+
+        return null;
+    }
+
+    // Builds the prompt for evaluating exactly ONE match. Deliberately short
+    // and focused - see the "one Ollama call PER MATCH" comment above the
+    // call site for why. The worked examples below use obviously-fake
+    // placeholder team names ("Équipe Domicile"/"Équipe Extérieur") rather
+    // than real club names, so that even if Mistral falls back to echoing an
+    // example instead of reasoning about the real match, it's immediately
+    // obvious in the output rather than silently looking like a real (wrong)
+    // pick - that's exactly how the "Rennes"/"Le Mans" contamination bug was
+    // spotted, and a placeholder that can never pass for a real team name
+    // closes it off at the source.
+    private static string BuildSingleMatchPrompt(
+        DateTime currentTime, decimal currentBalance, string learningNotebook,
+        FootballMatch match, string matchAnalysis, string matchOdds,
+        decimal lowStake, decimal medStake, decimal highStake)
+    {
+        return $@"CURRENT TIME: {currentTime:yyyy-MM-dd HH:mm:ss} UTC
+
+⚠️ CRITICAL INSTRUCTION: You MUST respond ONLY with a valid JSON array. No explanations, no text before or after. Output starts with [ and ends with ]. An EMPTY array [] is a perfectly valid, complete answer if this match doesn't clear any threshold below - never respond with prose, a summary of these rules, or anything else instead of JSON.
+
+⚠️ ""reasoning"" FIELD: write it in FRENCH, as a natural, human sentence a person would actually say - not a dump of the raw labels. Never just restate ""ATTACKING EDGE: AWAY, FORM EDGE: EVEN"" verbatim; translate what that means into plain French. Ground it in the real numbers for THIS match, just say it like a person explaining their pick, not a machine echoing variable names.
+
+CURRENT PORTFOLIO BALANCE: {currentBalance:F2}€ - this already accounts for every euro staked on your other currently-pending bets, it's what's actually available right now. Size your stake off of it.
+
+You are an expert AI sports betting system that learns from experience. You are being asked to evaluate exactly ONE match right now - there is no other match in this decision, focus entirely on it.
+
+{learningNotebook}
+
+MATCH TO EVALUATE: {match.HomeTeam} vs {match.AwayTeam} [ID: {match.Id}]
+
+MATCH ANALYSIS:
+{matchAnalysis}
+
+REAL 1X2 ODDS FROM BOOKMAKERS (for context only - these affect payout size on a winning bet, nothing else. No odds listed is perfectly fine to bet on from stats alone; do not skip it and do not treat a listed odds number as a signal about who is favored):
+{matchOdds}
+
+The analysis above already tells you the ATTACKING EDGE and FORM EDGE (HOME, AWAY, or EVEN) - the result of comparing both teams' numbers for you. ATTACKING EDGE weighs each team's own attack against the OTHER team's defense (""expected scoring vs this defense""), not just raw xG head-to-head - use it directly instead of re-deriving your own from the raw xG/xGA lines above. If ATTACKING EDGE says AWAY, the away team is the one expected to do more damage against this specific opponent, full stop. This applies to ANY bet type that leans on one team's attack, not just who-wins markets: never say a team has the attacking edge, or bet on that team's own goals (HOME_OVER_GOALS/AWAY_OVER_GOALS), when ATTACKING EDGE names the OTHER side - if you want to go against the edges, you need a specific stated reason (H2H, missing key players, fatigue) in your reasoning, not a restated version of the number that contradicts your own pick.
+
+MOMENTUM EDGE is a third, complementary signal: unlike FORM EDGE (a flat win/draw/loss average), it weighs recent results by how BIG the win/loss was and how recent it was - a team that just crushed someone 4-0 has more momentum than one that scraped a 1-0. When an ""Adversaire commun récent"" line is present, both teams have recently played the same third team - read it like you would by hand (e.g. ""Monaco a battu Marseille 2-0, Strasbourg a perdu contre Marseille 4-0"" => Monaco is the side showing more strength against a common measuring stick). Treat MOMENTUM EDGE and the common-opponent note as supporting context that can reinforce ATTACKING EDGE or add real weight to a DRAW/upset pick when it clearly disagrees with it - it's a real signal, not just decoration, but it's noisier than ATTACKING EDGE, so it doesn't override the hard rule above.
+
+BET TYPES YOU CAN USE - decide purely from the xG/form/stats data above. Odds (when listed) are NOT a signal to weigh and are NOT required to bet - they only affect the payout of a bet that wins, nothing more. You are allowed to take real risks when the stats back it up - these confidence bars are deliberately low, lean toward betting when this match gives you a real read rather than skipping it.
+1. HOME_WIN / AWAY_WIN: which side the stats (xG, xGA, form, H2H) favor, if confidence > 0.45
+2. DRAW: if the two teams look closely matched on stats and confidence > 0.35
+3. HOME_WIN_OR_DRAW / AWAY_WIN_OR_DRAW (double chance): if confidence > 0.50 for the double outcome
+4. BOTH_TEAMS_SCORE: if xGA (both teams) > 1.5 and confidence > 0.45
+5. OVER_GOALS (selection = line, e.g. ""2.5""): if combined xG > line and confidence > 0.45
+6. UNDER_GOALS (selection = line): if combined xG < line and confidence > 0.45
+7. HOME_OVER_GOALS / AWAY_OVER_GOALS (selection = line, e.g. ""1.5""): if that team's OWN xG > line and confidence > 0.45 - this must agree with ATTACKING EDGE
+
+NOT AVAILABLE - do not use, no data source exists for these: PLAYER_SCORER, PLAYER_ASSIST.
+
+Stake, sized off your CURRENT balance above (not a fixed amount): low confidence (0.35-0.5) ≈ {lowStake}€, medium (0.5-0.65) ≈ {medStake}€, high (0.65+) ≈ {highStake}€. If the balance is low or negative right now, stay smaller and more selective.
+
+SAME-MATCH COMBO (optional): since you're only looking at one match, a combo here means multiple legs on THIS match - e.g. HOME_WIN + this team's own HOME_OVER_GOALS line (""they win AND they score more than X""), which usually pays noticeably better combined than either leg alone. Only propose this when both legs are genuinely supported by the stats above. The only hard rule: never put two ""who wins"" legs (HOME_WIN, AWAY_WIN, DRAW, HOME_WIN_OR_DRAW, AWAY_WIN_OR_DRAW) together - they're either contradictory or redundant.
+
+RESPONSE FORMAT - ONLY JSON ARRAY, NO TEXT. Zero entries ([]) if this match doesn't clear any threshold; otherwise exactly one entry (a single bet, or one COMBO object). matchId in your response must always be exactly ""{match.Id}"" - never invent or borrow a different one.
+
+A single bet looks like:
+[
+  {{
+    ""matchId"": ""{match.Id}"",
+    ""homeTeam"": ""Équipe Domicile"",
+    ""awayTeam"": ""Équipe Extérieur"",
+    ""type"": ""HOME_WIN"",
+    ""selection"": null,
+    ""stake"": 1.0,
+    ""confidence"": 0.68,
+    ""reasoning"": ""Phrase en français expliquant le pari à partir des vrais chiffres ci-dessus""
+  }}
+]
+
+A same-match combo looks like:
+[
+  {{
+    ""type"": ""COMBO"",
+    ""stake"": 0.5,
+    ""confidence"": 0.45,
+    ""reasoning"": ""Phrase en français expliquant pourquoi les deux résultats sont combinés"",
+    ""legs"": [
+      {{ ""matchId"": ""{match.Id}"", ""type"": ""HOME_WIN"" }},
+      {{ ""matchId"": ""{match.Id}"", ""type"": ""HOME_OVER_GOALS"", ""selection"": ""2.5"" }}
+    ]
+  }}
+]
+
+REMEMBER: Start with [ immediately. No preamble. No markdown. Just JSON. [] is a valid, complete, correct answer.";
     }
 
     private static (decimal home, decimal draw, decimal away)? ParseOneXTwoOdds(string? oddsJson)
