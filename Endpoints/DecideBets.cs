@@ -176,18 +176,6 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
 
         var currentTime = DateTime.UtcNow;
 
-        // Stake sizing is tied to the real portfolio balance (already net of
-        // every other PENDING bet's stake - see AutoDecideBets) rather than
-        // fixed euro amounts, so it naturally shrinks when a lot is already
-        // committed and grows when the bankroll is healthy. A floor keeps
-        // this from collapsing to near-zero stakes while the balance is
-        // temporarily negative purely from other bets still being PENDING
-        // (they may still win and bring it back up).
-        var effectiveBankroll = Math.Max(req.CurrentBalance, 2m);
-        var lowStake = Math.Round(effectiveBankroll * 0.05m, 2);
-        var medStake = Math.Round(effectiveBankroll * 0.10m, 2);
-        var highStake = Math.Round(effectiveBankroll * 0.15m, 2);
-
         var debugLog = new List<string>();
         var rawResponses = new List<string>();
         var savedBets = new List<Bet>();
@@ -238,8 +226,22 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
             analysisPerMatch.TryGetValue(match.Id, out var matchAnalysis);
             oddsPerMatch.TryGetValue(match.Id, out var matchOdds);
 
+            // Recomputed from projectedBalance (not the original req.CurrentBalance)
+            // on every iteration - confirmed live gap: with 8 matches evaluated in
+            // sequence, matches #2 onward were still being shown the SAME starting
+            // balance even after earlier matches in this exact cycle had already
+            // committed stakes against it, so the model had no way to know its
+            // "current" balance was shrinking as the cycle went on. A floor keeps
+            // this from collapsing to near-zero stakes while temporarily negative
+            // purely from other bets still being PENDING (they may still win and
+            // bring it back up).
+            var effectiveBankroll = Math.Max(projectedBalance, 2m);
+            var lowStake = Math.Round(effectiveBankroll * 0.05m, 2);
+            var medStake = Math.Round(effectiveBankroll * 0.10m, 2);
+            var highStake = Math.Round(effectiveBankroll * 0.15m, 2);
+
             var prompt = BuildSingleMatchPrompt(
-                currentTime, req.CurrentBalance, learningNotebook, match,
+                currentTime, projectedBalance, learningNotebook, match,
                 matchAnalysis ?? "Pas de données statistiques disponibles pour ce match.",
                 matchOdds ?? "Pas de cotes réelles disponibles pour ce match.",
                 lowStake, medStake, highStake);
@@ -538,13 +540,15 @@ BET TYPES YOU CAN USE - decide purely from the xG/form/stats data above. Odds (w
 6. UNDER_GOALS (selection = line): if combined xG < line and confidence > 0.45
 7. HOME_OVER_GOALS / AWAY_OVER_GOALS (selection = line, e.g. ""1.5""): if that team's OWN xG > line and confidence > 0.45 - this must agree with ATTACKING EDGE
 
+Goal-total markets (OVER_GOALS/UNDER_GOALS/BOTH_TEAMS_SCORE/HOME_OVER_GOALS/AWAY_OVER_GOALS) are their own independent read on the match, not a fallback for when you can't decide a winner - don't default to only a who-wins pick out of habit. Whenever the combined or per-team xG numbers above clearly clear a goals threshold, that's just as much a real signal as the win/draw read, and it's fine (encouraged, even) to bet BOTH a who-wins type AND a goals-total type on the same match when the stats genuinely support each independently - either as two separate entries in your response, or as a same-match combo (see below).
+
 NOT AVAILABLE - do not use, no data source exists for these: PLAYER_SCORER, PLAYER_ASSIST.
 
 Stake, sized off your CURRENT balance above (not a fixed amount): low confidence (0.35-0.5) ≈ {lowStake}€, medium (0.5-0.65) ≈ {medStake}€, high (0.65+) ≈ {highStake}€. If the balance is low or negative right now, stay smaller and more selective.
 
-SAME-MATCH COMBO (optional): since you're only looking at one match, a combo here means multiple legs on THIS match - e.g. HOME_WIN + this team's own HOME_OVER_GOALS line (""they win AND they score more than X""), which usually pays noticeably better combined than either leg alone. Only propose this when both legs are genuinely supported by the stats above. The only hard rule: never put two ""who wins"" legs (HOME_WIN, AWAY_WIN, DRAW, HOME_WIN_OR_DRAW, AWAY_WIN_OR_DRAW) together - they're either contradictory or redundant.
+SAME-MATCH COMBO (optional): since you're only looking at one match, a combo here means multiple legs on THIS match - e.g. HOME_WIN + that same team's HOME_OVER_GOALS line (""they win AND they score more than X""), which usually pays noticeably better combined than either leg alone. Only propose this when both legs are genuinely supported by the stats above. The only hard rule: never put two ""who wins"" legs (HOME_WIN, AWAY_WIN, DRAW, HOME_WIN_OR_DRAW, AWAY_WIN_OR_DRAW) together - they're either contradictory or redundant.
 
-RESPONSE FORMAT - ONLY JSON ARRAY, NO TEXT. Zero entries ([]) if this match doesn't clear any threshold; otherwise exactly one entry (a single bet, or one COMBO object). matchId in your response must always be exactly ""{match.Id}"" - never invent or borrow a different one.
+RESPONSE FORMAT - ONLY JSON ARRAY, NO TEXT. Zero entries ([]) if this match doesn't clear any threshold. Otherwise, one or two entries: a single bet, one COMBO object, or (per the goal-total note above) two independent single-bet entries of different types on this same match - one who-wins type and one goals-total type, each with its own stake/confidence/reasoning. matchId in your response must always be exactly ""{match.Id}"" - never invent or borrow a different one.
 
 A single bet looks like:
 [
