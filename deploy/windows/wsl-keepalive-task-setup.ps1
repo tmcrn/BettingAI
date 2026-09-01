@@ -7,17 +7,33 @@
 # client detaching, despite that setting) - a permanently-attached client
 # sidesteps the whole idle-shutdown mechanism instead of depending on it.
 #
-# Run this ONCE from an elevated PowerShell. The task itself needs no
-# further attention afterwards - Windows starts it at boot and keeps it
-# running (with a restart-on-failure policy) with no visible window.
+# Run this ONCE from an elevated PowerShell, logged in as the same Windows
+# user that owns the "Ubuntu" WSL registration (timothecernon). The task
+# itself needs no further attention afterwards - Windows starts it at
+# logon and keeps it running (with a restart-on-failure policy) with no
+# visible window.
+#
+# Must run as THIS user, not SYSTEM: WSL distro registrations are
+# per-user (under that user's profile), so a task running as SYSTEM
+# doesn't see "Ubuntu" at all - confirmed live: with -UserId SYSTEM the
+# "sleep infinity" client never actually attached to anything, and the
+# VM kept stopping within seconds exactly as before. Trigger is AtLogOn
+# (not AtStartup) for the same reason - SYSTEM starts before any user
+# profile is loaded, this task needs the user's own session context.
 
 $ErrorActionPreference = 'Stop'
 
+# Remove any previous (broken, SYSTEM-based) registration of this task
+# before re-registering - Register-ScheduledTask fails if one already
+# exists under this name.
+Unregister-ScheduledTask -TaskName "BettingAI-WSLKeepAlive" -Confirm:$false -ErrorAction SilentlyContinue
+
 $action = New-ScheduledTaskAction -Execute 'wsl.exe' -Argument '-- sleep infinity'
 
-$trigger = New-ScheduledTaskTrigger -AtStartup
+$currentUser = "$env:USERDOMAIN\$env:USERNAME"
+$trigger = New-ScheduledTaskTrigger -AtLogOn -User $currentUser
 
-$principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -RunLevel Highest
+$principal = New-ScheduledTaskPrincipal -UserId $currentUser -LogonType Interactive -RunLevel Limited
 
 # ExecutionTimeLimit defaults to 3 days for scheduled tasks - without
 # overriding it to zero (= unlimited), Windows would silently kill this
