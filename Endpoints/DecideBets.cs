@@ -428,7 +428,7 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
                     Result = "PENDING"
                 });
                 combo.CombinedOdds *= effectiveOutcomeOdds;
-                combo.Confidence *= outcomeBet.Confidence;
+                combo.Confidence = CombineConfidence(combo.Confidence, outcomeBet.Confidence);
                 combo.Reasoning = $"{outcomeBet.Reasoning} | {combo.Reasoning}";
                 // The combo's stake doesn't grow just because it picked up a
                 // third leg - refund what was provisionally deducted for the
@@ -464,7 +464,7 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
             var mergedCombo = new BetCombo
             {
                 Stake = Math.Min(outcomeBet.Stake, goalsBet.Stake),
-                Confidence = outcomeBet.Confidence * goalsBet.Confidence,
+                Confidence = CombineConfidence(outcomeBet.Confidence, goalsBet.Confidence),
                 Reasoning = $"{outcomeBet.Reasoning} | {goalsBet.Reasoning}",
                 CombinedOdds = outcomeLegOdds * goalsLegOdds,
                 Result = "PENDING",
@@ -600,6 +600,21 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
             StatsAnalysis = analysisInfo
         });
     }
+
+    // Combo confidence is supposed to be the product of each leg's own
+    // confidence - but confirmed live: a merged combo showed "0%" while
+    // every other ticket that cycle showed a normal 34-46%, because one leg
+    // had Confidence == 0. Bet.Confidence is a non-nullable decimal (Bet.cs)
+    // that defaults to 0 when the AI's JSON omits or nulls the field - the
+    // same category of gap as the reasoning:null fix, just for a number
+    // instead of a string, and a genuinely-intended 0 could never have
+    // reached here anyway (every bet type requires confidence > 0.35-0.5 to
+    // be proposed at all). Multiplying by that 0 silently wiped out an
+    // otherwise real confidence from the OTHER leg instead of surfacing the
+    // gap. Treat a 0 leg as "unknown" and fall back to whichever leg's
+    // confidence IS known, rather than letting it zero out the product.
+    private static decimal CombineConfidence(decimal a, decimal b) =>
+        a > 0 && b > 0 ? a * b : Math.Max(a, b);
 
     // Stake sizing is tied to the real portfolio balance (already net of
     // every other PENDING bet's stake, including ones just placed earlier in
