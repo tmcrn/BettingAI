@@ -24,7 +24,7 @@ $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -RunLevel Highest
 # "forever" process after 3 days and the VM would start idling out again.
 # RestartCount/RestartInterval bring it back automatically if it ever does
 # get killed (e.g. a Windows update interrupting it).
-$settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -DontStopOnIdleEnd -AllowStartIfOnBattery -DontStopIfGoingOnBatteries
+$settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -DontStopOnIdleEnd -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
 
 Register-ScheduledTask -TaskName "BettingAI-WSLKeepAlive" -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Description "Garde un client WSL2 attaché en permanence pour empêcher l'auto-shutdown du VM (nécessaire pour bettingai.service)"
 
