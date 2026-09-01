@@ -74,7 +74,14 @@ public class AutoDecideBetsEndpoint : Endpoint<AutoDecideBetsRequest, AutoDecide
             // elapsing" on a real cycle, silently killing the whole batch instead
             // of just one slow call. Must be set before this client makes its
             // first request this instance (HttpClient throws if changed after).
-            _httpClient.Timeout = TimeSpan.FromMinutes(10);
+            //
+            // Raised from 10 to 60 minutes after switching the default local
+            // model to qwen2.5:32b-instruct - confirmed live at ~35-47s per
+            // Ollama call (vs ~7s for the 7B model), two calls per match. A
+            // full daily cycle can see 15-25 matches (30-50 calls), which at
+            // worst-case ~45s/call is ~35-40 minutes - 10 minutes was no
+            // longer enough margin.
+            _httpClient.Timeout = TimeSpan.FromMinutes(60);
 
             // 0️⃣ Règle d'abord les paris d'hier (ou de plus tôt aujourd'hui) avant de
             // décider les nouveaux - le LearningNotebook reflète les vrais résultats

@@ -725,7 +725,13 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
         // giving up on the first refused connection.
         const int maxConnectionRetries = 3;
         var connectionRetryDelay = TimeSpan.FromSeconds(10);
-        var client = new HttpClient();
+        // Default HttpClient.Timeout (100s) was already close to being hit by
+        // a single qwen2.5:32b-instruct call alone (confirmed live at up to
+        // ~47s) - under real load (bigger prompt, concurrent GC) that margin
+        // isn't safe. 5 minutes covers a single call with real headroom; the
+        // 60-minute budget in AutoDecideBetsEndpoint is what actually bounds
+        // the whole cycle across many calls.
+        var client = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
         var responseText = "";
 
         for (var attempt = 1; attempt <= maxAttempts; attempt++)
