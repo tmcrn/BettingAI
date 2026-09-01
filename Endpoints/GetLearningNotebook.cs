@@ -13,6 +13,14 @@ public class GetLearningNotebookResponse
 
 public class GetLearningNotebookEndpoint : EndpointWithoutRequest<GetLearningNotebookResponse>
 {
+    // Below this many settled (WIN/LOSS) bets, any specific-sounding
+    // percentage or recommendation is statistical noise dressed up as a
+    // finding - a handful of results can swing 0% to 100% on nothing more
+    // than luck. Below the bar, say plainly that there isn't enough data yet
+    // rather than stating a confident-looking "pattern" from 2-3 bets.
+    private const int MinSampleForPattern = 3;
+    private const int MinSampleForStrategy = 8;
+
     private readonly BettingContext _context;
 
     public GetLearningNotebookEndpoint(BettingContext context)
@@ -33,27 +41,100 @@ public class GetLearningNotebookEndpoint : EndpointWithoutRequest<GetLearningNot
 
         var wonBets = bets.Where(b => b.Result == "WIN").ToList();
         var lostBets = bets.Where(b => b.Result == "LOSS").ToList();
+        var settledBets = wonBets.Concat(lostBets).ToList();
 
-        // Patterns de victoire
+        // Patterns de victoire - only stated once there's a real sample,
+        // never off a single lucky bet.
         var winPatterns = new List<string>();
-        if (wonBets.Count > 0)
+        if (wonBets.Count >= MinSampleForPattern)
         {
-            var highConfidenceWins = wonBets.Where(b => b.Confidence > 0.7m).Count();
-            winPatterns.Add($"✓ Confiance > 0.7: {(highConfidenceWins * 100 / Math.Max(1, wonBets.Count))}% victoires");
+            var highConfidenceWins = wonBets.Count(b => b.Confidence > 0.7m);
+            winPatterns.Add($"✓ Confiance > 0.7: {(highConfidenceWins * 100 / Math.Max(1, wonBets.Count))}% des victoires (sur {wonBets.Count} paris gagnés)");
 
-            var homeWins = wonBets.Count(b => b.BetType == "HOME_WIN");
-            winPatterns.Add($"✓ HOME_WIN: {(homeWins * 100 / Math.Max(1, bets.Count(b => b.BetType == "HOME_WIN")))}% de réussite");
+            var homeWinAttempts = bets.Count(b => b.BetType == "HOME_WIN");
+            if (homeWinAttempts >= MinSampleForPattern)
+            {
+                var homeWins = wonBets.Count(b => b.BetType == "HOME_WIN");
+                winPatterns.Add($"✓ HOME_WIN: {(homeWins * 100 / homeWinAttempts)}% de réussite (sur {homeWinAttempts} paris)");
+            }
         }
 
-        // Patterns de défaite
+        // Patterns de défaite - same discipline. The "Éviter DRAW" line used
+        // to be hardcoded regardless of the actual drawLosses count computed
+        // right above it (that count was calculated and then thrown away) -
+        // now it only appears when DRAW bets have actually underperformed.
         var lossPatterns = new List<string>();
-        if (lostBets.Count > 0)
+        if (lostBets.Count >= MinSampleForPattern)
         {
-            var lowConfidenceLosses = lostBets.Where(b => b.Confidence < 0.6m).Count();
-            lossPatterns.Add($"✗ Confiance < 0.6: {(lowConfidenceLosses * 100 / Math.Max(1, lostBets.Count))}% pertes");
+            var lowConfidenceLosses = lostBets.Count(b => b.Confidence < 0.6m);
+            lossPatterns.Add($"✗ Confiance < 0.6: {(lowConfidenceLosses * 100 / Math.Max(1, lostBets.Count))}% des pertes (sur {lostBets.Count} paris perdus)");
 
-            var drawLosses = lostBets.Count(b => b.BetType == "DRAW");
-            lossPatterns.Add($"✗ Éviter DRAW sur petites équipes");
+            var drawAttempts = bets.Count(b => b.BetType == "DRAW");
+            if (drawAttempts >= MinSampleForPattern)
+            {
+                var drawLosses = lostBets.Count(b => b.BetType == "DRAW");
+                var drawLossRate = drawLosses * 100 / drawAttempts;
+                if (drawLossRate >= 60)
+                {
+                    lossPatterns.Add($"✗ DRAW: {drawLossRate}% de pertes (sur {drawAttempts} paris) - à éviter jusqu'à nouvel ordre");
+                }
+            }
+        }
+
+        // STRATÉGIE RECOMMANDÉE - used to be 4 hardcoded lines, always
+        // identical regardless of actual results, fed to the AI every cycle
+        // as if it were learned guidance. Now genuinely derived from settled
+        // results: a confidence-threshold comparison and the best/worst
+        // performing bet types, each only stated with a real sample behind
+        // it, with the sample size always shown so it's never mistaken for
+        // more certainty than it has.
+        var strategyLines = new List<string>();
+        if (settledBets.Count < MinSampleForStrategy)
+        {
+            strategyLines.Add($"Pas encore assez de paris réglés pour une stratégie fiable ({settledBets.Count}/{MinSampleForStrategy} minimum) - continuer à parier normalement, la stratégie se construira au fil des résultats réels.");
+        }
+        else
+        {
+            var sortedByConf = settledBets.OrderBy(b => b.Confidence).ToList();
+            var medianConf = sortedByConf[sortedByConf.Count / 2].Confidence;
+            var aboveMedian = settledBets.Where(b => b.Confidence >= medianConf).ToList();
+            var belowMedian = settledBets.Where(b => b.Confidence < medianConf).ToList();
+            if (aboveMedian.Count >= MinSampleForPattern && belowMedian.Count >= MinSampleForPattern)
+            {
+                var aboveRate = aboveMedian.Count(b => b.Result == "WIN") * 100m / aboveMedian.Count;
+                var belowRate = belowMedian.Count(b => b.Result == "WIN") * 100m / belowMedian.Count;
+                if (Math.Abs(aboveRate - belowRate) >= 10m)
+                {
+                    strategyLines.Add(aboveRate > belowRate
+                        ? $"Privilégier confiance ≥ {medianConf:0.00} ({aboveRate:0}% de réussite sur {aboveMedian.Count} paris, contre {belowRate:0}% en dessous sur {belowMedian.Count})"
+                        : $"La confiance affichée n'est pas fiable pour l'instant (≥ {medianConf:0.00}: {aboveRate:0}% sur {aboveMedian.Count} vs < {medianConf:0.00}: {belowRate:0}% sur {belowMedian.Count}) - rester sélectif sur d'autres critères que la confiance seule");
+                }
+            }
+
+            var byType = settledBets
+                .Where(b => b.BetType != null)
+                .GroupBy(b => b.BetType!)
+                .Select(g => new { Type = g.Key, N = g.Count(), WinRate = g.Count(b => b.Result == "WIN") * 100m / g.Count() })
+                .Where(t => t.N >= MinSampleForPattern)
+                .OrderByDescending(t => t.WinRate)
+                .ToList();
+
+            if (byType.Count > 0)
+            {
+                var best = byType[0];
+                strategyLines.Add($"Meilleur type jusqu'ici: {best.Type} ({best.WinRate:0}% de réussite sur {best.N} paris)");
+
+                var worst = byType[^1];
+                if (byType.Count > 1 && worst.WinRate < 40m)
+                {
+                    strategyLines.Add($"À surveiller: {worst.Type} ({worst.WinRate:0}% de réussite sur {worst.N} paris) - performance faible jusqu'ici");
+                }
+            }
+
+            if (strategyLines.Count == 0)
+            {
+                strategyLines.Add($"{settledBets.Count} paris réglés mais aucun sous-groupe encore assez large pour une recommandation spécifique - continuer à observer.");
+            }
         }
 
         var learning = $@"🧠 LEARNING NOTEBOOK - Mémoire IA
@@ -71,10 +152,7 @@ public class GetLearningNotebookEndpoint : EndpointWithoutRequest<GetLearningNot
 {string.Join("\n", lossPatterns.Count > 0 ? lossPatterns : new List<string> { "À découvrir..." })}
 
 🎯 STRATÉGIE RECOMMANDÉE:
-- Parier que si confiance > 0.65
-- Favoriser HOME_WIN avec xG > 2.0
-- Éviter DRAW sur petites équipes
-- Vérifier compositions 30min avant
+{string.Join("\n", strategyLines.Select(l => $"- {l}"))}
 
 📈 DERNIÈRE MISE À JOUR: {(notebook?.LastUpdated ?? DateTime.UtcNow):yyyy-MM-dd HH:mm}
 ";
