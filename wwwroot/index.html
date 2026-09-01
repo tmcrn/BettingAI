@@ -383,6 +383,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
         <div class="button-row">
             <button class="primary" onclick="refreshAll()">🔄 Rafraîchir</button>
             <button onclick="forceCycle()" id="forceBtn">🤖 Forcer un cycle IA</button>
+            <button onclick="toggleOllama()" id="ollamaBtn">🧠 Ollama: …</button>
             <button onclick="resetSystem()" class="danger">🗑️ Reset historique</button>
         </div>
 
@@ -824,9 +825,45 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
 
         async function refreshAll() {
             try {
-                await Promise.all([refreshPortfolio(), refreshLearning(), refreshCronStatus(), refreshManualReview()]);
+                await Promise.all([refreshPortfolio(), refreshLearning(), refreshCronStatus(), refreshManualReview(), refreshOllamaStatus()]);
             } catch (error) {
                 console.error('Erreur de chargement:', error);
+            }
+        }
+
+        async function refreshOllamaStatus() {
+            const btn = document.getElementById('ollamaBtn');
+            if (!btn) return;
+            try {
+                const res = await fetch('/api/ollama/status');
+                const data = await res.json();
+                if (data.status === 'unsupported') {
+                    btn.textContent = '🧠 Ollama: n/a';
+                    btn.disabled = true;
+                    return;
+                }
+                const active = data.status === 'active';
+                btn.textContent = active ? '🧠 Ollama: actif (arrêter)' : '🧠 Ollama: arrêté (démarrer)';
+                btn.dataset.active = active ? '1' : '0';
+                btn.disabled = false;
+            } catch (e) {
+                console.error('Erreur statut Ollama:', e);
+            }
+        }
+
+        async function toggleOllama() {
+            const btn = document.getElementById('ollamaBtn');
+            const starting = btn.dataset.active !== '1';
+            btn.disabled = true;
+            btn.textContent = starting ? '⏳ Démarrage Ollama…' : '⏳ Arrêt Ollama…';
+            try {
+                const res = await fetch(`/api/ollama/${starting ? 'start' : 'stop'}`, { method: 'POST' });
+                const data = await res.json();
+                if (data.status === 'error') alert('Erreur Ollama: ' + data.message);
+            } catch (e) {
+                alert('Erreur: ' + e.message);
+            } finally {
+                await refreshOllamaStatus();
             }
         }
 
