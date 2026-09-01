@@ -226,11 +226,23 @@ public class AutoDecideBetsEndpoint : Endpoint<AutoDecideBetsRequest, AutoDecide
 
             if (bets.Count == 0)
             {
-                var reason = matchesWithRealOdds > 0
-                    ? "Matchs analysés (dont certains avec cotes réelles), mais aucun pari ne remplissait les critères de l'IA"
-                    : "Matchs analysés sur stats seules (aucune cote réelle publiée pour l'instant), mais aucun pari ne remplissait les critères de l'IA";
+                // decide-bets' AnalysisUsed carries its debugLog, including "NO JSON
+                // ARRAY IN RESPONSE" when Mistral derailed entirely (returned prose
+                // instead of the requested JSON, even after a retry) rather than
+                // actually evaluating the matches - confirmed live. The reason text
+                // below used to always claim "no bet met the AI's criteria" regardless
+                // of which of these actually happened, which is a real explanation
+                // fabricated for a failure that has nothing to do with the stats.
+                var analysisUsed = doc.RootElement.TryGetProperty("analysisUsed", out var auEl) ? auEl.GetString() ?? "" : "";
+                var malformedResponse = analysisUsed.Contains("NO JSON ARRAY IN RESPONSE");
+
+                var reason = malformedResponse
+                    ? "L'IA n'a pas répondu dans le format attendu (même après une relance) - aucune décision n'a donc pu être prise ce cycle, indépendamment des stats des matchs"
+                    : matchesWithRealOdds > 0
+                        ? "Matchs analysés (dont certains avec cotes réelles), mais aucun pari ne remplissait les critères de l'IA"
+                        : "Matchs analysés sur stats seules (aucune cote réelle publiée pour l'instant), mais aucun pari ne remplissait les critères de l'IA";
                 await _discord.NotifyNoActionAsync(reason, upcomingMatches.Count, matchesWithRealOdds);
-                _cycleStatus.Record("no_bets", upcomingMatches.Count, 0, reason);
+                _cycleStatus.Record(malformedResponse ? "ai_malformed_response" : "no_bets", upcomingMatches.Count, 0, reason);
             }
             else
             {

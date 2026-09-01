@@ -287,25 +287,51 @@ REMEMBER: Start with [ immediately. No preamble. No markdown. Just JSON.";
         try
         {
             var client = new HttpClient();
-            var response = await client.PostAsJsonAsync(
-                "http://localhost:11434/api/generate",
-                new { model = "mistral", prompt = prompt, stream = false },
-                cancellationToken: ct
-            );
-
-            jsonResponse = await response.Content.ReadAsStringAsync();
-            debugLog.Add($"GOT RESPONSE");
 
             try
             {
-                var doc = JsonDocument.Parse(jsonResponse);
-                var responseText = doc.RootElement.GetProperty("response").GetString() ?? "";
+                // Mistral occasionally derails completely and returns prose instead of
+                // the requested JSON array - confirmed live, a response that just said
+                // "Understood. Here's a summary of the rules..." and paraphrased the
+                // prompt's instructions back instead of producing any decisions. That
+                // used to be swallowed silently: bets stayed empty, debugLog only ever
+                // said "GOT RESPONSE | RAW LENGTH: n" with zero indication of why, and
+                // the cycle then reported a "no bet met the criteria" reason that isn't
+                // what actually happened. One retry, since this looks like a random
+                // derailment rather than a deterministic prompt problem - if it fails
+                // twice in a row, at least the real response text is now logged instead
+                // of requiring server-log archaeology to find out what happened.
+                const int maxAttempts = 2;
+                var responseText = "";
 
-                debugLog.Add($"RAW LENGTH: {responseText.Length}");
+                for (var attempt = 1; attempt <= maxAttempts; attempt++)
+                {
+                    var response = await client.PostAsJsonAsync(
+                        "http://localhost:11434/api/generate",
+                        new { model = "mistral", prompt = prompt, stream = false },
+                        cancellationToken: ct
+                    );
 
-                responseText = responseText.Trim();
-                responseText = System.Text.RegularExpressions.Regex.Unescape(responseText);
-                responseText = responseText.Replace("\\n", "").Replace("  ", "");
+                    jsonResponse = await response.Content.ReadAsStringAsync();
+                    debugLog.Add($"GOT RESPONSE (attempt {attempt}/{maxAttempts})");
+
+                    var doc = JsonDocument.Parse(jsonResponse);
+                    responseText = doc.RootElement.GetProperty("response").GetString() ?? "";
+
+                    debugLog.Add($"RAW LENGTH: {responseText.Length}");
+
+                    responseText = responseText.Trim();
+                    responseText = System.Text.RegularExpressions.Regex.Unescape(responseText);
+                    responseText = responseText.Replace("\\n", "").Replace("  ", "");
+
+                    if (responseText.Contains('[') && responseText.LastIndexOf(']') > responseText.IndexOf('['))
+                    {
+                        break;
+                    }
+
+                    var snippet = responseText.Length > 200 ? responseText.Substring(0, 200) + "..." : responseText;
+                    debugLog.Add($"NO JSON ARRAY IN RESPONSE (attempt {attempt}/{maxAttempts}): \"{snippet}\"");
+                }
 
                 int start = responseText.IndexOf('[');
                 int end = responseText.LastIndexOf(']');
