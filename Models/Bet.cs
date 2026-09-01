@@ -16,4 +16,15 @@ public class Bet
     public string? Result { get; set; }  // "WIN", "LOSS", "PENDING"
     public decimal? Winnings { get; set; }
     public DateTime? MatchUtcDate { get; set; }  // Kickoff time - used to know when to check the real result
+
+    // The learned model's input features AS THEY WERE at decision time
+    // (see WinPredictionService.ComputeFeatures) - persisted rather than
+    // recomputed at settlement time, since the underlying TeamStats will
+    // have moved on by then (more matches played, form/momentum changed).
+    // Training the model on stale, recomputed values instead of what the
+    // decision actually saw would be learning from the wrong inputs. Null
+    // for bets placed before this existed.
+    public decimal? EdgeAlignmentFeature { get; set; }
+    public decimal? FormAlignmentFeature { get; set; }
+    public decimal? MomentumAlignmentFeature { get; set; }
 }

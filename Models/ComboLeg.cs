@@ -14,4 +14,19 @@ public class ComboLeg
     public decimal Odds { get; set; } // resolved real odds for this leg's selection
     public DateTime? MatchUtcDate { get; set; }
     public string Result { get; set; } = "PENDING"; // PENDING, WIN, LOSS
+
+    // The combo's own Confidence is the PRODUCT across all legs, not any
+    // one leg's individual confidence - not usable as a training feature
+    // for this specific leg's own win/loss. This is the leg's own value:
+    // for a merged OUTCOME+GOALS combo (see MergeOutcomeAndGoalsIntoCombo),
+    // it's that leg's original confidence before merging; for a combo the
+    // AI proposed natively, it falls back to the whole bet's confidence
+    // (the only value available per leg in that case).
+    public decimal? Confidence { get; set; }
+
+    // Same as Bet's - the learned model's input features as they were at
+    // decision time, persisted for training later rather than recomputed.
+    public decimal? EdgeAlignmentFeature { get; set; }
+    public decimal? FormAlignmentFeature { get; set; }
+    public decimal? MomentumAlignmentFeature { get; set; }
 }

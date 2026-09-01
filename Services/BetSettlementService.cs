@@ -33,12 +33,29 @@ public class BetSettlementService
     private readonly BettingContext _context;
     private readonly FootballDataService _footballDataService;
     private readonly DiscordNotificationService _discord;
+    private readonly WinPredictionService _winPrediction;
 
-    public BetSettlementService(BettingContext context, FootballDataService footballDataService, DiscordNotificationService discord)
+    public BetSettlementService(BettingContext context, FootballDataService footballDataService, DiscordNotificationService discord, WinPredictionService winPrediction)
     {
         _context = context;
         _footballDataService = footballDataService;
         _discord = discord;
+        _winPrediction = winPrediction;
+    }
+
+    // The actual "reward" step: one online gradient-descent update per
+    // settled bet/leg, called from every place Result gets set to WIN/LOSS
+    // (auto-settlement and manual entry alike). Silently skipped when the
+    // decision-time features weren't persisted (bets placed before this
+    // existed, or the match's edges weren't resolvable at decision time) -
+    // training on a fabricated/zeroed feature would teach the model
+    // something false, so it's better to just not train on that one point.
+    private async Task TrainModelAsync(decimal? edge, decimal? form, decimal? momentum, decimal? confidence, bool won, CancellationToken ct)
+    {
+        if (edge == null || form == null || momentum == null || confidence == null) return;
+
+        var features = new WinPredictionService.Features(edge.Value, form.Value, momentum.Value, confidence.Value);
+        await _winPrediction.UpdateAsync(features, won, ct);
     }
 
     public async Task<int> SettlePendingBetsAsync(CancellationToken ct = default)
@@ -89,6 +106,7 @@ public class BetSettlementService
                 // real; otherwise estimate from the AI's own confidence - odds never
                 // influenced whether this bet was placed, only how much it pays out now.
                 bet.Winnings = won ? bet.Stake * (bet.Odds ?? EstimateOddsFromConfidence(bet.Confidence)) : 0;
+                await TrainModelAsync(bet.EdgeAlignmentFeature, bet.FormAlignmentFeature, bet.MomentumAlignmentFeature, bet.Confidence, won, ct);
                 settledCount++;
 
                 if (won)
@@ -139,6 +157,7 @@ public class BetSettlementService
             {
                 var won = DetermineOutcome(leg.BetType, leg.Selection, result, status.HomeScore, status.AwayScore);
                 leg.Result = won ? "WIN" : "LOSS";
+                await TrainModelAsync(leg.EdgeAlignmentFeature, leg.FormAlignmentFeature, leg.MomentumAlignmentFeature, leg.Confidence, won, ct);
                 settledLegCount++;
                 affectedCombos.Add(leg.BetComboId);
             }
@@ -250,6 +269,7 @@ public class BetSettlementService
         if (realOdds.HasValue) bet.Odds = realOdds;
         bet.Result = won ? "WIN" : "LOSS";
         bet.Winnings = won ? bet.Stake * (bet.Odds ?? EstimateOddsFromConfidence(bet.Confidence)) : 0;
+        await TrainModelAsync(bet.EdgeAlignmentFeature, bet.FormAlignmentFeature, bet.MomentumAlignmentFeature, bet.Confidence, won, ct);
 
         await _context.SaveChangesAsync(ct);
         await RefreshLearningNotebookAsync(ct);
@@ -278,6 +298,7 @@ public class BetSettlementService
 
         if (realOdds.HasValue) leg.Odds = realOdds.Value;
         leg.Result = won ? "WIN" : "LOSS";
+        await TrainModelAsync(leg.EdgeAlignmentFeature, leg.FormAlignmentFeature, leg.MomentumAlignmentFeature, leg.Confidence, won, ct);
 
         await _context.SaveChangesAsync(ct);
 

@@ -137,6 +137,25 @@ public class GetLearningNotebookEndpoint : EndpointWithoutRequest<GetLearningNot
             }
         }
 
+        // MODÈLE STATISTIQUE APPRIS - the actual learned model (WinPredictionService),
+        // distinct from the text-based patterns above. Reports its real internal
+        // state honestly: all-zero weights and SampleCount 0 mean it hasn't learned
+        // anything yet, so say that plainly instead of dressing up sigmoid(0)=50%
+        // as a real prediction.
+        var modelWeights = await _context.LearnedModelWeights.FirstOrDefaultAsync(cancellationToken: ct);
+        string modelLine;
+        if (modelWeights == null || modelWeights.SampleCount == 0)
+        {
+            modelLine = "Pas encore de paris réglés utilisés pour l'entraînement - poids à zéro, aucune prédiction fiable pour l'instant.";
+        }
+        else
+        {
+            modelLine = $"Entraîné sur {modelWeights.SampleCount} résultat(s) réel(s) - " +
+                $"biais={modelWeights.Bias:0.###}, poids[edge={modelWeights.WeightEdgeAlignment:0.###}, " +
+                $"forme={modelWeights.WeightFormAlignment:0.###}, momentum={modelWeights.WeightMomentumAlignment:0.###}, " +
+                $"confiance IA={modelWeights.WeightConfidence:0.###}] - dernière mise à jour {modelWeights.LastUpdated:yyyy-MM-dd HH:mm}";
+        }
+
         var learning = $@"🧠 LEARNING NOTEBOOK - Mémoire IA
 
 📊 STATISTIQUES GLOBALES:
@@ -153,6 +172,9 @@ public class GetLearningNotebookEndpoint : EndpointWithoutRequest<GetLearningNot
 
 🎯 STRATÉGIE RECOMMANDÉE:
 {string.Join("\n", strategyLines.Select(l => $"- {l}"))}
+
+🤖 MODÈLE STATISTIQUE APPRIS (WinPredictionService):
+{modelLine}
 
 📈 DERNIÈRE MISE À JOUR: {(notebook?.LastUpdated ?? DateTime.UtcNow):yyyy-MM-dd HH:mm}
 ";

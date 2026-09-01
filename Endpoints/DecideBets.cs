@@ -45,12 +45,14 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
     private readonly BettingContext _context;
     private readonly HttpClient _httpClient;
     private readonly DiscordNotificationService _discord;
+    private readonly WinPredictionService _winPrediction;
 
-    public DecideBetsEndpoint(BettingContext context, HttpClient httpClient, DiscordNotificationService discord)
+    public DecideBetsEndpoint(BettingContext context, HttpClient httpClient, DiscordNotificationService discord, WinPredictionService winPrediction)
     {
         _context = context;
         _httpClient = httpClient;
         _discord = discord;
+        _winPrediction = winPrediction;
     }
 
     public override void Configure()
@@ -74,6 +76,12 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
 
         // 📊 RÉCUPÈRE ANALYSES DÉTAILLÉES + COMPOSITIONS
         var analysisPerMatch = new Dictionary<string, string>();
+        // Raw signed edge values (not just the HOME/AWAY/EVEN label) kept
+        // per match, keyed by the short per-request match id - needed later
+        // to compute WinPredictionService features for whatever bet type
+        // the AI ends up proposing, and to persist those exact features on
+        // the saved Bet/ComboLeg for training once the result is known.
+        var rawEdgesPerMatch = new Dictionary<string, (decimal xg, decimal form, decimal momentum)>();
         foreach (var match in req.Matches)
         {
             try
@@ -124,6 +132,29 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
                         .ToListAsync(ct);
                     var momentum = FormMomentumAnalyzer.Compute(match.HomeTeam ?? "", match.AwayTeam ?? "", homeResults, awayResults);
 
+                    var xgEdgeValue = homeExpected - awayExpected;
+                    var formEdgeValue = analysis.HomeFormLast5 - analysis.AwayFormLast5;
+                    var momentumEdgeValue = momentum.HomeMomentum - momentum.AwayMomentum;
+                    rawEdgesPerMatch[match.Id ?? "unknown"] = (xgEdgeValue, formEdgeValue, momentumEdgeValue);
+
+                    // The learned model (WinPredictionService) needs a bet TYPE to
+                    // compute alignment features for - we don't have one yet here
+                    // (the AI hasn't answered), so this shows its prediction for
+                    // whichever side ATTACKING EDGE already favors, as a second
+                    // opinion alongside it. Skipped when EVEN (no side to predict
+                    // for) or when there's no sample yet (says so plainly instead
+                    // of showing a meaningless 50%).
+                    var modelLine = "";
+                    if (xgEdge != "EVEN")
+                    {
+                        var favoredType = xgEdge == "HOME" ? "HOME_WIN" : "AWAY_WIN";
+                        var predictFeatures = WinPredictionService.ComputeFeatures(favoredType, 0.5m, xgEdgeValue, formEdgeValue, momentumEdgeValue);
+                        var prediction = await _winPrediction.PredictAsync(predictFeatures, ct);
+                        modelLine = prediction.SampleCount > 0
+                            ? $"Modèle statistique appris: {prediction.Probability:P0} de probabilité de victoire pour {xgEdge} (basé sur {prediction.SampleCount} paris réglés jusqu'ici)\n"
+                            : $"Modèle statistique appris: pas encore de paris réglés pour s'entraîner, pas de prédiction fiable pour l'instant\n";
+                    }
+
                     analysisPerMatch[match.Id ?? "unknown"] =
                         $"Home xG: {analysis.HomeXG} | Away xG: {analysis.AwayXG}\n" +
                         $"Home xGA (goals conceded): {analysis.HomeXGA} | Away xGA: {analysis.AwayXGA}\n" +
@@ -131,6 +162,7 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
                         $"Home form (last 5): {analysis.HomeFormLast5} | Away form (last 5): {analysis.AwayFormLast5} => FORM EDGE: {formEdge}\n" +
                         $"Home momentum (recent results, weighted by margin and recency): {momentum.HomeMomentum:0.00} | Away momentum: {momentum.AwayMomentum:0.00} => MOMENTUM EDGE: {momentum.Edge}\n" +
                         (momentum.CommonOpponentNote != null ? $"{momentum.CommonOpponentNote}\n" : "") +
+                        modelLine +
                         $"H2H wins - Home: {analysis.HomeWinsH2H} | Away: {analysis.AwayWinsH2H}\n" +
                         $"Key factors: {analysis.AnalysisSummary}";
                 }
@@ -267,7 +299,7 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
                         continue;
                     }
 
-                    var combo = TryBuildCombo(bet, req.Matches, resolvedOdds, existingKeys, debugLog);
+                    var combo = TryBuildCombo(bet, req.Matches, resolvedOdds, existingKeys, rawEdgesPerMatch, debugLog);
                     if (combo != null)
                     {
                         _context.BetCombos.Add(combo);
@@ -339,6 +371,18 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
                     realOdds = ResolveLegOdds(bet.Type, o);
                 }
 
+                // WinPredictionService's input features, computed and persisted NOW
+                // (decision time) rather than recomputed at settlement - see the
+                // comment on Bet.EdgeAlignmentFeature for why. bet.MatchId is still
+                // the short per-request id here (rawEdgesPerMatch's key), before
+                // effectiveMatchId resolves it to the real one below.
+                WinPredictionService.Features? predictionFeatures = null;
+                if (bet.MatchId != null && rawEdgesPerMatch.TryGetValue(bet.MatchId, out var rawEdges))
+                {
+                    predictionFeatures = WinPredictionService.ComputeFeatures(
+                        bet.Type, bet.Confidence ?? 0, rawEdges.xg, rawEdges.form, rawEdges.momentum);
+                }
+
                 var dbBet = new Bet
                 {
                     MatchId = effectiveMatchId,
@@ -364,7 +408,10 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
                         : bet.Reasoning,
                     Result = "PENDING",
                     MatchUtcDate = sourceMatch?.UtcDate,
-                    Odds = realOdds
+                    Odds = realOdds,
+                    EdgeAlignmentFeature = predictionFeatures?.EdgeAlignment,
+                    FormAlignmentFeature = predictionFeatures?.FormAlignment,
+                    MomentumAlignmentFeature = predictionFeatures?.MomentumAlignment
                 };
                 _context.Bets.Add(dbBet);
                 savedBets.Add(dbBet);
@@ -425,7 +472,15 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
                     Selection = outcomeBet.Selection,
                     Odds = effectiveOutcomeOdds,
                     MatchUtcDate = outcomeBet.MatchUtcDate,
-                    Result = "PENDING"
+                    Result = "PENDING",
+                    // Reuse exactly what was already computed for this bet at
+                    // decision time (see the single-bet save path above) rather
+                    // than recomputing - it's the same bet, just re-homed into a
+                    // combo leg instead of staying a standalone row.
+                    Confidence = outcomeBet.Confidence,
+                    EdgeAlignmentFeature = outcomeBet.EdgeAlignmentFeature,
+                    FormAlignmentFeature = outcomeBet.FormAlignmentFeature,
+                    MomentumAlignmentFeature = outcomeBet.MomentumAlignmentFeature
                 });
                 combo.CombinedOdds *= effectiveOutcomeOdds;
                 combo.Confidence = CombineConfidence(combo.Confidence, outcomeBet.Confidence);
@@ -474,13 +529,21 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
                     {
                         MatchId = outcomeBet.MatchId, HomeTeam = outcomeBet.HomeTeam, AwayTeam = outcomeBet.AwayTeam,
                         BetType = outcomeBet.BetType, Selection = outcomeBet.Selection, Odds = outcomeLegOdds,
-                        MatchUtcDate = outcomeBet.MatchUtcDate, Result = "PENDING"
+                        MatchUtcDate = outcomeBet.MatchUtcDate, Result = "PENDING",
+                        Confidence = outcomeBet.Confidence,
+                        EdgeAlignmentFeature = outcomeBet.EdgeAlignmentFeature,
+                        FormAlignmentFeature = outcomeBet.FormAlignmentFeature,
+                        MomentumAlignmentFeature = outcomeBet.MomentumAlignmentFeature
                     },
                     new ComboLeg
                     {
                         MatchId = goalsBet.MatchId, HomeTeam = goalsBet.HomeTeam, AwayTeam = goalsBet.AwayTeam,
                         BetType = goalsBet.BetType, Selection = goalsBet.Selection, Odds = goalsLegOdds,
-                        MatchUtcDate = goalsBet.MatchUtcDate, Result = "PENDING"
+                        MatchUtcDate = goalsBet.MatchUtcDate, Result = "PENDING",
+                        Confidence = goalsBet.Confidence,
+                        EdgeAlignmentFeature = goalsBet.EdgeAlignmentFeature,
+                        FormAlignmentFeature = goalsBet.FormAlignmentFeature,
+                        MomentumAlignmentFeature = goalsBet.MomentumAlignmentFeature
                     }
                 }
             };
@@ -877,6 +940,7 @@ REMEMBER: Start with [ immediately. No preamble. No markdown. Just JSON.";
         List<FootballMatch> matches,
         Dictionary<string, (decimal home, decimal draw, decimal away)> resolvedOdds,
         HashSet<(string MatchId, string BetType, string? Selection)> existingKeys,
+        Dictionary<string, (decimal xg, decimal form, decimal momentum)> rawEdgesPerMatch,
         List<string> debugLog)
     {
         var legs = new List<ComboLeg>();
@@ -950,6 +1014,18 @@ REMEMBER: Start with [ immediately. No preamble. No markdown. Just JSON.";
 
             combinedOdds *= effectiveLegOdds;
 
+            // Only the whole combo's overall confidence is available per leg
+            // here (the AI states one confidence for the whole COMBO
+            // proposal, not one per leg) - see the comment on
+            // ComboLeg.Confidence. Still enough to compute real features for
+            // this leg's own bet type against this match's own edges.
+            WinPredictionService.Features? legFeatures = null;
+            if (rawEdgesPerMatch.TryGetValue(legDecision.MatchId, out var legRawEdges))
+            {
+                legFeatures = WinPredictionService.ComputeFeatures(
+                    legDecision.Type, bet.Confidence ?? 0, legRawEdges.xg, legRawEdges.form, legRawEdges.momentum);
+            }
+
             legs.Add(new ComboLeg
             {
                 MatchId = sourceMatch.RealMatchId,
@@ -959,7 +1035,11 @@ REMEMBER: Start with [ immediately. No preamble. No markdown. Just JSON.";
                 Selection = legDecision.Selection,
                 Odds = effectiveLegOdds,
                 MatchUtcDate = sourceMatch.UtcDate,
-                Result = "PENDING"
+                Result = "PENDING",
+                Confidence = bet.Confidence ?? 0,
+                EdgeAlignmentFeature = legFeatures?.EdgeAlignment,
+                FormAlignmentFeature = legFeatures?.FormAlignment,
+                MomentumAlignmentFeature = legFeatures?.MomentumAlignment
             });
         }
 

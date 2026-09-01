@@ -14,6 +14,7 @@ public class BettingContext : DbContext
     public DbSet<LearningNotebook> LearningNotebook { get; set; }
     public DbSet<BetCombo> BetCombos { get; set; }
     public DbSet<ComboLeg> ComboLegs { get; set; }
+    public DbSet<LearnedModelWeights> LearnedModelWeights { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -53,6 +54,12 @@ public class BettingContext : DbContext
             entity.Property(e => e.MatchId).IsRequired();
             entity.Property(e => e.BetType).IsRequired();
             entity.Property(e => e.Odds).HasPrecision(10, 2);
+            entity.Property(e => e.Confidence).HasPrecision(3, 2);
+        });
+
+        modelBuilder.Entity<LearnedModelWeights>(entity =>
+        {
+            entity.HasKey(e => e.Id);
         });
 
         modelBuilder.Entity<TeamRecentResult>(entity =>
