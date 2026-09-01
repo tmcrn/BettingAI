@@ -346,7 +346,15 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
                     Selection = bet.Selection,
                     Stake = bet.Stake,
                     Confidence = bet.Confidence ?? 0,
-                    Reasoning = bet.Reasoning,
+                    // Confirmed live: Mistral sometimes returns otherwise-valid JSON
+                    // with "reasoning": null - the bet itself is fine (real type,
+                    // stake, confidence), it just skipped writing the sentence. Never
+                    // silently show a blank field on the dashboard for that - say
+                    // plainly that none was given rather than leaving it looking like
+                    // a rendering bug or, worse, inventing one after the fact.
+                    Reasoning = string.IsNullOrWhiteSpace(bet.Reasoning)
+                        ? "(l'IA n'a fourni aucune justification pour ce pari)"
+                        : bet.Reasoning,
                     Result = "PENDING",
                     MatchUtcDate = sourceMatch?.UtcDate,
                     Odds = realOdds
@@ -536,7 +544,7 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
 
 ⚠️ CRITICAL INSTRUCTION: You MUST respond ONLY with a valid JSON array. No explanations, no text before or after. Output starts with [ and ends with ]. An EMPTY array [] is a perfectly valid, complete answer if this match doesn't clear any threshold below - never respond with prose, a summary of these rules, or anything else instead of JSON.
 
-⚠️ ""reasoning"" FIELD: write it in FRENCH, as a natural, human sentence a person would actually say - not a dump of the raw labels. Never just restate ""ATTACKING EDGE: AWAY, FORM EDGE: EVEN"" verbatim; translate what that means into plain French. Ground it in the real numbers for THIS match, just say it like a person explaining their pick, not a machine echoing variable names.
+⚠️ ""reasoning"" FIELD: NEVER null, NEVER empty - always a full FRENCH sentence, as a natural, human sentence a person would actually say, not a dump of the raw labels. Never just restate ""ATTACKING EDGE: AWAY, FORM EDGE: EVEN"" verbatim; translate what that means into plain French. Ground it in the real numbers for THIS match, just say it like a person explaining their pick, not a machine echoing variable names. Every bet you propose MUST have this field filled in - a bet with no reasoning is an incomplete answer.
 
 CURRENT PORTFOLIO BALANCE: {currentBalance:F2}€ - this already accounts for every euro staked on your other currently-pending bets (including any placed earlier in this same cycle), it's what's actually available right now. Size your stake off of it.
 
