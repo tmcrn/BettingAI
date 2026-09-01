@@ -88,7 +88,18 @@ header {
 .cron-pill .cron-sub { color: var(--text-faint); }
 
 /* ---- Buttons ---- */
-.button-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 28px; }
+.button-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 28px; }
+.window-inputs { display: flex; align-items: center; gap: 6px; font-size: 0.85em; color: var(--text-faint); }
+.window-inputs label { display: flex; align-items: center; gap: 4px; }
+.window-inputs input {
+    width: 60px;
+    padding: 9px 8px;
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 0.95em;
+}
 button {
     padding: 10px 18px;
     background: var(--surface);
@@ -382,6 +393,11 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
 
         <div class="button-row">
             <button class="primary" onclick="refreshAll()">🔄 Rafraîchir</button>
+            <div class="window-inputs" title="Fenêtre de matchs à tester, en heures à partir de maintenant. Laisser vide = comportement par défaut (reste de la journée).">
+                <label>de <input type="number" id="minHoursInput" min="0" step="1" placeholder="0"></label>
+                <label>à <input type="number" id="windowHoursInput" min="1" step="1" placeholder="auto"></label>
+                <span>h</span>
+            </div>
             <button onclick="forceCycle()" id="forceBtn">🤖 Forcer un cycle IA</button>
             <button onclick="toggleOllama()" id="ollamaBtn">🧠 Ollama: …</button>
             <button onclick="resetSystem()" class="danger">🗑️ Reset historique</button>
@@ -869,10 +885,17 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
 
         async function forceCycle() {
             const btn = document.getElementById('forceBtn');
+            const minHours = document.getElementById('minHoursInput').value;
+            const windowHours = document.getElementById('windowHoursInput').value;
+            const params = new URLSearchParams();
+            if (windowHours) params.set('windowHours', windowHours);
+            if (minHours) params.set('minHours', minHours);
+            const qs = params.toString();
+
             btn.disabled = true;
             btn.textContent = '⏳ Cycle en cours…';
             try {
-                const res = await fetch('/api/auto-decide-bets', { method: 'POST' });
+                const res = await fetch(`/api/auto-decide-bets${qs ? '?' + qs : ''}`, { method: 'POST' });
                 const data = await res.json();
                 await refreshAll();
                 alert(data.message || 'Cycle terminé.');
