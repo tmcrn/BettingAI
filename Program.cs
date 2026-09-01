@@ -25,9 +25,13 @@ builder.Services.AddHttpClient<DiscordNotificationService>();
 // en tout premier avant de décider les nouveaux paris, donc le règlement se
 // fait bien une fois par jour, dans le même cycle que les décisions.
 
-// 🤖 Décide des paris du jour une fois par jour (8h heure de Paris), sur tous
-// les matchs restants de la journée - remplace la dépendance à un cron externe.
-builder.Services.AddHostedService<AutoDecideBetsBackgroundService>();
+// 🤖 Le cycle automatique de 8h (heure de Paris) n'est plus enregistré -
+// l'utilisateur veut déclencher lui-même chaque cycle manuellement
+// (bouton "Forcer un cycle IA" du dashboard, ou POST /api/auto-decide-bets)
+// plutôt que de le laisser partir tout seul. AutoDecideBetsBackgroundService
+// reste dans le code, juste non branché, au cas où l'automatique redevienne
+// souhaité plus tard.
+// builder.Services.AddHostedService<AutoDecideBetsBackgroundService>();
 
 // 📊 Recalcule TeamStats une fois par jour à partir des vrais résultats
 // (forme, xG-proxy, fatigue) - remplace les données de test fabriquées.
