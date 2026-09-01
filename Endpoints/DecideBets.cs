@@ -42,6 +42,13 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
         "HOME_WIN", "AWAY_WIN", "DRAW", "HOME_WIN_OR_DRAW", "AWAY_WIN_OR_DRAW"
     };
 
+    // Configurable via env var so switching the local Ollama model (e.g. to
+    // try a different 7B-class model) is a deploy-time change, not a
+    // recompile - set OLLAMA_MODEL to any tag already pulled locally
+    // ("ollama pull <tag>" first, this doesn't pull automatically).
+    // Defaults to "mistral" (unset = current behavior, unchanged).
+    private static readonly string OllamaModel = Environment.GetEnvironmentVariable("OLLAMA_MODEL") ?? "mistral";
+
     private readonly BettingContext _context;
     private readonly HttpClient _httpClient;
     private readonly DiscordNotificationService _discord;
@@ -730,7 +737,7 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
                 {
                     response = await client.PostAsJsonAsync(
                         "http://localhost:11434/api/generate",
-                        new { model = "mistral", prompt = prompt, stream = false },
+                        new { model = OllamaModel, prompt = prompt, stream = false },
                         cancellationToken: ct
                     );
                     break;
