@@ -1,0 +1,4 @@
+# Outils requis pour ce projet, installés en une commande avec:
+#   aftman install
+[tools]
+rojo = "rojo-rbx/rojo@7.4.1"
