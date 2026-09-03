@@ -446,132 +446,115 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
         // separate calls (a combo needs both legs visible in the same
         // prompt, which splitting deliberately gave up - see the comment
         // above the call site). Rather than asking the model to do the
-        // merging, this reassembles it in code: un-save the two standalone
-        // Bet rows (harmless - nothing has hit the database yet, SaveChanges
+        // merging, this reassembles it in code: un-save the standalone Bet
+        // rows (harmless - nothing has hit the database yet, SaveChanges
         // only runs once at the very end) and replace them with a single
-        // BetCombo carrying both as legs. If the GOALS call already built
-        // its OWN 2-leg combo (two goal-total types), the outcome bet is
-        // added as a third leg to that combo instead of building a new one.
-        // Any other shape (only one side produced something, or the GOALS
-        // side stayed empty) is left exactly as already saved.
+        // BetCombo carrying all of them as legs. If the GOALS call already
+        // built its OWN combo (two goal-total types), the outcome bet(s)
+        // are added as extra legs to that combo instead of building a new
+        // one. Handles any number of standalone singles on this match, not
+        // just exactly one from each side - confirmed live that a single
+        // GOALS call can decide TWO independent bet types on its own (e.g.
+        // BOTH_TEAMS_SCORE + OVER_GOALS) without wrapping them in the AI's
+        // own COMBO type; the old version only handled exactly 1 outcome +
+        // 1 goals bet and silently left all three as separate tickets
+        // whenever this happened.
         void MergeOutcomeAndGoalsIntoCombo(
             string shortMatchId,
             List<Bet> outcomeBets, List<BetCombo> outcomeCombos,
             List<Bet> goalsBets, List<BetCombo> goalsCombos)
         {
             if (outcomeCombos.Count > 0) return; // OUTCOME never produces its own combo, but guard anyway
-            if (outcomeBets.Count != 1) return; // nothing to merge, or ambiguous - leave as-is
 
-            var outcomeBet = outcomeBets[0];
+            // resolvedOdds is keyed by the short per-request match id (e.g. "0"),
+            // not the real match id stored on the saved Bet - use shortMatchId,
+            // not b.MatchId, or this always misses and falls back to the
+            // estimated odds even when real odds exist.
+            decimal EffectiveOdds(Bet b) =>
+                (OneXTwoFamilyTypes.Contains(b.BetType ?? "") && resolvedOdds.TryGetValue(shortMatchId, out var o)
+                    ? ResolveLegOdds(b.BetType, o) : null)
+                ?? EstimateOdds(b.BetType, learnedOdds);
+
+            // Reuses exactly what was already computed for this bet at
+            // decision time (see the single-bet save path above) rather
+            // than recomputing - it's the same bet, just re-homed into a
+            // combo leg instead of staying a standalone row.
+            ComboLeg ToLeg(Bet b, decimal odds) => new ComboLeg
+            {
+                MatchId = b.MatchId, HomeTeam = b.HomeTeam, AwayTeam = b.AwayTeam,
+                BetType = b.BetType, Selection = b.Selection, Odds = odds,
+                MatchUtcDate = b.MatchUtcDate, Result = "PENDING",
+                Confidence = b.Confidence,
+                EdgeAlignmentFeature = b.EdgeAlignmentFeature,
+                FormAlignmentFeature = b.FormAlignmentFeature,
+                MomentumAlignmentFeature = b.MomentumAlignmentFeature
+            };
 
             if (goalsCombos.Count == 1)
             {
-                // GOALS already built its own 2-leg combo - fold the outcome
-                // bet into it as a third leg instead of leaving it standalone.
+                // GOALS already built its own combo - fold every OUTCOME
+                // single bet into it as extra legs instead of leaving them
+                // standalone.
+                if (outcomeBets.Count == 0) return;
                 var combo = goalsCombos[0];
-                _context.Bets.Remove(outcomeBet);
-                savedBets.Remove(outcomeBet);
-
-                // resolvedOdds is keyed by the short per-request match id (e.g. "0"),
-                // not the real match id stored on the saved Bet - use shortMatchId,
-                // not outcomeBet.MatchId, or this always misses and falls back to
-                // the flat 2x default even when real odds exist.
-                var outcomeOdds = OneXTwoFamilyTypes.Contains(outcomeBet.BetType ?? "") &&
-                    resolvedOdds.TryGetValue(shortMatchId, out var o1) ? ResolveLegOdds(outcomeBet.BetType, o1) : null;
-                var effectiveOutcomeOdds = outcomeOdds ?? EstimateOdds(outcomeBet.BetType, learnedOdds);
-
-                combo.Legs.Add(new ComboLeg
+                foreach (var outcomeBet in outcomeBets)
                 {
-                    MatchId = outcomeBet.MatchId,
-                    HomeTeam = outcomeBet.HomeTeam,
-                    AwayTeam = outcomeBet.AwayTeam,
-                    BetType = outcomeBet.BetType,
-                    Selection = outcomeBet.Selection,
-                    Odds = effectiveOutcomeOdds,
-                    MatchUtcDate = outcomeBet.MatchUtcDate,
-                    Result = "PENDING",
-                    // Reuse exactly what was already computed for this bet at
-                    // decision time (see the single-bet save path above) rather
-                    // than recomputing - it's the same bet, just re-homed into a
-                    // combo leg instead of staying a standalone row.
-                    Confidence = outcomeBet.Confidence,
-                    EdgeAlignmentFeature = outcomeBet.EdgeAlignmentFeature,
-                    FormAlignmentFeature = outcomeBet.FormAlignmentFeature,
-                    MomentumAlignmentFeature = outcomeBet.MomentumAlignmentFeature
-                });
-                combo.CombinedOdds *= effectiveOutcomeOdds;
-                combo.Confidence = CombineConfidence(combo.Confidence, outcomeBet.Confidence);
-                combo.Reasoning = $"{outcomeBet.Reasoning} | {combo.Reasoning}";
-                // The combo's stake doesn't grow just because it picked up a
-                // third leg - refund what was provisionally deducted for the
-                // now-folded-in outcome bet so projectedBalance still matches
-                // what's actually staked (combo.Stake alone) for the rest of
-                // this cycle's remaining matches.
-                projectedBalance += outcomeBet.Stake;
-                debugLog.Add($"MERGED: OUTCOME bet folded into the GOALS combo for {outcomeBet.HomeTeam} vs {outcomeBet.AwayTeam}");
+                    _context.Bets.Remove(outcomeBet);
+                    savedBets.Remove(outcomeBet);
+
+                    var effectiveOutcomeOdds = EffectiveOdds(outcomeBet);
+                    combo.Legs.Add(ToLeg(outcomeBet, effectiveOutcomeOdds));
+                    combo.CombinedOdds *= effectiveOutcomeOdds;
+                    combo.Confidence = CombineConfidence(combo.Confidence, outcomeBet.Confidence);
+                    combo.Reasoning = $"{outcomeBet.Reasoning} | {combo.Reasoning}";
+                    // The combo's stake doesn't grow just because it picked up
+                    // an extra leg - refund what was provisionally deducted for
+                    // the now-folded-in outcome bet so projectedBalance still
+                    // matches what's actually staked (combo.Stake alone) for
+                    // the rest of this cycle's remaining matches.
+                    projectedBalance += outcomeBet.Stake;
+                }
+                debugLog.Add($"MERGED: {outcomeBets.Count} OUTCOME bet(s) folded into the GOALS combo for {outcomeBets[0].HomeTeam} vs {outcomeBets[0].AwayTeam}");
                 return;
             }
 
-            if (goalsBets.Count != 1) return; // GOALS produced nothing, or something ambiguous - leave outcomeBet standalone
+            // No existing GOALS combo - merge every standalone single bet on
+            // this match (from either call) into one new combo, whatever the
+            // count.
+            var allSingles = new List<Bet>();
+            allSingles.AddRange(outcomeBets);
+            allSingles.AddRange(goalsBets);
+            if (allSingles.Count < 2) return; // nothing to merge, or ambiguous - leave as-is
 
-            var goalsBet = goalsBets[0];
+            foreach (var b in allSingles)
+            {
+                _context.Bets.Remove(b);
+                savedBets.Remove(b);
+            }
 
-            // Both single bets on the same match - merge into a new 2-leg combo.
-            _context.Bets.Remove(outcomeBet);
-            _context.Bets.Remove(goalsBet);
-            savedBets.Remove(outcomeBet);
-            savedBets.Remove(goalsBet);
+            var legOdds = allSingles.Select(EffectiveOdds).ToList();
 
-            // Same fix as above: resolvedOdds is keyed by the short per-request
-            // match id, not the real match id saved on the Bet entities.
-            decimal? LegOdds(Bet b) => OneXTwoFamilyTypes.Contains(b.BetType ?? "") &&
-                resolvedOdds.TryGetValue(shortMatchId, out var o) ? ResolveLegOdds(b.BetType, o) : null;
-            var outcomeLegOdds = LegOdds(outcomeBet) ?? EstimateOdds(outcomeBet.BetType, learnedOdds);
-            var goalsLegOdds = LegOdds(goalsBet) ?? EstimateOdds(goalsBet.BetType, learnedOdds);
-
-            // Combined risk is higher than either leg alone - the smaller of
-            // the two independently-decided stakes, same conservative
-            // instinct as the "keep stakes small" rule the AI itself follows
-            // when it builds a combo directly.
+            // Combined risk is higher than any single leg alone - the
+            // smallest of the independently-decided stakes, same
+            // conservative instinct as the "keep stakes small" rule the AI
+            // itself follows when it builds a combo directly.
             var mergedCombo = new BetCombo
             {
-                Stake = Math.Min(outcomeBet.Stake, goalsBet.Stake),
-                Confidence = CombineConfidence(outcomeBet.Confidence, goalsBet.Confidence),
-                Reasoning = $"{outcomeBet.Reasoning} | {goalsBet.Reasoning}",
-                CombinedOdds = outcomeLegOdds * goalsLegOdds,
+                Stake = allSingles.Min(b => b.Stake),
+                Confidence = allSingles.Select(b => b.Confidence).Aggregate(CombineConfidence),
+                Reasoning = string.Join(" | ", allSingles.Select(b => b.Reasoning)),
+                CombinedOdds = legOdds.Aggregate(1m, (acc, o) => acc * o),
                 Result = "PENDING",
-                Legs = new List<ComboLeg>
-                {
-                    new ComboLeg
-                    {
-                        MatchId = outcomeBet.MatchId, HomeTeam = outcomeBet.HomeTeam, AwayTeam = outcomeBet.AwayTeam,
-                        BetType = outcomeBet.BetType, Selection = outcomeBet.Selection, Odds = outcomeLegOdds,
-                        MatchUtcDate = outcomeBet.MatchUtcDate, Result = "PENDING",
-                        Confidence = outcomeBet.Confidence,
-                        EdgeAlignmentFeature = outcomeBet.EdgeAlignmentFeature,
-                        FormAlignmentFeature = outcomeBet.FormAlignmentFeature,
-                        MomentumAlignmentFeature = outcomeBet.MomentumAlignmentFeature
-                    },
-                    new ComboLeg
-                    {
-                        MatchId = goalsBet.MatchId, HomeTeam = goalsBet.HomeTeam, AwayTeam = goalsBet.AwayTeam,
-                        BetType = goalsBet.BetType, Selection = goalsBet.Selection, Odds = goalsLegOdds,
-                        MatchUtcDate = goalsBet.MatchUtcDate, Result = "PENDING",
-                        Confidence = goalsBet.Confidence,
-                        EdgeAlignmentFeature = goalsBet.EdgeAlignmentFeature,
-                        FormAlignmentFeature = goalsBet.FormAlignmentFeature,
-                        MomentumAlignmentFeature = goalsBet.MomentumAlignmentFeature
-                    }
-                }
+                Legs = allSingles.Zip(legOdds, ToLeg).ToList()
             };
 
             _context.BetCombos.Add(mergedCombo);
             savedCombos.Add(mergedCombo);
-            // The two original stakes were both already deducted individually;
-            // only mergedCombo.Stake is actually being risked now, so refund
-            // the difference for the rest of this cycle's remaining matches.
-            projectedBalance += outcomeBet.Stake + goalsBet.Stake - mergedCombo.Stake;
-            debugLog.Add($"MERGED: OUTCOME + GOALS combined into one combo ticket for {outcomeBet.HomeTeam} vs {outcomeBet.AwayTeam}");
+            // Every original stake was already deducted individually; only
+            // mergedCombo.Stake is actually being risked now, so refund the
+            // difference for the rest of this cycle's remaining matches.
+            projectedBalance += allSingles.Sum(b => b.Stake) - mergedCombo.Stake;
+            debugLog.Add($"MERGED: {allSingles.Count} single bets combined into one combo ticket for {allSingles[0].HomeTeam} vs {allSingles[0].AwayTeam}");
         }
 
         // TWO focused Ollama calls per match (OUTCOME, then GOALS) instead of
