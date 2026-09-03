@@ -98,7 +98,11 @@ public class FootballDataService
     // from now" (used to test the AI on a later slice without re-touching
     // matches an earlier call already bet on). Defaults to 0 (the
     // original "from now" behavior).
-    public async Task<List<FootballMatch>> GetUpcomingMatchesAsync(int windowHours = 24, int minHours = 0)
+    // competitionCode narrows to one league (e.g. "FL1" for Ligue 1) instead
+    // of all 5 supported ones - used by features scoped to a single league
+    // (e.g. the "pronos" exact-score feature), never by the real betting
+    // flow which deliberately spans all of them.
+    public async Task<List<FootballMatch>> GetUpcomingMatchesAsync(int windowHours = 24, int minHours = 0, string? competitionCode = null)
     {
         try
         {
@@ -132,8 +136,9 @@ public class FootballDataService
 
             foreach (var fixture in matchesArray.EnumerateArray())
             {
-                var competitionCode = fixture.GetProperty("competition").TryGetProperty("code", out var codeEl) ? codeEl.GetString() : null;
-                if (competitionCode == null || !SupportedCompetitionCodes.Contains(competitionCode)) continue;
+                var fixtureCompetitionCode = fixture.GetProperty("competition").TryGetProperty("code", out var codeEl) ? codeEl.GetString() : null;
+                if (fixtureCompetitionCode == null || !SupportedCompetitionCodes.Contains(fixtureCompetitionCode)) continue;
+                if (competitionCode != null && !string.Equals(fixtureCompetitionCode, competitionCode, StringComparison.OrdinalIgnoreCase)) continue;
 
                 var status = fixture.GetProperty("status").GetString();
                 if (status == "FINISHED" || status == "CANCELLED" || status == "POSTPONED") continue;
@@ -154,7 +159,9 @@ public class FootballDataService
                     UtcDate = matchTime,
                     Status = "SCHEDULED",
                     HomeScore = GetScoreOrZero(fullTime, "home"),
-                    AwayScore = GetScoreOrZero(fullTime, "away")
+                    AwayScore = GetScoreOrZero(fullTime, "away"),
+                    CompetitionCode = fixtureCompetitionCode,
+                    Matchday = fixture.TryGetProperty("matchday", out var mdEl) && mdEl.ValueKind == JsonValueKind.Number ? mdEl.GetInt32() : null
                 });
             }
 

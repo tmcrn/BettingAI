@@ -400,7 +400,17 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             </div>
             <button onclick="forceCycle()" id="forceBtn">🤖 Forcer un cycle IA</button>
             <button onclick="toggleOllama()" id="ollamaBtn">🧠 Ollama: …</button>
+            <button onclick="predictScores()" id="pronosBtn">🎯 Pronos Ligue 1 (Robert)</button>
             <button onclick="resetSystem()" class="danger">🗑️ Reset historique</button>
+        </div>
+
+        <div class="ticket" id="pronosPanel" style="display:none; margin-bottom: 28px;">
+            <div class="ticket-body">
+                <h3 style="margin:0">🎯 Pronos Robert</h3>
+                <div id="pronosList"></div>
+                <textarea id="pronosText" readonly rows="8" style="width:100%; background: var(--surface-2); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 10px; font-family: inherit;"></textarea>
+                <button onclick="copyPronos()">📋 Copier pour le groupe</button>
+            </div>
         </div>
 
         <div class="stats-grid">
@@ -881,6 +891,45 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             } finally {
                 await refreshOllamaStatus();
             }
+        }
+
+        async function predictScores() {
+            const btn = document.getElementById('pronosBtn');
+            const panel = document.getElementById('pronosPanel');
+            btn.disabled = true;
+            btn.textContent = '⏳ Robert réfléchit…';
+            panel.style.display = 'block';
+            document.getElementById('pronosList').textContent = 'Génération en cours (peut prendre 1-2 minutes selon le modèle)…';
+            document.getElementById('pronosText').value = '';
+            try {
+                const res = await fetch('/api/predict-scores');
+                const data = await res.json();
+                if (!data.success) {
+                    document.getElementById('pronosList').textContent = data.message || 'Erreur inconnue.';
+                    return;
+                }
+                document.getElementById('pronosList').innerHTML = data.predictions.map(p => {
+                    const score = (p.predictedHomeScore != null && p.predictedAwayScore != null)
+                        ? `${p.predictedHomeScore} - ${p.predictedAwayScore}`
+                        : 'pas de prono';
+                    const reason = p.reasoning ? `<div style="color: var(--text-faint); font-size: 0.85em;">${p.reasoning}</div>` : '';
+                    return `<div style="padding: 8px 0; border-bottom: 1px solid var(--border);">
+                        <strong>${p.homeTeam} ${score} ${p.awayTeam}</strong>${reason}
+                    </div>`;
+                }).join('');
+                document.getElementById('pronosText').value = data.formattedText || '';
+            } catch (e) {
+                document.getElementById('pronosList').textContent = 'Erreur: ' + e.message;
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '🎯 Pronos Ligue 1 (Robert)';
+            }
+        }
+
+        function copyPronos() {
+            const textarea = document.getElementById('pronosText');
+            textarea.select();
+            navigator.clipboard?.writeText(textarea.value).catch(() => document.execCommand('copy'));
         }
 
         async function forceCycle() {
