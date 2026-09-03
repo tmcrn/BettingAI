@@ -14,6 +14,13 @@ public class GetUpcomingMatchesRequest
     // 96h from now.
     [QueryParam]
     public int? MinHours { get; set; }
+
+    // Optional: narrow to one football-data.org competition code (e.g.
+    // "FL1" for Ligue 1) instead of all 5 supported ones - diagnostic aid
+    // for comparing "does this specific league's filter miss a match the
+    // unfiltered call finds".
+    [QueryParam]
+    public string? Competition { get; set; }
 }
 
 public class GetUpcomingMatchesEndpoint : Endpoint<GetUpcomingMatchesRequest, List<FootballMatch>>
@@ -33,7 +40,7 @@ public class GetUpcomingMatchesEndpoint : Endpoint<GetUpcomingMatchesRequest, Li
 
     public override async Task HandleAsync(GetUpcomingMatchesRequest req, CancellationToken ct)
     {
-        var matches = await _footballDataService.GetUpcomingMatchesAsync(req.WindowHours ?? 24, req.MinHours ?? 0);
+        var matches = await _footballDataService.GetUpcomingMatchesAsync(req.WindowHours ?? 24, req.MinHours ?? 0, req.Competition);
         await Send.OkAsync(matches);
     }
 }
