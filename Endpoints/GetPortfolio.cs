@@ -45,8 +45,24 @@ public class ComboLegItem
     public string? Result { get; set; }
 }
 
-public class GetPortfolioEndpoint : EndpointWithoutRequest<GetPortfolioResponse>
+public class GetPortfolioRequest
 {
+    // Optional: "WIN" | "LOSS" | "PENDING" - narrows RecentBets to just that
+    // status. The portfolio-wide stats above (TotalBets, WonBets, ...) are
+    // never affected by this - only which tickets are listed.
+    [QueryParam]
+    public string? ResultFilter { get; set; }
+}
+
+public class GetPortfolioEndpoint : Endpoint<GetPortfolioRequest, GetPortfolioResponse>
+{
+    // Was a flat 10 regardless of anything - once a status filter needs to
+    // actually find, say, every LOSS rather than just whichever losses
+    // happen to be within the last 10 tickets overall, that cap has to be
+    // generous enough to matter. Still a cap, not unlimited, since this is
+    // a personal-scale dashboard, not a paginated table.
+    private const int MaxRecentBets = 50;
+
     private readonly BettingContext _context;
 
     public GetPortfolioEndpoint(BettingContext context)
@@ -60,7 +76,7 @@ public class GetPortfolioEndpoint : EndpointWithoutRequest<GetPortfolioResponse>
         AllowAnonymous();
     }
 
-    public override async Task HandleAsync(CancellationToken ct)
+    public override async Task HandleAsync(GetPortfolioRequest req, CancellationToken ct)
     {
         var bets = await _context.Bets.ToListAsync(cancellationToken: ct);
         var combos = await _context.BetCombos.Include(c => c.Legs).ToListAsync(cancellationToken: ct);
@@ -127,8 +143,9 @@ public class GetPortfolioEndpoint : EndpointWithoutRequest<GetPortfolioResponse>
                 }).ToList()
             })))
             .OrderByDescending(x => x.CreatedAt)
-            .Take(10)
             .Select(x => x.Item)
+            .Where(item => req.ResultFilter == null || item.Result == req.ResultFilter)
+            .Take(MaxRecentBets)
             .ToList();
 
         await Send.OkAsync(new GetPortfolioResponse

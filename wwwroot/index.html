@@ -102,6 +102,7 @@ button {
     transition: transform 0.1s ease, border-color 0.15s ease;
 }
 button:hover { border-color: var(--accent); }
+.filter-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 button:active { transform: scale(0.97); }
 button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
 button.danger { color: var(--loss); }
@@ -429,6 +430,12 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
         </div>
 
         <div class="section-title">🎯 Tickets récents <span class="count" id="ticketsCount"></span></div>
+        <div class="button-row" style="margin-bottom: 14px;">
+            <button class="filter-btn active" data-filter="" onclick="setTicketFilter('')">Tous</button>
+            <button class="filter-btn" data-filter="PENDING" onclick="setTicketFilter('PENDING')">⏳ En cours</button>
+            <button class="filter-btn" data-filter="WIN" onclick="setTicketFilter('WIN')">✓ Gagnés</button>
+            <button class="filter-btn" data-filter="LOSS" onclick="setTicketFilter('LOSS')">✗ Perdus</button>
+        </div>
         <div class="tickets-container" id="ticketsContainer">
             <div class="empty-state">Chargement…</div>
         </div>
@@ -558,6 +565,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                     const rowsHtml = legs.map(l => `
                         <div class="leg-row">
                             <span class="leg-dot" style="background: ${l.result === 'WIN' ? 'var(--win)' : l.result === 'LOSS' ? 'var(--loss)' : 'var(--pending)'}"></span>
+                            <span class="badge ${badgeClass(l.result)}" style="font-size:0.75em; padding:2px 6px;">${l.result}</span>
                             <span class="leg-match" style="flex:1">${l.match}</span>
                             <span class="leg-type">${betTypeLabel(l.betType, l.selection)}</span>
                             ${l.result === 'PENDING' ? `
@@ -639,8 +647,18 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             `;
         }
 
+        let ticketFilter = '';
+
+        function setTicketFilter(filter) {
+            ticketFilter = filter;
+            document.querySelectorAll('.filter-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.filter === filter);
+            });
+            refreshPortfolio();
+        }
+
         async function refreshPortfolio() {
-            const res = await fetch('/api/portfolio');
+            const res = await fetch(`/api/portfolio${ticketFilter ? '?resultFilter=' + ticketFilter : ''}`);
             const p = await res.json();
 
             document.getElementById('balance').textContent = fmtEuro(p.currentBalance);
