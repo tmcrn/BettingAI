@@ -44,9 +44,18 @@ public class GetLearningNotebookEndpoint : EndpointWithoutRequest<GetLearningNot
         // SampleCount=4 while this said "Total paris: 0") even though real
         // WIN/LOSS results were flowing in via ComboLeg.Result the whole
         // time. Both sources normalized into one flat list of decisions so
-        // every stat/pattern below actually sees the real picture.
+        // every pattern/strategy line below actually sees the real picture.
+        //
+        // This "bets" list is deliberately LEG-level, used only for "does
+        // this bet TYPE tend to hit" pattern-mining below - it is NOT the
+        // real money outcome. A combo needs every one of its legs to win;
+        // counting each leg as its own win/loss (the STATISTIQUES GLOBALES
+        // header used to do exactly that) turns "one leg won, the other
+        // lost" into "1 win + 1 loss" when the real ticket was a single
+        // LOSS - see realResults below for the actual financial count.
         var singleBets = await _context.Bets.ToListAsync(cancellationToken: ct);
         var comboLegs = await _context.ComboLegs.ToListAsync(cancellationToken: ct);
+        var combos = await _context.BetCombos.ToListAsync(cancellationToken: ct);
         var bets = singleBets
             .Select(b => (BetType: b.BetType, Confidence: b.Confidence, Result: b.Result))
             .Concat(comboLegs.Select(l => (BetType: l.BetType, Confidence: l.Confidence ?? 0, Result: l.Result)))
@@ -56,6 +65,20 @@ public class GetLearningNotebookEndpoint : EndpointWithoutRequest<GetLearningNot
         var wonBets = bets.Where(b => b.Result == "WIN").ToList();
         var lostBets = bets.Where(b => b.Result == "LOSS").ToList();
         var settledBets = wonBets.Concat(lostBets).ToList();
+
+        // Real money-level outcomes: a standalone Bet is one real ticket,
+        // and so is a BetCombo regardless of how many legs it has - its own
+        // Result (set once every leg has resolved) already reflects "did
+        // this whole ticket pay out", so this is what the top-line win rate
+        // should actually count instead of legs.
+        var realResults = singleBets.Select(b => b.Result)
+            .Concat(combos.Select(c => c.Result))
+            .ToList();
+        var realWon = realResults.Count(r => r == "WIN");
+        var realLost = realResults.Count(r => r == "LOSS");
+        var realConfidences = singleBets.Select(b => b.Confidence)
+            .Concat(combos.Select(c => c.Confidence))
+            .ToList();
 
         // Patterns de victoire - only stated once there's a real sample,
         // never off a single lucky bet.
@@ -201,11 +224,13 @@ public class GetLearningNotebookEndpoint : EndpointWithoutRequest<GetLearningNot
 
         var learning = $@"🧠 LEARNING NOTEBOOK - Mémoire IA
 
-📊 STATISTIQUES GLOBALES:
-- Total paris: {bets.Count}
-- Gagnés: {wonBets.Count} ({(bets.Count > 0 ? (wonBets.Count * 100 / bets.Count) : 0)}%)
-- Perdus: {lostBets.Count}
-- Confiance moyenne: {(bets.Count > 0 ? bets.Average(b => b.Confidence) : 0):F2}
+📊 STATISTIQUES GLOBALES (résultat réel des billets - un combiné compte pour 1 pari, peu importe son nombre de jambes) :
+- Total paris: {realResults.Count}
+- Gagnés: {realWon} ({(realResults.Count > 0 ? (realWon * 100 / realResults.Count) : 0)}%)
+- Perdus: {realLost}
+- Confiance moyenne: {(realConfidences.Count > 0 ? realConfidences.Average() : 0):F2}
+
+📐 Note: les patterns et la stratégie ci-dessous analysent chaque JAMBE individuellement (utile pour repérer si un TYPE de pari comme OVER_GOALS réussit souvent), pas le résultat du billet entier - un combiné dont une jambe a gagné et l'autre perdu compte ci-dessus comme 1 pari PERDU (le vrai résultat financier), mais chacune de ses 2 jambes est comptée séparément dans les patterns par type ci-dessous.
 
 ✅ PATTERNS GAGNANTS:
 {string.Join("\n", winPatterns.Count > 0 ? winPatterns : new List<string> { "À découvrir..." })}
