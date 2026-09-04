@@ -15,6 +15,12 @@ public class ComboLeg
     public DateTime? MatchUtcDate { get; set; }
     public string Result { get; set; } = "PENDING"; // PENDING, WIN, LOSS
 
+    // The real final score for this leg's own match, set once at
+    // settlement (auto or manual) - see the comment on Bet.HomeScore for
+    // why this wasn't already tracked. Null while PENDING.
+    public int? HomeScore { get; set; }
+    public int? AwayScore { get; set; }
+
     // The combo's own Confidence is the PRODUCT across all legs, not any
     // one leg's individual confidence - not usable as a training feature
     // for this specific leg's own win/loss. This is the leg's own value:

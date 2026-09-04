@@ -17,6 +17,14 @@ public class Bet
     public decimal? Winnings { get; set; }
     public DateTime? MatchUtcDate { get; set; }  // Kickoff time - used to know when to check the real result
 
+    // The real final score, set once at settlement (auto or manual) -
+    // previously the score entered/fetched was only used transiently to
+    // compute WIN/LOSS then discarded, so a settled ticket showed the
+    // outcome but never the actual score that produced it. Null while
+    // PENDING.
+    public int? HomeScore { get; set; }
+    public int? AwayScore { get; set; }
+
     // The learned model's input features AS THEY WERE at decision time
     // (see WinPredictionService.ComputeFeatures) - persisted rather than
     // recomputed at settlement time, since the underlying TeamStats will

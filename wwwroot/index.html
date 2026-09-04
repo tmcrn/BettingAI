@@ -566,6 +566,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                         <div class="leg-row">
                             <span class="leg-dot" style="background: ${l.result === 'WIN' ? 'var(--win)' : l.result === 'LOSS' ? 'var(--loss)' : 'var(--pending)'}"></span>
                             <span class="badge ${badgeClass(l.result)}" style="font-size:0.75em; padding:2px 6px;">${l.result}</span>
+                            ${(l.homeScore !== null && l.homeScore !== undefined) ? `<span class="leg-score" style="font-size:0.75em; opacity:0.8;">${l.homeScore}-${l.awayScore}</span>` : ''}
                             <span class="leg-match" style="flex:1">${l.match}</span>
                             <span class="leg-type">${betTypeLabel(l.betType, l.selection)}</span>
                             ${l.result === 'PENDING' ? `
@@ -612,7 +613,10 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                             <div class="ticket-match">${bet.match}</div>
                             <div class="ticket-time">${fmtDate(bet.createdAt)}</div>
                         </div>
-                        <span class="badge ${badgeClass(bet.result)}">${bet.result}</span>
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            ${(!bet.isCombo && bet.homeScore !== null && bet.homeScore !== undefined) ? `<span class="score-tag" style="font-weight:600;">${bet.homeScore}-${bet.awayScore}</span>` : ''}
+                            <span class="badge ${badgeClass(bet.result)}">${bet.result}</span>
+                        </div>
                     </div>
                     <div class="ticket-body">
                         <div class="bet-type-row">

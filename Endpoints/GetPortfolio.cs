@@ -33,6 +33,13 @@ public class BetHistoryItem
     public DateTime CreatedAt { get; set; }
     public bool IsCombo { get; set; }
     public List<ComboLegItem>? Legs { get; set; }
+
+    // The real final score for this match, set once at settlement. Null
+    // while PENDING. Only meaningful for a standalone (non-combo) bet -
+    // a combo can span several matches, so its own score lives per-leg
+    // on ComboLegItem instead.
+    public int? HomeScore { get; set; }
+    public int? AwayScore { get; set; }
 }
 
 public class ComboLegItem
@@ -43,6 +50,11 @@ public class ComboLegItem
     public string? Selection { get; set; }
     public decimal Odds { get; set; }
     public string? Result { get; set; }
+
+    // The real final score for this leg's own match, set once at
+    // settlement. Null while PENDING.
+    public int? HomeScore { get; set; }
+    public int? AwayScore { get; set; }
 }
 
 public class GetPortfolioRequest
@@ -107,7 +119,9 @@ public class GetPortfolioEndpoint : Endpoint<GetPortfolioRequest, GetPortfolioRe
                 Reasoning = b.Reasoning,
                 Odds = b.Odds,
                 CreatedAt = b.CreatedAt,
-                IsCombo = false
+                IsCombo = false,
+                HomeScore = b.HomeScore,
+                AwayScore = b.AwayScore
             }))
             .Concat(combos.Select(c => (CreatedAt: c.CreatedAt, Item: new BetHistoryItem
             {
@@ -139,7 +153,9 @@ public class GetPortfolioEndpoint : Endpoint<GetPortfolioRequest, GetPortfolioRe
                     BetType = l.BetType,
                     Selection = l.Selection,
                     Odds = l.Odds,
-                    Result = l.Result
+                    Result = l.Result,
+                    HomeScore = l.HomeScore,
+                    AwayScore = l.AwayScore
                 }).ToList()
             })))
             .OrderByDescending(x => x.CreatedAt)

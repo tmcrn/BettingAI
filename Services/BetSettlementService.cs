@@ -104,6 +104,8 @@ public class BetSettlementService
             {
                 var won = DetermineOutcome(bet.BetType, bet.Selection, result, status.HomeScore, status.AwayScore);
                 bet.Result = won ? "WIN" : "LOSS";
+                bet.HomeScore = status.HomeScore;
+                bet.AwayScore = status.AwayScore;
                 // Real odds (when Sofascore had them at decision time) price the payout for
                 // real; otherwise estimate from the AI's own confidence - odds never
                 // influenced whether this bet was placed, only how much it pays out now.
@@ -159,6 +161,8 @@ public class BetSettlementService
             {
                 var won = DetermineOutcome(leg.BetType, leg.Selection, result, status.HomeScore, status.AwayScore);
                 leg.Result = won ? "WIN" : "LOSS";
+                leg.HomeScore = status.HomeScore;
+                leg.AwayScore = status.AwayScore;
                 await TrainModelAsync(leg.EdgeAlignmentFeature, leg.FormAlignmentFeature, leg.MomentumAlignmentFeature, leg.Confidence, won, ct);
                 settledLegCount++;
                 affectedCombos.Add(leg.BetComboId);
@@ -276,6 +280,8 @@ public class BetSettlementService
             await _oddsLearning.RecordRealOddsAsync(bet.BetType, realOdds.Value, ct);
         }
         bet.Result = won ? "WIN" : "LOSS";
+        bet.HomeScore = homeScore;
+        bet.AwayScore = awayScore;
         bet.Winnings = won ? bet.Stake * (bet.Odds ?? EstimateOddsFromConfidence(bet.Confidence)) : 0;
         await TrainModelAsync(bet.EdgeAlignmentFeature, bet.FormAlignmentFeature, bet.MomentumAlignmentFeature, bet.Confidence, won, ct);
 
@@ -310,6 +316,8 @@ public class BetSettlementService
             await _oddsLearning.RecordRealOddsAsync(leg.BetType, realOdds.Value, ct);
         }
         leg.Result = won ? "WIN" : "LOSS";
+        leg.HomeScore = homeScore;
+        leg.AwayScore = awayScore;
         await TrainModelAsync(leg.EdgeAlignmentFeature, leg.FormAlignmentFeature, leg.MomentumAlignmentFeature, leg.Confidence, won, ct);
 
         await _context.SaveChangesAsync(ct);
