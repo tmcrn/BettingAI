@@ -562,15 +562,27 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                     const pendingIds = legs.filter(l => l.result === 'PENDING').map(l => l.id);
                     const sharedForm = pendingIds.length > 1;
 
+                    // All legs in this group share one real match, so they
+                    // share ONE score, not one per leg - showing/entering it
+                    // per row let the same match get a different score typed
+                    // on each leg.
+                    const knownScore = legs.find(l => l.homeScore !== null && l.homeScore !== undefined);
+                    const anySettled = legs.some(l => l.result !== 'PENDING');
+                    const groupIds = legs.map(l => l.id).join(',');
+                    const groupScoreHtml = knownScore ? `
+                        <div class="group-score" style="font-size:0.8em; opacity:0.85; margin:2px 0 4px;">Score : <strong>${knownScore.homeScore}-${knownScore.awayScore}</strong></div>
+                    ` : (anySettled ? `
+                        <div class="group-score-edit" style="display:flex; align-items:center; gap:4px; margin:2px 0 4px; font-size:0.8em;">
+                            <span>Score :</span>
+                            <input type="number" min="0" step="1" id="score-home-group-${groupIds}" placeholder="0" style="width:30px;">-<input type="number" min="0" step="1" id="score-away-group-${groupIds}" placeholder="0" style="width:30px;">
+                            <button type="button" onclick="saveScoreGroup('${groupIds}', this)">✓</button>
+                        </div>
+                    ` : '');
+
                     const rowsHtml = legs.map(l => `
                         <div class="leg-row">
                             <span class="leg-dot" style="background: ${l.result === 'WIN' ? 'var(--win)' : l.result === 'LOSS' ? 'var(--loss)' : 'var(--pending)'}"></span>
                             <span class="badge ${badgeClass(l.result)}" style="font-size:0.75em; padding:2px 6px;">${l.result}</span>
-                            ${(l.homeScore !== null && l.homeScore !== undefined) ? `<span class="leg-score" style="font-size:0.75em; opacity:0.8;">${l.homeScore}-${l.awayScore}</span>` : (l.result !== 'PENDING' ? `
-                            <span class="score-edit" style="display:flex; align-items:center; gap:2px;">
-                                <input type="number" min="0" step="1" id="score-home-leg-${l.id}" placeholder="0" style="width:30px;">-<input type="number" min="0" step="1" id="score-away-leg-${l.id}" placeholder="0" style="width:30px;">
-                                <button type="button" onclick="saveScore('leg', ${l.id}, this)" style="font-size:0.75em;">✓</button>
-                            </span>` : '')}
                             <span class="leg-match" style="flex:1">${l.match}</span>
                             <span class="leg-type">${betTypeLabel(l.betType, l.selection)}</span>
                             ${l.result === 'PENDING' ? `
@@ -589,7 +601,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                         ${settleFormBlockGroup(pendingIds)}
                     ` : '';
 
-                    return rowsHtml + sharedFormHtml;
+                    return groupScoreHtml + rowsHtml + sharedFormHtml;
                 }).join('');
 
                 legsHtml = `
@@ -841,6 +853,39 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                 });
                 const data = await res.json();
                 if (!data.success) throw new Error(data.message);
+                await refreshAll();
+            } catch (e) {
+                alert('Erreur: ' + e.message);
+                btnEl.disabled = false;
+            }
+        }
+
+        // Same idea as saveScore, but for a match shared by several combo
+        // legs (e.g. HOME_WIN + OVER_GOALS on one game) - one score entered
+        // once gets applied to every leg on that match, since it's the same
+        // real match for all of them.
+        async function saveScoreGroup(idsCsv, btnEl) {
+            const ids = idsCsv.split(',').map(s => parseInt(s, 10));
+            const homeInput = document.getElementById(`score-home-group-${idsCsv}`);
+            const awayInput = document.getElementById(`score-away-group-${idsCsv}`);
+            const homeScore = parseInt(homeInput.value, 10);
+            const awayScore = parseInt(awayInput.value, 10);
+            if (isNaN(homeScore) || isNaN(awayScore) || homeScore < 0 || awayScore < 0) {
+                alert('Entre un score valide (ex: 2 et 1)');
+                return;
+            }
+
+            btnEl.disabled = true;
+            try {
+                for (const id of ids) {
+                    const res = await fetch('/api/set-score', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ kind: 'leg', id, homeScore, awayScore })
+                    });
+                    const data = await res.json();
+                    if (!data.success) throw new Error(data.message);
+                }
                 await refreshAll();
             } catch (e) {
                 alert('Erreur: ' + e.message);
