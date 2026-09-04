@@ -36,7 +36,20 @@ public class GetLearningNotebookEndpoint : EndpointWithoutRequest<GetLearningNot
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        var bets = await _context.Bets.ToListAsync(cancellationToken: ct);
+        // Most bets end up as ComboLeg rows, not standalone Bet rows, ever
+        // since same-match legs got merged into combo tickets - reading only
+        // _context.Bets here left this whole section permanently stuck at
+        // "0 paris" (confirmed live: WinPredictionService correctly reported
+        // SampleCount=4 while this said "Total paris: 0") even though real
+        // WIN/LOSS results were flowing in via ComboLeg.Result the whole
+        // time. Both sources normalized into one flat list of decisions so
+        // every stat/pattern below actually sees the real picture.
+        var singleBets = await _context.Bets.ToListAsync(cancellationToken: ct);
+        var comboLegs = await _context.ComboLegs.ToListAsync(cancellationToken: ct);
+        var bets = singleBets
+            .Select(b => (BetType: b.BetType, Confidence: b.Confidence, Result: b.Result))
+            .Concat(comboLegs.Select(l => (BetType: l.BetType, Confidence: l.Confidence ?? 0, Result: l.Result)))
+            .ToList();
         var notebook = await _context.LearningNotebook.OrderByDescending(n => n.LastUpdated).FirstOrDefaultAsync(cancellationToken: ct);
 
         var wonBets = bets.Where(b => b.Result == "WIN").ToList();
