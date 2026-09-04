@@ -44,9 +44,20 @@ public class FootballDataService
         _httpClient.DefaultRequestHeaders.Add("X-Auth-Token", _apiKey);
     }
 
-    // Fetches (or reuses a cached copy of) a GET request's raw body. On an
-    // API failure (rate limit included), falls back to a stale cached copy
-    // rather than giving up entirely.
+    // Retried failures fall back to a stale cached copy rather than giving
+    // up entirely if all retries are exhausted.
+    private const int MaxRequestAttempts = 3;
+    private static readonly TimeSpan RequestRetryDelay = TimeSpan.FromSeconds(3);
+
+    // Fetches (or reuses a cached copy of) a GET request's raw body.
+    // Confirmed live: an identical dateFrom/dateTo request that had just
+    // failed with 400 BadRequest in ~130ms (far too fast to be a real
+    // rate-limit wait) succeeded moments later with the exact same
+    // parameters via a manual retry - a transient glitch on football-
+    // data.org's side, not an actually malformed request, same category as
+    // the Ollama connection hiccups this project already retries through.
+    // Retries on ANY non-success status (covers 429/5xx too) rather than
+    // requiring the caller to notice and retry by hand.
     private async Task<JsonDocument?> GetAsync(string url, CancellationToken ct = default)
     {
         lock (_cacheLock)
@@ -59,32 +70,40 @@ public class FootballDataService
 
         SetupHeaders();
 
-        var response = await _httpClient.GetAsync(url, ct);
-
-        if (!response.IsSuccessStatusCode)
+        for (var attempt = 1; attempt <= MaxRequestAttempts; attempt++)
         {
-            Console.WriteLine($"football-data.org API error: {response.StatusCode} for {url}");
+            var response = await _httpClient.GetAsync(url, ct);
 
-            lock (_cacheLock)
+            if (response.IsSuccessStatusCode)
             {
-                if (_cache.TryGetValue(url, out var stale))
+                var content = await response.Content.ReadAsStringAsync(ct);
+
+                lock (_cacheLock)
                 {
-                    Console.WriteLine($"  ⚠️ Using stale cached data ({DateTime.UtcNow - stale.FetchedAt:g} old) due to API error");
-                    return JsonDocument.Parse(stale.Content);
+                    _cache[url] = (DateTime.UtcNow, content);
                 }
+
+                return JsonDocument.Parse(content);
             }
 
-            return null;
-        }
+            Console.WriteLine($"football-data.org API error: {response.StatusCode} for {url} (attempt {attempt}/{MaxRequestAttempts})");
 
-        var content = await response.Content.ReadAsStringAsync();
+            if (attempt < MaxRequestAttempts)
+            {
+                await Task.Delay(RequestRetryDelay, ct);
+            }
+        }
 
         lock (_cacheLock)
         {
-            _cache[url] = (DateTime.UtcNow, content);
+            if (_cache.TryGetValue(url, out var stale))
+            {
+                Console.WriteLine($"  ⚠️ Using stale cached data ({DateTime.UtcNow - stale.FetchedAt:g} old) after {MaxRequestAttempts} failed attempts");
+                return JsonDocument.Parse(stale.Content);
+            }
         }
 
-        return JsonDocument.Parse(content);
+        return null;
     }
 
     private static DateTime ParseUtcDate(string utcDateStr) =>
