@@ -1,5 +1,6 @@
 using BettingAI.Data;
 using BettingAI.Models;
+using BettingAI.Services;
 using FastEndpoints;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
@@ -169,6 +170,35 @@ public class GetLearningNotebookEndpoint : EndpointWithoutRequest<GetLearningNot
                 $"confiance IA={modelWeights.WeightConfidence:0.###}] - dernière mise à jour {modelWeights.LastUpdated:yyyy-MM-dd HH:mm}";
         }
 
+        // COTES APPRISES - OddsLearningService's real per-bet-type average,
+        // same transparency treatment as the model weights above: never
+        // shown as "in use" until it has real MinSample observations behind
+        // it, sample count always visible, types below the bar named
+        // explicitly rather than silently omitted.
+        var oddsStats = await _context.LearnedOddsStats.OrderByDescending(s => s.SampleCount).ToListAsync(cancellationToken: ct);
+        string oddsLine;
+        if (oddsStats.Count == 0)
+        {
+            oddsLine = "Aucune cote réelle enregistrée pour l'instant (cotes tapées à la main ou résolues automatiquement) - le système utilise encore l'estimation par défaut pour les jambes de combiné sans cote réelle.";
+        }
+        else
+        {
+            var active = oddsStats.Where(s => s.SampleCount >= OddsLearningService.MinSample).ToList();
+            var learning2 = oddsStats.Where(s => s.SampleCount < OddsLearningService.MinSample).ToList();
+            var lines = new List<string>();
+            if (active.Count > 0)
+            {
+                lines.Add("En service (assez d'échantillons) :");
+                lines.AddRange(active.Select(s => $"  • {s.BetType}: cote moyenne {s.AverageOdds:0.00} (sur {s.SampleCount} cotes réelles)"));
+            }
+            if (learning2.Count > 0)
+            {
+                lines.Add((active.Count > 0 ? "Encore en apprentissage" : "En apprentissage") + $" (< {OddsLearningService.MinSample} échantillons, estimation par défaut toujours utilisée) :");
+                lines.AddRange(learning2.Select(s => $"  • {s.BetType}: {s.SampleCount}/{OddsLearningService.MinSample} - cote moyenne provisoire {s.AverageOdds:0.00}"));
+            }
+            oddsLine = string.Join("\n", lines);
+        }
+
         var learning = $@"🧠 LEARNING NOTEBOOK - Mémoire IA
 
 📊 STATISTIQUES GLOBALES:
@@ -188,6 +218,9 @@ public class GetLearningNotebookEndpoint : EndpointWithoutRequest<GetLearningNot
 
 🤖 MODÈLE STATISTIQUE APPRIS (WinPredictionService):
 {modelLine}
+
+💶 COTES APPRISES (OddsLearningService):
+{oddsLine}
 
 📈 DERNIÈRE MISE À JOUR: {(notebook?.LastUpdated ?? DateTime.UtcNow):yyyy-MM-dd HH:mm}
 ";
