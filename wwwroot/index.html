@@ -566,7 +566,11 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                         <div class="leg-row">
                             <span class="leg-dot" style="background: ${l.result === 'WIN' ? 'var(--win)' : l.result === 'LOSS' ? 'var(--loss)' : 'var(--pending)'}"></span>
                             <span class="badge ${badgeClass(l.result)}" style="font-size:0.75em; padding:2px 6px;">${l.result}</span>
-                            ${(l.homeScore !== null && l.homeScore !== undefined) ? `<span class="leg-score" style="font-size:0.75em; opacity:0.8;">${l.homeScore}-${l.awayScore}</span>` : ''}
+                            ${(l.homeScore !== null && l.homeScore !== undefined) ? `<span class="leg-score" style="font-size:0.75em; opacity:0.8;">${l.homeScore}-${l.awayScore}</span>` : (l.result !== 'PENDING' ? `
+                            <span class="score-edit" style="display:flex; align-items:center; gap:2px;">
+                                <input type="number" min="0" step="1" id="score-home-leg-${l.id}" placeholder="0" style="width:30px;">-<input type="number" min="0" step="1" id="score-away-leg-${l.id}" placeholder="0" style="width:30px;">
+                                <button type="button" onclick="saveScore('leg', ${l.id}, this)" style="font-size:0.75em;">✓</button>
+                            </span>` : '')}
                             <span class="leg-match" style="flex:1">${l.match}</span>
                             <span class="leg-type">${betTypeLabel(l.betType, l.selection)}</span>
                             ${l.result === 'PENDING' ? `
@@ -614,7 +618,11 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                             <div class="ticket-time">${fmtDate(bet.createdAt)}</div>
                         </div>
                         <div style="display:flex; align-items:center; gap:8px;">
-                            ${(!bet.isCombo && bet.homeScore !== null && bet.homeScore !== undefined) ? `<span class="score-tag" style="font-weight:600;">${bet.homeScore}-${bet.awayScore}</span>` : ''}
+                            ${(!bet.isCombo && bet.homeScore !== null && bet.homeScore !== undefined) ? `<span class="score-tag" style="font-weight:600;">${bet.homeScore}-${bet.awayScore}</span>` : (!bet.isCombo && bet.result !== 'PENDING' ? `
+                            <span class="score-edit" style="display:flex; align-items:center; gap:2px;">
+                                <input type="number" min="0" step="1" id="score-home-bet-${bet.id}" placeholder="0" style="width:30px;">-<input type="number" min="0" step="1" id="score-away-bet-${bet.id}" placeholder="0" style="width:30px;">
+                                <button type="button" onclick="saveScore('bet', ${bet.id}, this)" style="font-size:0.75em;">✓</button>
+                            </span>` : '')}
                             <span class="badge ${badgeClass(bet.result)}">${bet.result}</span>
                         </div>
                     </div>
@@ -801,6 +809,35 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ kind, id, odds })
+                });
+                const data = await res.json();
+                if (!data.success) throw new Error(data.message);
+                await refreshAll();
+            } catch (e) {
+                alert('Erreur: ' + e.message);
+                btnEl.disabled = false;
+            }
+        }
+
+        // Backfills the real score on a ticket settled before scores were
+        // tracked - only ever touches HomeScore/AwayScore, never Result or
+        // Winnings (those are already correct from settlement time).
+        async function saveScore(kind, id, btnEl) {
+            const homeInput = document.getElementById(`score-home-${kind}-${id}`);
+            const awayInput = document.getElementById(`score-away-${kind}-${id}`);
+            const homeScore = parseInt(homeInput.value, 10);
+            const awayScore = parseInt(awayInput.value, 10);
+            if (isNaN(homeScore) || isNaN(awayScore) || homeScore < 0 || awayScore < 0) {
+                alert('Entre un score valide (ex: 2 et 1)');
+                return;
+            }
+
+            btnEl.disabled = true;
+            try {
+                const res = await fetch('/api/set-score', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ kind, id, homeScore, awayScore })
                 });
                 const data = await res.json();
                 if (!data.success) throw new Error(data.message);
