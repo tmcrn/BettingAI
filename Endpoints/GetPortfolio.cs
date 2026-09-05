@@ -92,12 +92,9 @@ public class ComboLegItem
 
 public class GetPortfolioRequest
 {
-    // Optional: "WIN" | "LOSS" | "PENDING" | "SETTLED" - narrows RecentBets
-    // to just that status. "SETTLED" is a pseudo-status matching WIN or
-    // LOSS together (the "Terminées" ticket filter) - it isn't a real
-    // Result value ever stored on a bet. The portfolio-wide stats above
-    // (TotalBets, WonBets, ...) are never affected by this - only which
-    // tickets are listed.
+    // Optional: "WIN" | "LOSS" | "PENDING" - narrows RecentBets to just that
+    // status. The portfolio-wide stats above (TotalBets, WonBets, ...) are
+    // never affected by this - only which tickets are listed.
     [QueryParam]
     public string? ResultFilter { get; set; }
 }
@@ -210,12 +207,7 @@ public class GetPortfolioEndpoint : Endpoint<GetPortfolioRequest, GetPortfolioRe
             })))
             .OrderByDescending(x => x.CreatedAt)
             .Select(x => x.Item)
-            .Where(item => req.ResultFilter switch
-            {
-                null => true,
-                "SETTLED" => item.Result == "WIN" || item.Result == "LOSS",
-                _ => item.Result == req.ResultFilter
-            })
+            .Where(item => req.ResultFilter == null || item.Result == req.ResultFilter)
             .Take(MaxRecentBets)
             .ToList();
 

@@ -606,8 +606,9 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             <div class="section-title">🎯 Tickets récents <span class="count" id="ticketsCount"></span></div>
             <div class="button-row" style="margin-bottom: 14px;">
                 <button class="filter-btn active" data-filter="" onclick="setTicketFilter('')">Tous (<span id="filterCountAll">0</span>)</button>
-                <button class="filter-btn" data-filter="SETTLED" onclick="setTicketFilter('SETTLED')">Terminées (<span id="filterCountSettled">0</span>)</button>
                 <button class="filter-btn" data-filter="PENDING" onclick="setTicketFilter('PENDING')">En cours (<span id="filterCountPending">0</span>)</button>
+                <button class="filter-btn" data-filter="WIN" onclick="setTicketFilter('WIN')">Gagnés (<span id="filterCountWon">0</span>)</button>
+                <button class="filter-btn" data-filter="LOSS" onclick="setTicketFilter('LOSS')">Perdus (<span id="filterCountLost">0</span>)</button>
             </div>
             <div class="tickets-container" id="ticketsContainer">
                 <div class="empty-state">Chargement…</div>
@@ -1007,8 +1008,9 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             // ticketFilter (see GetPortfolio.cs), so every filter button can
             // always show its true total even while a different one is active.
             document.getElementById('filterCountAll').textContent = p.totalBets;
-            document.getElementById('filterCountSettled').textContent = p.wonBets + p.lostBets;
             document.getElementById('filterCountPending').textContent = p.pendingBets;
+            document.getElementById('filterCountWon').textContent = p.wonBets;
+            document.getElementById('filterCountLost').textContent = p.lostBets;
 
             const container = document.getElementById('ticketsContainer');
             const countEl = document.getElementById('ticketsCount');
