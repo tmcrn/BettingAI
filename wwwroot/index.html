@@ -210,6 +210,18 @@ button:disabled { opacity: 0.5; cursor: default; transform: none; }
     letter-spacing: -0.01em;
 }
 .section-title .count { font-size: 0.7em; font-weight: 600; color: var(--text-faint); }
+.icon-toggle-btn {
+    background: none;
+    border: none;
+    box-shadow: none;
+    padding: 4px;
+    display: flex;
+    align-items: center;
+    align-self: center;
+    cursor: pointer;
+    color: var(--text-dim);
+}
+.icon-toggle-btn:hover { color: var(--accent); }
 
 /* ---- Tickets ---- */
 .tickets-container {
@@ -672,7 +684,12 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
         </div>
 
         <div class="tab-panel" data-tab="tickets">
-            <div class="section-title">🎯 Tickets récents <span class="count" id="ticketsCount"></span></div>
+            <div class="section-title">
+                🎯 Tickets récents <span class="count" id="ticketsCount"></span>
+                <button type="button" id="expandAllBtn" class="icon-toggle-btn" onclick="toggleExpandAll()" title="Tout déplier" style="margin-left:auto;">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M8 10l4-4 4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 14l4 4 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+            </div>
             <div class="button-row" style="margin-bottom: 14px;">
                 <button class="filter-btn active" data-filter="" onclick="setTicketFilter('')">Tous (<span id="filterCountAll">0</span>)</button>
                 <button class="filter-btn" data-filter="PENDING" onclick="setTicketFilter('PENDING')">En cours (<span id="filterCountPending">0</span>)</button>
@@ -885,6 +902,33 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             btnEl.setAttribute('aria-expanded', String(!el.hidden));
         }
 
+        // Master expand/collapse switch for every ticket at once - an icon
+        // swap (unfold/fold), not text, per request. Tickets are re-rendered
+        // wholesale on every refresh (innerHTML), which would otherwise
+        // reset them all back to collapsed - applyExpandAllState() is called
+        // again after each render (see refreshPortfolio()) to re-impose
+        // whichever state this switch is currently in.
+        let allTicketsExpanded = false;
+        const EXPAND_ALL_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M8 10l4-4 4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 14l4 4 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+        const COLLAPSE_ALL_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M8 6l4 4 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 18l4-4 4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+        function applyExpandAllState() {
+            document.querySelectorAll('.ticket-body').forEach(el => { el.hidden = !allTicketsExpanded; });
+            document.querySelectorAll('.ticket-toggle-btn').forEach(btn => {
+                btn.textContent = allTicketsExpanded ? '▾' : '▸';
+                btn.setAttribute('aria-expanded', String(allTicketsExpanded));
+            });
+            const switchBtn = document.getElementById('expandAllBtn');
+            if (switchBtn) {
+                switchBtn.innerHTML = allTicketsExpanded ? COLLAPSE_ALL_ICON : EXPAND_ALL_ICON;
+                switchBtn.title = allTicketsExpanded ? 'Tout replier' : 'Tout déplier';
+            }
+        }
+
+        function toggleExpandAll() {
+            allTicketsExpanded = !allTicketsExpanded;
+            applyExpandAllState();
+        }
 
         function ticketCard(bet) {
             const confPct = Math.round((bet.confidence || 0) * 100);
@@ -1132,6 +1176,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             // already loaded - loadMoreTickets() just asks for a bigger
             // Limit next time, no separate offset/cursor to track.
             loadMoreBtn.hidden = p.recentBets.length >= p.totalMatchingBets;
+            applyExpandAllState();
         }
 
         function reviewCard(item) {
