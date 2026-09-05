@@ -474,6 +474,22 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             COMBO: 'Combiné'
         };
 
+        // football-data.org competition code -> flag, so a match reads at a
+        // glance instead of only from the (sometimes unfamiliar-looking,
+        // but correct - that's just each club's real official name) team
+        // names alone.
+        const COMPETITION_FLAGS = {
+            FL1: '🇫🇷', // Ligue 1
+            PL: '🏴󠁧󠁢󠁥󠁮󠁧󠁿', // Premier League
+            PD: '🇪🇸', // La Liga
+            SA: '🇮🇹', // Serie A
+            BL1: '🇩🇪' // Bundesliga
+        };
+
+        function competitionFlag(code) {
+            return COMPETITION_FLAGS[code] || '⚽';
+        }
+
         function betTypeLabel(type, selection) {
             const tpl = BET_TYPE_LABELS[type];
             if (!tpl) return type || '?';
@@ -575,7 +591,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                 : [{
                     id: bet.id, match: bet.match, betType: bet.betType, selection: bet.selection,
                     odds: bet.odds, result: bet.result, homeScore: bet.homeScore, awayScore: bet.awayScore,
-                    matchUtcDate: bet.matchUtcDate, kind: 'bet'
+                    matchUtcDate: bet.matchUtcDate, competitionCode: bet.competitionCode, kind: 'bet'
                   }];
 
             // Legs are grouped by which real match they're on - a same-match
@@ -633,15 +649,16 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                     ${(l.result === 'PENDING' && !sharedForm) ? settleFormBlock(l.kind, l.id) : ''}
                 `).join('');
 
+                const groupFlag = competitionFlag(groupLegs[0].competitionCode);
                 const matchLineHtml = knownScore ? `
-                    <div class="leg-match-line">${groupMatch} <strong>${knownScore.homeScore}-${knownScore.awayScore}</strong>${allStillPending ? ' <span style=\"color:var(--loss);\">🔴 en direct</span>' : ''}</div>
+                    <div class="leg-match-line">${groupFlag} ${groupMatch} <strong>${knownScore.homeScore}-${knownScore.awayScore}</strong>${allStillPending ? ' <span style=\"color:var(--loss);\">🔴 en direct</span>' : ''}</div>
                 ` : (anySettled ? `
                     <div class="leg-match-line" style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
-                        <span>${groupMatch}</span>
+                        <span>${groupFlag} ${groupMatch}</span>
                         <input type="number" min="0" step="1" id="score-home-group-${kind}-${groupIds}" placeholder="0" style="width:30px;">-<input type="number" min="0" step="1" id="score-away-group-${kind}-${groupIds}" placeholder="0" style="width:30px;">
                         <button type="button" onclick="saveScoreGroup('${groupIds}', '${kind}', this)">✓</button>
                     </div>
-                ` : `<div class="leg-match-line">${groupMatch}</div>`);
+                ` : `<div class="leg-match-line">${groupFlag} ${groupMatch}</div>`);
 
                 const sharedFormHtml = sharedForm ? `
                     <button type="button" class="leg-validate-btn" title="Valider le résultat pour ce match" onclick="toggleSettleForm('settle-form-group-${pendingIds.join('-')}')">✅ Valider ce match (${pendingIds.length} jambes)</button>
@@ -681,11 +698,16 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                 <span class="ticket-score">${s.score}${s.live ? ' <span style="color:var(--loss);">🔴</span>' : ''}</span>
             `).join('');
 
+            // First leg with a known competition - a cross-match combo could
+            // in principle mix leagues, but in practice never does (see
+            // MergeOutcomeAndGoalsIntoCombo), so one flag reads fine here.
+            const headerFlag = competitionFlag(legs.find(l => l.competitionCode)?.competitionCode);
+
             return `
                 <div class="ticket ${resultClass}">
                     <div class="ticket-header">
                         <div>
-                            <div class="ticket-match">${bet.match}</div>
+                            <div class="ticket-match">${headerFlag} ${bet.match}</div>
                             <div class="ticket-time">${fmtDate(bet.createdAt)}${kickoffHtml}</div>
                         </div>
                         <div style="display:flex; align-items:center; gap:8px;">

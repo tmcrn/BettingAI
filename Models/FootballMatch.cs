@@ -5,6 +5,16 @@ public class FootballMatch
     public string? Id { get; set; }
     public string? HomeTeam { get; set; }
     public string? AwayTeam { get; set; }
+
+    // football-data.org's "shortName" for each team (e.g. "Union Berlin"
+    // instead of the official "1. FC Union Berlin") - display only, never
+    // used for TeamStats/TeamRecentResult lookups (those stay keyed on the
+    // long HomeTeam/AwayTeam above, which is what football-data.org's other
+    // endpoints also return as "name" - switching the join key itself to
+    // shortName would silently break every stats lookup for a team whose
+    // short name differs). Null when the API didn't provide one.
+    public string? HomeTeamShort { get; set; }
+    public string? AwayTeamShort { get; set; }
     public DateTime UtcDate { get; set; }
     public string? Status { get; set; }
     public int? HomeScore { get; set; }

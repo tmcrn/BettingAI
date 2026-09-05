@@ -170,11 +170,16 @@ public class FootballDataService
 
                 var fullTime = fixture.GetProperty("score").GetProperty("fullTime");
 
+                var homeTeamEl = fixture.GetProperty("homeTeam");
+                var awayTeamEl = fixture.GetProperty("awayTeam");
+
                 matches.Add(new FootballMatch
                 {
                     Id = fixture.GetProperty("id").GetInt32().ToString(),
-                    HomeTeam = fixture.GetProperty("homeTeam").GetProperty("name").GetString(),
-                    AwayTeam = fixture.GetProperty("awayTeam").GetProperty("name").GetString(),
+                    HomeTeam = homeTeamEl.GetProperty("name").GetString(),
+                    AwayTeam = awayTeamEl.GetProperty("name").GetString(),
+                    HomeTeamShort = homeTeamEl.TryGetProperty("shortName", out var homeShortEl) ? homeShortEl.GetString() : null,
+                    AwayTeamShort = awayTeamEl.TryGetProperty("shortName", out var awayShortEl) ? awayShortEl.GetString() : null,
                     UtcDate = matchTime,
                     Status = "SCHEDULED",
                     HomeScore = GetScoreOrZero(fullTime, "home"),

@@ -45,6 +45,10 @@ public class BetHistoryItem
     // placed the bet) - only meaningful for a standalone bet, same reason
     // as HomeScore/AwayScore above (a combo can span several matches).
     public DateTime? MatchUtcDate { get; set; }
+
+    // football-data.org's competition code (e.g. "FL1"), used client-side
+    // to show a small flag next to the match name.
+    public string? CompetitionCode { get; set; }
 }
 
 public class ComboLegItem
@@ -63,6 +67,9 @@ public class ComboLegItem
 
     // Real kickoff time for this leg's own match.
     public DateTime? MatchUtcDate { get; set; }
+
+    // See the comment on BetHistoryItem.CompetitionCode.
+    public string? CompetitionCode { get; set; }
 }
 
 public class GetPortfolioRequest
@@ -84,6 +91,12 @@ public class GetPortfolioEndpoint : Endpoint<GetPortfolioRequest, GetPortfolioRe
     private const int MaxRecentBets = 50;
 
     private readonly BettingContext _context;
+
+    // Prefers the display-only short name (e.g. "Union Berlin") over the
+    // long official one (e.g. "1. FC Union Berlin") football-data.org
+    // otherwise returns - short name is null for rows saved before this
+    // existed, or when the API had none for that team.
+    private static string TeamName(string? shortName, string? fullName) => shortName ?? fullName ?? "?";
 
     public GetPortfolioEndpoint(BettingContext context)
     {
@@ -117,7 +130,7 @@ public class GetPortfolioEndpoint : Endpoint<GetPortfolioRequest, GetPortfolioRe
             {
                 Id = b.Id,
                 MatchId = b.MatchId,
-                Match = $"{b.HomeTeam} vs {b.AwayTeam}",
+                Match = $"{TeamName(b.HomeTeamShort, b.HomeTeam)} vs {TeamName(b.AwayTeamShort, b.AwayTeam)}",
                 BetType = b.BetType,
                 Selection = b.Selection,
                 Stake = b.Stake,
@@ -130,7 +143,8 @@ public class GetPortfolioEndpoint : Endpoint<GetPortfolioRequest, GetPortfolioRe
                 IsCombo = false,
                 HomeScore = b.HomeScore,
                 AwayScore = b.AwayScore,
-                MatchUtcDate = b.MatchUtcDate
+                MatchUtcDate = b.MatchUtcDate,
+                CompetitionCode = b.CompetitionCode
             }))
             .Concat(combos.Select(c => (CreatedAt: c.CreatedAt, Item: new BetHistoryItem
             {
@@ -144,7 +158,7 @@ public class GetPortfolioEndpoint : Endpoint<GetPortfolioRequest, GetPortfolioRe
                 // match instead of claiming "2 matchs" for something that's
                 // actually one.
                 Match = c.Legs.Select(l => l.MatchId).Distinct().Count() == 1
-                    ? $"Combiné - {c.Legs.First().HomeTeam} vs {c.Legs.First().AwayTeam}"
+                    ? $"Combiné - {TeamName(c.Legs.First().HomeTeamShort, c.Legs.First().HomeTeam)} vs {TeamName(c.Legs.First().AwayTeamShort, c.Legs.First().AwayTeam)}"
                     : $"Combiné {c.Legs.Select(l => l.MatchId).Distinct().Count()} matchs",
                 BetType = "COMBO",
                 Stake = c.Stake,
@@ -158,14 +172,15 @@ public class GetPortfolioEndpoint : Endpoint<GetPortfolioRequest, GetPortfolioRe
                 Legs = c.Legs.Select(l => new ComboLegItem
                 {
                     Id = l.Id,
-                    Match = $"{l.HomeTeam} vs {l.AwayTeam}",
+                    Match = $"{TeamName(l.HomeTeamShort, l.HomeTeam)} vs {TeamName(l.AwayTeamShort, l.AwayTeam)}",
                     BetType = l.BetType,
                     Selection = l.Selection,
                     Odds = l.Odds,
                     Result = l.Result,
                     HomeScore = l.HomeScore,
                     AwayScore = l.AwayScore,
-                    MatchUtcDate = l.MatchUtcDate
+                    MatchUtcDate = l.MatchUtcDate,
+                    CompetitionCode = l.CompetitionCode
                 }).ToList()
             })))
             .OrderByDescending(x => x.CreatedAt)
