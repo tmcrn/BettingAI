@@ -454,7 +454,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
         <div class="section-title">🧠 Mémoire d'apprentissage</div>
         <div class="learning-notebook" id="learningNotebook">Chargement…</div>
 
-        <footer>BettingAI · rafraîchissement auto toutes les 10s</footer>
+        <footer>BettingAI · clique "🔄 Rafraîchir" pour mettre à jour</footer>
     </div>
 
     <script>
@@ -1115,8 +1115,10 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             }
         }
 
+        // No auto-refresh interval - it used to re-render the whole page
+        // every 10s, which reset any odds/score input the user was mid-
+        // typing into. Manual only now, via the "🔄 Rafraîchir" button.
         refreshAll();
-        setInterval(refreshAll, 10000);
     </script>
 </body>
 </html>
