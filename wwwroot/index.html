@@ -25,8 +25,11 @@
     --shadow: 0 1px 2px rgba(20,20,30,0.04), 0 4px 12px rgba(20,20,30,0.04);
     --radius: 14px;
 }
+/* Dark values apply automatically by system preference (guarded so an
+   explicit "light" choice below can override it), and again keyed off
+   data-theme so an explicit "dark" choice wins even on a light system. */
 @media (prefers-color-scheme: dark) {
-    :root {
+    :root:not([data-theme="light"]) {
         --bg: #0e0f13;
         --surface: #16181f;
         --surface-2: #1c1e27;
@@ -44,6 +47,24 @@
         --pending-bg: #332a0e;
         --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 4px 16px rgba(0,0,0,0.35);
     }
+}
+:root[data-theme="dark"] {
+    --bg: #0e0f13;
+    --surface: #16181f;
+    --surface-2: #1c1e27;
+    --border: #2a2d38;
+    --text: #eef0f5;
+    --text-dim: #a3a7b3;
+    --text-faint: #6a6f7d;
+    --accent: #818cf8;
+    --accent-dim: #1e1f3a;
+    --win: #3ecf7e;
+    --win-bg: #10281b;
+    --loss: #ff6b60;
+    --loss-bg: #341413;
+    --pending: #e0b23c;
+    --pending-bg: #332a0e;
+    --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 4px 16px rgba(0,0,0,0.35);
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
@@ -397,6 +418,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             <button onclick="checkResults()" id="checkResultsBtn">🔄 Vérifier les résultats</button>
             <button onclick="predictScores()" id="pronosBtn">🎯 Pronos Ligue 1 (Robert)</button>
             <button onclick="resetSystem()" class="danger">🗑️ Reset historique</button>
+            <button onclick="toggleTheme()" id="themeBtn">🌙 Mode sombre</button>
         </div>
 
         <div class="ticket" id="pronosPanel" style="display:none; margin-bottom: 28px;">
@@ -458,6 +480,37 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
     </div>
 
     <script>
+        // Manual dark-mode override on top of the automatic
+        // prefers-color-scheme media query in <style> - persisted per
+        // browser via localStorage so it sticks across reloads. Wrapped in
+        // try/catch since localStorage can throw in some contexts (private
+        // browsing, blocked site data) - falls back to just not persisting.
+        function currentEffectiveTheme() {
+            const attr = document.documentElement.getAttribute('data-theme');
+            if (attr) return attr;
+            return (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+        }
+
+        function updateThemeBtnLabel() {
+            const btn = document.getElementById('themeBtn');
+            if (btn) btn.textContent = currentEffectiveTheme() === 'dark' ? '☀️ Mode clair' : '🌙 Mode sombre';
+        }
+
+        function toggleTheme() {
+            const next = currentEffectiveTheme() === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', next);
+            try { localStorage.setItem('theme', next); } catch (e) {}
+            updateThemeBtnLabel();
+        }
+
+        (function initTheme() {
+            try {
+                const stored = localStorage.getItem('theme');
+                if (stored === 'dark' || stored === 'light') document.documentElement.setAttribute('data-theme', stored);
+            } catch (e) {}
+            updateThemeBtnLabel();
+        })();
+
         const BET_TYPE_LABELS = {
             HOME_WIN: 'Victoire domicile',
             AWAY_WIN: 'Victoire extérieur',
