@@ -384,6 +384,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
         <div class="button-row">
             <button class="primary" onclick="refreshAll()">🔄 Rafraîchir</button>
             <button onclick="forceCycle()" id="forceBtn">🤖 Forcer un cycle IA</button>
+            <button onclick="checkResults()" id="checkResultsBtn">🔄 Vérifier les résultats</button>
             <button onclick="predictScores()" id="pronosBtn">🎯 Pronos Ligue 1 (Robert)</button>
             <button onclick="resetSystem()" class="danger">🗑️ Reset historique</button>
         </div>
@@ -997,6 +998,27 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             } finally {
                 btn.disabled = false;
                 btn.textContent = '🤖 Forcer un cycle IA';
+            }
+        }
+
+        // Same settlement pass as the start of a full AI cycle (checks every
+        // PENDING bet's real match status via football-data.org, settles the
+        // ones that finished), but on its own - lets scores/results update
+        // without also forcing the AI to place new bets.
+        async function checkResults() {
+            const btn = document.getElementById('checkResultsBtn');
+            btn.disabled = true;
+            btn.textContent = '⏳ Vérification…';
+            try {
+                const res = await fetch('/api/settle-pending-bets', { method: 'POST' });
+                const data = await res.json();
+                await refreshAll();
+                alert(data.message || 'Vérification terminée.');
+            } catch (e) {
+                alert('Erreur pendant la vérification: ' + e.message);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '🔄 Vérifier les résultats';
             }
         }
 
