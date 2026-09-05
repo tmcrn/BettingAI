@@ -284,11 +284,6 @@ button:disabled { opacity: 0.5; cursor: default; transform: none; }
 .review-card .rc-match { font-weight: 700; }
 .review-card .rc-meta { font-size: 0.78em; color: var(--text-faint); margin-top: 2px; }
 .review-form { display: flex; flex-direction: column; gap: 10px; }
-/* Author CSS beats the browser's own [hidden]{display:none} rule even at
-   equal specificity, so without this the form above stayed visible all the
-   time regardless of the hidden attribute JS toggles - the "Valider..."
-   buttons looked like they did nothing. */
-.review-form[hidden] { display: none; }
 .review-row { display: flex; gap: 8px; align-items: center; }
 .review-row label { font-size: 0.78em; color: var(--text-dim); width: 68px; flex-shrink: 0; }
 .review-row input {
