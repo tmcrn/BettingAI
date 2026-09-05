@@ -647,6 +647,22 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                     <h3>⏳ En attente</h3>
                     <div class="value" id="pendingBets">-</div>
                 </div>
+                <div class="stat-card">
+                    <h3>📈 ROI</h3>
+                    <div class="value" id="roi">-</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Cote moyenne</h3>
+                    <div class="value" id="averageOdds">-</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Mise moyenne</h3>
+                    <div class="value" id="averageStake">-</div>
+                </div>
+                <div class="stat-card">
+                    <h3>🔥 Série en cours</h3>
+                    <div class="value" id="streak">-</div>
+                </div>
             </div>
 
             <div id="manualReviewSection">
@@ -665,6 +681,9 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             </div>
             <div class="tickets-container" id="ticketsContainer">
                 <div class="empty-state">Chargement…</div>
+            </div>
+            <div class="button-row" style="justify-content:center; margin-top: 4px;">
+                <button id="loadMoreTicketsBtn" onclick="loadMoreTickets()" hidden>Voir plus</button>
             </div>
         </div>
 
@@ -1031,16 +1050,32 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
 
         let ticketFilter = '';
 
+        // How many RecentBets to ask the server for - starts at 15 (the
+        // server's own default too, this is just so the count is visible
+        // here) and grows by 15 each time "Voir plus" is clicked. Reset
+        // back to 15 whenever the filter changes, so switching to e.g.
+        // "Gagnés" doesn't stay stuck showing however many were loaded
+        // under a previous filter.
+        let ticketsLimit = 15;
+
         function setTicketFilter(filter) {
             ticketFilter = filter;
+            ticketsLimit = 15;
             document.querySelectorAll('.filter-btn').forEach(btn => {
                 btn.classList.toggle('active', btn.dataset.filter === filter);
             });
             refreshPortfolio();
         }
 
+        function loadMoreTickets() {
+            ticketsLimit += 15;
+            refreshPortfolio();
+        }
+
         async function refreshPortfolio() {
-            const res = await fetch(`/api/portfolio${ticketFilter ? '?resultFilter=' + ticketFilter : ''}`);
+            const params = new URLSearchParams({ limit: ticketsLimit });
+            if (ticketFilter) params.set('resultFilter', ticketFilter);
+            const res = await fetch(`/api/portfolio?${params}`);
             const p = await res.json();
 
             // #balance (desktop stats-grid) no longer exists - the wallet now
@@ -1058,6 +1093,22 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             document.getElementById('winRate').textContent = `${(p.winRate * 100).toFixed(1)}%`;
             document.getElementById('pendingBets').textContent = `${p.pendingBets}`;
 
+            const roiEl = document.getElementById('roi');
+            roiEl.textContent = `${p.roi > 0 ? '+' : ''}${p.roi.toFixed(1)}%`;
+            roiEl.classList.toggle('win', p.roi > 0);
+            roiEl.classList.toggle('loss', p.roi < 0);
+            document.getElementById('averageOdds').textContent = p.averageOdds != null ? p.averageOdds.toFixed(2) : '-';
+            document.getElementById('averageStake').textContent = fmtEuro(p.averageStake);
+            const streakEl = document.getElementById('streak');
+            if (p.currentStreakResult) {
+                const noun = p.currentStreakResult === 'WIN' ? 'victoire' : 'défaite';
+                streakEl.textContent = `${p.currentStreakCount} ${noun}${p.currentStreakCount > 1 ? 's' : ''}`;
+            } else {
+                streakEl.textContent = '-';
+            }
+            streakEl.classList.toggle('win', p.currentStreakResult === 'WIN');
+            streakEl.classList.toggle('loss', p.currentStreakResult === 'LOSS');
+
             // These portfolio-wide counts come back regardless of the active
             // ticketFilter (see GetPortfolio.cs), so every filter button can
             // always show its true total even while a different one is active.
@@ -1068,13 +1119,19 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
 
             const container = document.getElementById('ticketsContainer');
             const countEl = document.getElementById('ticketsCount');
+            const loadMoreBtn = document.getElementById('loadMoreTicketsBtn');
             if (!p.recentBets || p.recentBets.length === 0) {
                 countEl.textContent = '';
                 container.innerHTML = '<div class="empty-state">Aucun pari pour le moment</div>';
+                loadMoreBtn.hidden = true;
                 return;
             }
-            countEl.textContent = `(${p.recentBets.length})`;
+            countEl.textContent = `(${p.recentBets.length}/${p.totalMatchingBets})`;
             container.innerHTML = p.recentBets.map(ticketCard).join('');
+            // Only shown while there are more matching tickets beyond what's
+            // already loaded - loadMoreTickets() just asks for a bigger
+            // Limit next time, no separate offset/cursor to track.
+            loadMoreBtn.hidden = p.recentBets.length >= p.totalMatchingBets;
         }
 
         function reviewCard(item) {

@@ -23,6 +23,33 @@ public class GetPortfolioResponse
     public int LostBets { get; set; }
     public int PendingBets { get; set; }
     public double WinRate { get; set; }
+
+    // Return on investment: NetProfit as a % of TotalStaked, e.g. 12.5 for
+    // +12.5%. Unlike NetProfit alone (raw euros), this says whether the
+    // strategy is actually efficient per euro risked, not just ahead in
+    // absolute terms - a bigger bankroll always shows a bigger NetProfit
+    // even at the same true performance. 0 while nothing's been staked yet.
+    public double Roi { get; set; }
+
+    // Mean odds across every bet/combo ever placed (CombinedOdds for a
+    // combo, Odds for a single - null only for a handful of very old single
+    // bets saved before Odds existed). Null if there's nothing to average.
+    public decimal? AverageOdds { get; set; }
+
+    public decimal AverageStake { get; set; }
+
+    // Longest run of consecutive WIN (or consecutive LOSS) among settled
+    // bets/combos, most-recent-first - "PENDING" ones don't break or
+    // extend it, they're just skipped. CurrentStreakResult is null (and
+    // Count 0) until at least one bet has ever been settled.
+    public int CurrentStreakCount { get; set; }
+    public string? CurrentStreakResult { get; set; }
+
+    // How many bets/combos match the current ResultFilter in total, before
+    // Limit truncates the list - lets the dashboard's "Voir plus" button
+    // know whether there's anything left to load.
+    public int TotalMatchingBets { get; set; }
+
     public List<BetHistoryItem> RecentBets { get; set; } = new();
 }
 
@@ -97,16 +124,26 @@ public class GetPortfolioRequest
     // never affected by this - only which tickets are listed.
     [QueryParam]
     public string? ResultFilter { get; set; }
+
+    // Optional: how many RecentBets to return, most-recent-first (after
+    // ResultFilter narrows the set). Defaults to 15 - the dashboard's
+    // "Voir plus" button just re-fetches with a bigger Limit each time
+    // rather than a real cursor, which is fine at personal scale and means
+    // every earlier ticket is still there (in the same order) whenever the
+    // list re-renders. Clamped to GetPortfolioEndpoint.MaxRecentBets so
+    // nothing pathological can be requested.
+    [QueryParam]
+    public int? Limit { get; set; }
 }
 
 public class GetPortfolioEndpoint : Endpoint<GetPortfolioRequest, GetPortfolioResponse>
 {
-    // Was a flat 10 regardless of anything - once a status filter needs to
-    // actually find, say, every LOSS rather than just whichever losses
-    // happen to be within the last 10 tickets overall, that cap has to be
-    // generous enough to matter. Still a cap, not unlimited, since this is
-    // a personal-scale dashboard, not a paginated table.
-    private const int MaxRecentBets = 50;
+    // Default page size for RecentBets ("Voir plus" starts from here and
+    // asks for 15 more each time) and the sanity ceiling on Request.Limit -
+    // still a cap, not unlimited, since this is a personal-scale dashboard,
+    // not a paginated table.
+    private const int DefaultRecentBetsLimit = 15;
+    private const int MaxRecentBets = 500;
 
     private readonly BettingContext _context;
 
@@ -142,6 +179,26 @@ public class GetPortfolioEndpoint : Endpoint<GetPortfolioRequest, GetPortfolioRe
         var pendingCount = bets.Count(b => b.Result == "PENDING") + combos.Count(c => c.Result == "PENDING");
         var totalCount = bets.Count + combos.Count;
         var winRate = totalCount > 0 ? (double)wonCount / totalCount : 0;
+
+        var netProfit = totalWinnings - totalStaked;
+        var roi = totalStaked > 0 ? (double)(netProfit / totalStaked) * 100 : 0;
+        var averageStake = totalCount > 0 ? totalStaked / totalCount : 0;
+
+        var allOdds = bets.Select(b => b.Odds).Where(o => o.HasValue).Select(o => o!.Value)
+            .Concat(combos.Select(c => c.CombinedOdds))
+            .ToList();
+        var averageOdds = allOdds.Count > 0 ? allOdds.Average() : (decimal?)null;
+
+        // Walk every settled bet/combo most-recent-first and count how many
+        // in a row share the very first (i.e. most recent) result - PENDING
+        // ones are excluded up front so they neither break nor extend it.
+        var settledChronological = bets.Select(b => (CreatedAt: b.CreatedAt, Result: b.Result))
+            .Concat(combos.Select(c => (CreatedAt: c.CreatedAt, Result: (string?)c.Result)))
+            .Where(x => x.Result == "WIN" || x.Result == "LOSS")
+            .OrderByDescending(x => x.CreatedAt)
+            .ToList();
+        var streakResult = settledChronological.Count > 0 ? settledChronological[0].Result : null;
+        var streakCount = settledChronological.TakeWhile(x => x.Result == streakResult).Count();
 
         var recentBets = bets
             .Select(b => (CreatedAt: b.CreatedAt, Item: new BetHistoryItem
@@ -208,20 +265,29 @@ public class GetPortfolioEndpoint : Endpoint<GetPortfolioRequest, GetPortfolioRe
             .OrderByDescending(x => x.CreatedAt)
             .Select(x => x.Item)
             .Where(item => req.ResultFilter == null || item.Result == req.ResultFilter)
-            .Take(MaxRecentBets)
             .ToList();
+
+        var limit = Math.Clamp(req.Limit ?? DefaultRecentBetsLimit, 1, MaxRecentBets);
+        var totalMatchingBets = recentBets.Count;
+        recentBets = recentBets.Take(limit).ToList();
 
         await Send.OkAsync(new GetPortfolioResponse
         {
             TotalStaked = totalStaked,
             TotalWinnings = totalWinnings,
-            NetProfit = totalWinnings - totalStaked,
+            NetProfit = netProfit,
             CurrentBalance = currentBalance,
             TotalBets = totalCount,
             WonBets = wonCount,
             LostBets = lostCount,
             PendingBets = pendingCount,
             WinRate = winRate,
+            Roi = roi,
+            AverageOdds = averageOdds,
+            AverageStake = averageStake,
+            CurrentStreakCount = streakCount,
+            CurrentStreakResult = streakResult,
+            TotalMatchingBets = totalMatchingBets,
             RecentBets = recentBets
         });
     }
