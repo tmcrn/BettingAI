@@ -202,7 +202,6 @@ button:disabled { opacity: 0.5; cursor: default; transform: none; }
     position: relative;
 }
 .ticket-match { font-size: 1.05em; font-weight: 700; line-height: 1.3; }
-.ticket-time { font-size: 0.78em; color: var(--text-faint); }
 .ticket-score { font-weight: 800; font-size: 1.05em; }
 
 .ticket-body { padding: 16px; display: flex; flex-direction: column; gap: 12px; flex: 1; }
@@ -241,7 +240,7 @@ button:disabled { opacity: 0.5; cursor: default; transform: none; }
 .footer-row .val { font-weight: 700; }
 .footer-row.cote .val { font-size: 1.15em; color: var(--accent); }
 .footer-row .val.win { color: var(--win); }
-.ticket-ref { font-size: 0.68em; color: var(--text-faint); margin-top: 6px; }
+.ticket-ref { display: flex; justify-content: space-between; font-size: 0.68em; color: var(--text-faint); margin-top: 6px; }
 
 .confidence-wrap .label-row { display: flex; justify-content: space-between; font-size: 0.75em; color: var(--text-dim); margin-bottom: 5px; }
 .confidence-track { height: 6px; background: var(--surface-2); border-radius: 999px; overflow: hidden; border: 1px solid var(--border); }
@@ -718,8 +717,13 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                 `).join('');
 
                 const groupFlag = competitionFlag(groupLegs[0].competitionCode);
+                // The score itself is shown once already, at the top of the
+                // ticket (headerScoreHtml) - repeating it here per group
+                // would just duplicate it, so a known score only earns this
+                // line the plain match name (still useful when a
+                // cross-match combo has more than one group).
                 const matchLineHtml = knownScore ? `
-                    <div class="leg-match-line">${groupFlag} ${groupMatch} <strong>${knownScore.homeScore}-${knownScore.awayScore}</strong>${allStillPending ? ' <span style=\"color:var(--loss);\">🔴 en direct</span>' : ''}</div>
+                    <div class="leg-match-line">${groupFlag} ${groupMatch}</div>
                 ` : (anySettled ? `
                     <div class="leg-match-line" style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
                         <span>${groupFlag} ${groupMatch}</span>
@@ -787,7 +791,6 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                         <div style="position:absolute; top:10px; left:10px;">${resultIcon(bet.result, 16)}</div>
                         <div class="ticket-match">${crestImg(crestLeg?.homeTeamCrest)} ${headerFlag} ${titleMatch} ${crestImg(crestLeg?.awayTeamCrest)}</div>
                         ${headerScoreHtml}
-                        <div class="ticket-time">${fmtDate(bet.createdAt)}${kickoffHtml}</div>
                     </div>
                     <div class="ticket-body" id="detail-${uid}" hidden>
                         <div class="bet-type-row">
@@ -811,7 +814,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                         <div class="footer-row cote"><span class="label">Cote totale</span><span class="val">${displayOdds(bet.odds, bet.confidence)}</span></div>
                         <div class="footer-row"><span class="label">Mise</span><span class="val">${fmtEuro(bet.stake)}</span></div>
                         <div class="footer-row"><span class="label">Gains</span><span class="val ${bet.result === 'WIN' ? 'win' : ''}">${bet.winnings != null ? fmtEuro(bet.winnings) : '-'}</span></div>
-                        <div class="ticket-ref">Ticket #${bet.id}${bet.isCombo ? ' · combiné' : ''}</div>
+                        <div class="ticket-ref"><span>Ticket #${bet.id}${bet.isCombo ? ' · combiné' : ''}</span><span>${fmtDate(bet.createdAt)}${kickoffHtml}</span></div>
                     </div>
                 </div>
             `;
