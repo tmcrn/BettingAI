@@ -74,6 +74,60 @@ public class BetSettlementService
         return settledCount;
     }
 
+    // Purely cosmetic: refreshes HomeScore/AwayScore for PENDING bets/legs
+    // whose kickoff has already passed, so a match still in progress can
+    // show its current score on the dashboard. Deliberately ignores
+    // SettlementBuffer (that 2h wait exists so a match is treated as truly
+    // over before Result/Winnings/training are touched) - this never sets
+    // Result or Winnings, so there's no such risk here, only a live number
+    // that keeps updating until the real settlement pass takes over.
+    public async Task<int> RefreshLiveScoresAsync(CancellationToken ct = default)
+    {
+        var updated = 0;
+        var now = DateTime.UtcNow;
+
+        var pendingBets = await _context.Bets.Where(b => b.Result == "PENDING").ToListAsync(ct);
+        foreach (var group in pendingBets.GroupBy(b => b.MatchId))
+        {
+            var matchId = group.Key;
+            if (string.IsNullOrEmpty(matchId)) continue;
+            var kickoff = group.First().MatchUtcDate;
+            if (kickoff == null || kickoff > now) continue;
+
+            var status = await _footballDataService.GetMatchStatusAsync(matchId, kickoff.Value);
+            if (status == null) continue;
+
+            foreach (var bet in group)
+            {
+                bet.HomeScore = status.HomeScore;
+                bet.AwayScore = status.AwayScore;
+                updated++;
+            }
+        }
+
+        var pendingLegs = await _context.ComboLegs.Where(l => l.Result == "PENDING").ToListAsync(ct);
+        foreach (var group in pendingLegs.GroupBy(l => l.MatchId))
+        {
+            var matchId = group.Key;
+            if (string.IsNullOrEmpty(matchId)) continue;
+            var kickoff = group.First().MatchUtcDate;
+            if (kickoff == null || kickoff > now) continue;
+
+            var status = await _footballDataService.GetMatchStatusAsync(matchId, kickoff.Value);
+            if (status == null) continue;
+
+            foreach (var leg in group)
+            {
+                leg.HomeScore = status.HomeScore;
+                leg.AwayScore = status.AwayScore;
+                updated++;
+            }
+        }
+
+        if (updated > 0) await _context.SaveChangesAsync(ct);
+        return updated;
+    }
+
     private async Task<int> SettleSingleBetsAsync(CancellationToken ct)
     {
         var pendingBets = await _context.Bets

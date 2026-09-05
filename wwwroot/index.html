@@ -385,6 +385,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             <button class="primary" onclick="refreshAll()">🔄 Rafraîchir</button>
             <button onclick="forceCycle()" id="forceBtn">🤖 Forcer un cycle IA</button>
             <button onclick="checkResults()" id="checkResultsBtn">🔄 Vérifier les résultats</button>
+            <button onclick="refreshLiveScores()" id="liveScoresBtn">🔴 Scores en direct</button>
             <button onclick="predictScores()" id="pronosBtn">🎯 Pronos Ligue 1 (Robert)</button>
             <button onclick="resetSystem()" class="danger">🗑️ Reset historique</button>
         </div>
@@ -569,9 +570,10 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                     // on each leg.
                     const knownScore = legs.find(l => l.homeScore !== null && l.homeScore !== undefined);
                     const anySettled = legs.some(l => l.result !== 'PENDING');
+                    const allStillPending = legs.every(l => l.result === 'PENDING');
                     const groupIds = legs.map(l => l.id).join(',');
                     const groupScoreHtml = knownScore ? `
-                        <div class="group-score" style="font-size:0.8em; opacity:0.85; margin:2px 0 4px;">Score : <strong>${knownScore.homeScore}-${knownScore.awayScore}</strong></div>
+                        <div class="group-score" style="font-size:0.8em; opacity:0.85; margin:2px 0 4px;">Score : <strong>${knownScore.homeScore}-${knownScore.awayScore}</strong>${allStillPending ? ' <span style=\"color:var(--loss);\">🔴 en direct</span>' : ''}</div>
                     ` : (anySettled ? `
                         <div class="group-score-edit" style="display:flex; align-items:center; gap:4px; margin:2px 0 4px; font-size:0.8em;">
                             <span>Score :</span>
@@ -631,7 +633,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                             <div class="ticket-time">${fmtDate(bet.createdAt)}</div>
                         </div>
                         <div style="display:flex; align-items:center; gap:8px;">
-                            ${(!bet.isCombo && bet.homeScore !== null && bet.homeScore !== undefined) ? `<span class="score-tag" style="font-weight:600;">${bet.homeScore}-${bet.awayScore}</span>` : (!bet.isCombo && bet.result !== 'PENDING' ? `
+                            ${(!bet.isCombo && bet.homeScore !== null && bet.homeScore !== undefined) ? `<span class="score-tag" style="font-weight:600;">${bet.homeScore}-${bet.awayScore}</span>${bet.result === 'PENDING' ? ' <span style="font-size:0.8em; color:var(--loss);">🔴 en direct</span>' : ''}` : (!bet.isCombo && bet.result !== 'PENDING' ? `
                             <span class="score-edit" style="display:flex; align-items:center; gap:2px;">
                                 <input type="number" min="0" step="1" id="score-home-bet-${bet.id}" placeholder="0" style="width:30px;">-<input type="number" min="0" step="1" id="score-away-bet-${bet.id}" placeholder="0" style="width:30px;">
                                 <button type="button" onclick="saveScore('bet', ${bet.id}, this)" style="font-size:0.75em;">✓</button>
@@ -1019,6 +1021,28 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             } finally {
                 btn.disabled = false;
                 btn.textContent = '🔄 Vérifier les résultats';
+            }
+        }
+
+        // Live, in-progress score for matches still being played - purely
+        // cosmetic (see RefreshLiveScoresEndpoint), never touches
+        // Result/Winnings. Separate from checkResults() since that one
+        // waits 2h after kickoff before even looking - this one is for
+        // right now, while it's happening.
+        async function refreshLiveScores() {
+            const btn = document.getElementById('liveScoresBtn');
+            btn.disabled = true;
+            btn.textContent = '⏳ Recherche…';
+            try {
+                const res = await fetch('/api/refresh-live-scores', { method: 'POST' });
+                const data = await res.json();
+                await refreshAll();
+                alert(data.message || 'Vérification terminée.');
+            } catch (e) {
+                alert('Erreur pendant la récupération des scores en direct: ' + e.message);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '🔴 Scores en direct';
             }
         }
 
