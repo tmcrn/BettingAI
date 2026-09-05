@@ -1071,11 +1071,15 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             btn.disabled = true;
             btn.textContent = '⏳ Vérification…';
             try {
-                const [settleRes, liveRes] = await Promise.all([
-                    fetch('/api/settle-pending-bets', { method: 'POST' }),
-                    fetch('/api/refresh-live-scores', { method: 'POST' })
-                ]);
+                // Sequential, not Promise.all - SQLite only allows one
+                // writer at a time, and both endpoints can call
+                // SaveChangesAsync. Firing them concurrently risked one
+                // hitting a "database is locked" error (and since that
+                // error response isn't valid JSON, the whole button broke
+                // rather than just one half of it).
+                const settleRes = await fetch('/api/settle-pending-bets', { method: 'POST' });
                 const settleData = await settleRes.json();
+                const liveRes = await fetch('/api/refresh-live-scores', { method: 'POST' });
                 const liveData = await liveRes.json();
                 await refreshAll();
                 alert([settleData.message, liveData.message].filter(Boolean).join('\n'));
