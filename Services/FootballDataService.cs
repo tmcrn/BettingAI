@@ -180,6 +180,8 @@ public class FootballDataService
                     AwayTeam = awayTeamEl.GetProperty("name").GetString(),
                     HomeTeamShort = homeTeamEl.TryGetProperty("shortName", out var homeShortEl) ? homeShortEl.GetString() : null,
                     AwayTeamShort = awayTeamEl.TryGetProperty("shortName", out var awayShortEl) ? awayShortEl.GetString() : null,
+                    HomeTeamCrest = homeTeamEl.TryGetProperty("crest", out var homeCrestEl) ? homeCrestEl.GetString() : null,
+                    AwayTeamCrest = awayTeamEl.TryGetProperty("crest", out var awayCrestEl) ? awayCrestEl.GetString() : null,
                     UtcDate = matchTime,
                     Status = "SCHEDULED",
                     HomeScore = GetScoreOrZero(fullTime, "home"),

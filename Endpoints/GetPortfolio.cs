@@ -58,6 +58,11 @@ public class BetHistoryItem
     // football-data.org's competition code (e.g. "FL1"), used client-side
     // to show a small flag next to the match name.
     public string? CompetitionCode { get; set; }
+
+    // Club logo URLs - null for rows saved before this existed, or when
+    // the API had none for that team.
+    public string? HomeTeamCrest { get; set; }
+    public string? AwayTeamCrest { get; set; }
 }
 
 public class ComboLegItem
@@ -79,6 +84,10 @@ public class ComboLegItem
 
     // See the comment on BetHistoryItem.CompetitionCode.
     public string? CompetitionCode { get; set; }
+
+    // See the comment on BetHistoryItem.HomeTeamCrest.
+    public string? HomeTeamCrest { get; set; }
+    public string? AwayTeamCrest { get; set; }
 }
 
 public class GetPortfolioRequest
@@ -153,7 +162,9 @@ public class GetPortfolioEndpoint : Endpoint<GetPortfolioRequest, GetPortfolioRe
                 HomeScore = b.HomeScore,
                 AwayScore = b.AwayScore,
                 MatchUtcDate = b.MatchUtcDate,
-                CompetitionCode = b.CompetitionCode
+                CompetitionCode = b.CompetitionCode,
+                HomeTeamCrest = b.HomeTeamCrest,
+                AwayTeamCrest = b.AwayTeamCrest
             }))
             .Concat(combos.Select(c => (CreatedAt: c.CreatedAt, Item: new BetHistoryItem
             {
@@ -189,7 +200,9 @@ public class GetPortfolioEndpoint : Endpoint<GetPortfolioRequest, GetPortfolioRe
                     HomeScore = l.HomeScore,
                     AwayScore = l.AwayScore,
                     MatchUtcDate = l.MatchUtcDate,
-                    CompetitionCode = l.CompetitionCode
+                    CompetitionCode = l.CompetitionCode,
+                    HomeTeamCrest = l.HomeTeamCrest,
+                    AwayTeamCrest = l.AwayTeamCrest
                 }).ToList()
             })))
             .OrderByDescending(x => x.CreatedAt)

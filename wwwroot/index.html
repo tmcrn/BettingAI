@@ -490,6 +490,13 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             return COMPETITION_FLAGS[code] || '⚽';
         }
 
+        // Club crest - onerror removes the broken <img> outright (some
+        // hosts block hotlinking, or a row saved before this existed has no
+        // URL at all) rather than leaving a broken-image icon in its place.
+        function crestImg(url) {
+            return url ? `<img src="${url}" style="width:18px; height:18px; object-fit:contain; vertical-align:middle;" onerror="this.remove()">` : '';
+        }
+
         function betTypeLabel(type, selection) {
             const tpl = BET_TYPE_LABELS[type];
             if (!tpl) return type || '?';
@@ -601,7 +608,8 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                 : [{
                     id: bet.id, match: bet.match, betType: bet.betType, selection: bet.selection,
                     odds: bet.odds, result: bet.result, homeScore: bet.homeScore, awayScore: bet.awayScore,
-                    matchUtcDate: bet.matchUtcDate, competitionCode: bet.competitionCode, kind: 'bet'
+                    matchUtcDate: bet.matchUtcDate, competitionCode: bet.competitionCode,
+                    homeTeamCrest: bet.homeTeamCrest, awayTeamCrest: bet.awayTeamCrest, kind: 'bet'
                   }];
 
             // Legs are grouped by which real match they're on - a same-match
@@ -713,11 +721,15 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             // MergeOutcomeAndGoalsIntoCombo), so one flag reads fine here.
             const headerFlag = competitionFlag(legs.find(l => l.competitionCode)?.competitionCode);
 
+            // Both crests come from the SAME leg (not independently
+            // searched) so they never end up mismatched with each other.
+            const crestLeg = legs.find(l => l.homeTeamCrest || l.awayTeamCrest);
+
             return `
                 <div class="ticket ${resultClass}">
                     <div class="ticket-header">
                         <div>
-                            <div class="ticket-match">${headerFlag} ${bet.match}</div>
+                            <div class="ticket-match">${crestImg(crestLeg?.homeTeamCrest)} ${headerFlag} ${bet.match} ${crestImg(crestLeg?.awayTeamCrest)}</div>
                             <div class="ticket-time">${fmtDate(bet.createdAt)}${kickoffHtml}</div>
                         </div>
                         <div style="display:flex; align-items:center; gap:8px;">

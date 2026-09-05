@@ -13,6 +13,10 @@ public class Bet
     // for bets placed before this existed, or when the API had none.
     public string? HomeTeamShort { get; set; }
     public string? AwayTeamShort { get; set; }
+
+    // Club logo URL, same idea as HomeTeamShort - display only.
+    public string? HomeTeamCrest { get; set; }
+    public string? AwayTeamCrest { get; set; }
     public string? BetType { get; set; }  // PLAYER_SCORER, HOME_WIN, etc.
     public string? Selection { get; set; } // Nom joueur ou "2.5"
     public decimal Stake { get; set; }

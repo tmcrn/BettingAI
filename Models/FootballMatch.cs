@@ -15,6 +15,11 @@ public class FootballMatch
     // short name differs). Null when the API didn't provide one.
     public string? HomeTeamShort { get; set; }
     public string? AwayTeamShort { get; set; }
+
+    // football-data.org's "crest" URL for each team's logo - display only,
+    // same reasoning as HomeTeamShort above.
+    public string? HomeTeamCrest { get; set; }
+    public string? AwayTeamCrest { get; set; }
     public DateTime UtcDate { get; set; }
     public string? Status { get; set; }
     public int? HomeScore { get; set; }
