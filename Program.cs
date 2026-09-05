@@ -62,7 +62,7 @@ using (var scope = app.Services.CreateScope())
 app.UseStaticFiles();
 app.UseFastEndpoints();
 
-Console.WriteLine("✅ BettingAI API started");
+Console.WriteLine("✅ Robert API started");
 Console.WriteLine("🤖 Auto-bets managed by CRON script");
 // Printed once at boot so switching OLLAMA_MODEL is directly visible in the
 // console right away, instead of only discoverable by digging through a
