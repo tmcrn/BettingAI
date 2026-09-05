@@ -8,6 +8,15 @@ public class GetPortfolioResponse
 {
     public decimal TotalStaked { get; set; }
     public decimal TotalWinnings { get; set; }
+
+    // TotalWinnings alone is the gross payout from WIN tickets only, always
+    // positive - it says nothing about whether the user is actually up or
+    // down overall once every stake (including on LOSS tickets) is counted.
+    // This is the real profit/loss: TotalWinnings - TotalStaked, negative
+    // when down. Equivalent to CurrentBalance minus the starting bankroll,
+    // computed here instead so the frontend doesn't need to know that
+    // starting amount just to show this.
+    public decimal NetProfit { get; set; }
     public decimal CurrentBalance { get; set; }
     public int TotalBets { get; set; }
     public int WonBets { get; set; }
@@ -193,6 +202,7 @@ public class GetPortfolioEndpoint : Endpoint<GetPortfolioRequest, GetPortfolioRe
         {
             TotalStaked = totalStaked,
             TotalWinnings = totalWinnings,
+            NetProfit = totalWinnings - totalStaked,
             CurrentBalance = currentBalance,
             TotalBets = totalCount,
             WonBets = wonCount,

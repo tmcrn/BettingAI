@@ -418,8 +418,8 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                 <div class="value" id="staked">-</div>
             </div>
             <div class="stat-card">
-                <h3>✓ Gains</h3>
-                <div class="value win" id="winnings">-</div>
+                <h3>💹 Bénéfice</h3>
+                <div class="value" id="profit">-</div>
             </div>
             <div class="stat-card">
                 <h3>Victoires</h3>
@@ -760,7 +760,10 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
 
             document.getElementById('balance').textContent = fmtEuro(p.currentBalance);
             document.getElementById('staked').textContent = fmtEuro(p.totalStaked);
-            document.getElementById('winnings').textContent = '+' + fmtEuro(p.totalWinnings);
+            const profitEl = document.getElementById('profit');
+            profitEl.textContent = (p.netProfit > 0 ? '+' : '') + fmtEuro(p.netProfit);
+            profitEl.classList.toggle('win', p.netProfit > 0);
+            profitEl.classList.toggle('loss', p.netProfit < 0);
             document.getElementById('wonBets').textContent = `${p.wonBets}/${p.totalBets}`;
             document.getElementById('winRate').textContent = `${(p.winRate * 100).toFixed(1)}%`;
             document.getElementById('pendingBets').textContent = `${p.pendingBets}`;
