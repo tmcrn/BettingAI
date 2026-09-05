@@ -360,7 +360,6 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             <button class="primary" onclick="refreshAll()">🔄 Rafraîchir</button>
             <button onclick="forceCycle()" id="forceBtn">🤖 Forcer un cycle IA</button>
             <button onclick="checkResults()" id="checkResultsBtn">🔄 Vérifier les résultats</button>
-            <button onclick="refreshLiveScores()" id="liveScoresBtn">🔴 Scores en direct</button>
             <button onclick="predictScores()" id="pronosBtn">🎯 Pronos Ligue 1 (Robert)</button>
             <button onclick="resetSystem()" class="danger">🗑️ Reset historique</button>
         </div>
@@ -940,46 +939,30 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             }
         }
 
-        // Same settlement pass as the start of a full AI cycle (checks every
-        // PENDING bet's real match status via football-data.org, settles the
-        // ones that finished), but on its own - lets scores/results update
-        // without also forcing the AI to place new bets.
+        // One button, two checks: settles every PENDING bet/leg whose match
+        // is really over (same pass a full AI cycle runs first), AND
+        // refreshes the live in-progress score for matches still being
+        // played (RefreshLiveScoresEndpoint - purely cosmetic, never
+        // touches Result/Winnings). Was two separate buttons; merged since
+        // there's no reason to check one without the other.
         async function checkResults() {
             const btn = document.getElementById('checkResultsBtn');
             btn.disabled = true;
             btn.textContent = '⏳ Vérification…';
             try {
-                const res = await fetch('/api/settle-pending-bets', { method: 'POST' });
-                const data = await res.json();
+                const [settleRes, liveRes] = await Promise.all([
+                    fetch('/api/settle-pending-bets', { method: 'POST' }),
+                    fetch('/api/refresh-live-scores', { method: 'POST' })
+                ]);
+                const settleData = await settleRes.json();
+                const liveData = await liveRes.json();
                 await refreshAll();
-                alert(data.message || 'Vérification terminée.');
+                alert([settleData.message, liveData.message].filter(Boolean).join('\n'));
             } catch (e) {
                 alert('Erreur pendant la vérification: ' + e.message);
             } finally {
                 btn.disabled = false;
                 btn.textContent = '🔄 Vérifier les résultats';
-            }
-        }
-
-        // Live, in-progress score for matches still being played - purely
-        // cosmetic (see RefreshLiveScoresEndpoint), never touches
-        // Result/Winnings. Separate from checkResults() since that one
-        // waits 2h after kickoff before even looking - this one is for
-        // right now, while it's happening.
-        async function refreshLiveScores() {
-            const btn = document.getElementById('liveScoresBtn');
-            btn.disabled = true;
-            btn.textContent = '⏳ Recherche…';
-            try {
-                const res = await fetch('/api/refresh-live-scores', { method: 'POST' });
-                const data = await res.json();
-                await refreshAll();
-                alert(data.message || 'Vérification terminée.');
-            } catch (e) {
-                alert('Erreur pendant la récupération des scores en direct: ' + e.message);
-            } finally {
-                btn.disabled = false;
-                btn.textContent = '🔴 Scores en direct';
             }
         }
 
