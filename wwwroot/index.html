@@ -119,27 +119,6 @@ header {
     white-space: nowrap;
 }
 
-.cron-pill {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    padding: 8px 16px 8px 12px;
-    box-shadow: var(--shadow);
-    font-size: 0.85em;
-    cursor: default;
-}
-.dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
-.dot-live { background: var(--win); box-shadow: 0 0 0 4px var(--win-bg); animation: pulse 2s infinite; }
-.dot-warn { background: var(--pending); box-shadow: 0 0 0 4px var(--pending-bg); }
-.dot-dead { background: var(--loss); box-shadow: 0 0 0 4px var(--loss-bg); }
-.dot-unknown { background: var(--text-faint); }
-@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
-.cron-pill .cron-main { font-weight: 600; }
-.cron-pill .cron-sub { color: var(--text-faint); }
-
 /* ---- Buttons ---- */
 .button-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 28px; }
 button {
@@ -576,19 +555,11 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
         </div>
 
         <div class="tab-panel" data-tab="stats">
-            <div class="cron-pill" id="cronPill" title="État du cycle automatique (une fois par jour, 8h heure de Paris)" style="margin-bottom: 20px;">
-                <span class="dot dot-unknown" id="cronDot"></span>
-                <div>
-                    <div class="cron-main" id="cronMain">Chargement…</div>
-                    <div class="cron-sub" id="cronSub"></div>
-                </div>
-            </div>
-
             <div class="button-row">
                 <button class="primary" onclick="refreshAll()">🔄 Rafraîchir</button>
-                <button onclick="forceCycle()" id="forceBtn">🤖 Forcer un cycle IA</button>
+                <button onclick="forceCycle()" id="forceBtn">🤖 Lancer le cycle</button>
                 <button onclick="checkResults()" id="checkResultsBtn">🔄 Vérifier les résultats</button>
-                <button onclick="predictScores()" id="pronosBtn">🎯 Pronos Ligue 1 (Robert)</button>
+                <button onclick="predictScores()" id="pronosBtn">🎯 Prono MPP</button>
                 <button onclick="resetSystem()" class="danger">🗑️ Reset historique</button>
                 <button onclick="toggleTheme()" id="themeBtn">🌙 Mode sombre</button>
             </div>
@@ -1181,46 +1152,9 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             document.getElementById('learningNotebook').textContent = l.formattedLearning || 'Pas encore de données d\'apprentissage.';
         }
 
-        async function refreshCronStatus() {
-            try {
-                const res = await fetch('/api/cycle-status');
-                const s = await res.json();
-                const dot = document.getElementById('cronDot');
-                const main = document.getElementById('cronMain');
-                const sub = document.getElementById('cronSub');
-
-                if (!s.hasRunYet) {
-                    dot.className = 'dot dot-unknown';
-                    main.textContent = 'Aucun cycle pour l\'instant';
-                    sub.textContent = 'en attente du 1er passage';
-                    return;
-                }
-
-                // The cycle now runs once a day (8h Paris) instead of every 45 min,
-                // so "healthy" spans most of a 24h gap - only flag it once a whole
-                // extra day has plausibly gone by without a run.
-                const mins = s.minutesSinceLastRun;
-                dot.className = 'dot ' + (mins > 26 * 60 ? 'dot-dead' : mins > 25 * 60 ? 'dot-warn' : 'dot-live');
-
-                const outcomeLabel = {
-                    no_matches: 'Aucun match dans la fenêtre',
-                    no_bets: `${s.matchesFound} match(s), 0 pari`,
-                    bets_placed: `${s.betsPlaced} pari(s) placé(s)`,
-                    error: 'Erreur au dernier cycle'
-                }[s.lastOutcome] || s.lastMessage || '';
-
-                const elapsed = mins >= 60 ? `${Math.floor(mins / 60)}h${String(mins % 60).padStart(2, '0')}` : `${mins} min`;
-                main.textContent = `Cron actif · il y a ${elapsed}`;
-                sub.textContent = outcomeLabel;
-            } catch (e) {
-                document.getElementById('cronDot').className = 'dot dot-dead';
-                document.getElementById('cronMain').textContent = 'Statut indisponible';
-            }
-        }
-
         async function refreshAll() {
             try {
-                await Promise.all([refreshPortfolio(), refreshLearning(), refreshCronStatus(), refreshManualReview()]);
+                await Promise.all([refreshPortfolio(), refreshLearning(), refreshManualReview()]);
             } catch (error) {
                 console.error('Erreur de chargement:', error);
             }
@@ -1255,7 +1189,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                 document.getElementById('pronosList').textContent = 'Erreur: ' + e.message;
             } finally {
                 btn.disabled = false;
-                btn.textContent = '🎯 Pronos Ligue 1 (Robert)';
+                btn.textContent = '🎯 Prono MPP';
             }
         }
 
@@ -1278,7 +1212,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                 alert('Erreur pendant le cycle: ' + e.message);
             } finally {
                 btn.disabled = false;
-                btn.textContent = '🤖 Forcer un cycle IA';
+                btn.textContent = '🤖 Lancer le cycle';
             }
         }
 
