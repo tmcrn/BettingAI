@@ -152,6 +152,11 @@ public class AutoDecideBetsEndpoint : Endpoint<AutoDecideBetsRequest, AutoDecide
                     match.HomeTeam,
                     match.AwayTeam,
                     match.UtcDate,
+                    match.HomeTeamShort,
+                    match.AwayTeamShort,
+                    match.HomeTeamCrest,
+                    match.AwayTeamCrest,
+                    match.CompetitionCode,
                     odds // null si pas encore publiées - DecideBets gère ce cas
                 });
                 await Task.Delay(1000); // Rate limit respectueux
@@ -179,7 +184,15 @@ public class AutoDecideBetsEndpoint : Endpoint<AutoDecideBetsRequest, AutoDecide
                     realMatchId = (string)m.Id,  // ← vrai ID, conservé pour le règlement automatique
                     homeTeam = m.HomeTeam,
                     awayTeam = m.AwayTeam,
-                    utcDate = m.UtcDate
+                    utcDate = m.UtcDate,
+                    // Carried through so DecideBets' sourceMatch (and the Bet/
+                    // ComboLeg it saves) actually has a flag/crest to show -
+                    // see the comment on GetUpcomingMatches() below.
+                    homeTeamShort = (string?)m.HomeTeamShort,
+                    awayTeamShort = (string?)m.AwayTeamShort,
+                    homeTeamCrest = (string?)m.HomeTeamCrest,
+                    awayTeamCrest = (string?)m.AwayTeamCrest,
+                    competitionCode = (string?)m.CompetitionCode
                 }).ToList(),
                 bettingHistory = (object?)null
             };
@@ -335,7 +348,18 @@ public class AutoDecideBetsEndpoint : Endpoint<AutoDecideBetsRequest, AutoDecide
                     Id = match.GetProperty("id").GetString(),
                     HomeTeam = match.GetProperty("homeTeam").GetString(),
                     AwayTeam = match.GetProperty("awayTeam").GetString(),
-                    UtcDate = match.GetProperty("utcDate").GetString()
+                    UtcDate = match.GetProperty("utcDate").GetString(),
+                    // These 5 used to stop here entirely, so every bet placed
+                    // through this pipeline always ended up with a null
+                    // CompetitionCode/HomeTeamCrest/AwayTeamCrest/HomeTeamShort/
+                    // AwayTeamShort - the dashboard's flag and crest images never
+                    // had anything to render, even though /api/matches/upcoming
+                    // itself (FootballMatch) already carries all of them.
+                    HomeTeamShort = match.TryGetProperty("homeTeamShort", out var hts) ? hts.GetString() : null,
+                    AwayTeamShort = match.TryGetProperty("awayTeamShort", out var ats) ? ats.GetString() : null,
+                    HomeTeamCrest = match.TryGetProperty("homeTeamCrest", out var htc) ? htc.GetString() : null,
+                    AwayTeamCrest = match.TryGetProperty("awayTeamCrest", out var atc) ? atc.GetString() : null,
+                    CompetitionCode = match.TryGetProperty("competitionCode", out var cc) ? cc.GetString() : null
                 });
             }
 
