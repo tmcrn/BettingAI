@@ -532,6 +532,13 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             return url ? `<img src="${url}" style="width:18px; height:18px; object-fit:contain; vertical-align:middle;" onerror="this.remove()">` : '';
         }
 
+        // Referee whistle, drawn by hand (no matching emoji exists) for the
+        // kickoff time - same reasoning as resultIcon: no network dependency,
+        // colored to match the surrounding faint text.
+        function whistleIcon() {
+            return `<svg width="13" height="13" viewBox="0 0 24 24" style="vertical-align:middle;"><rect x="2" y="9" width="13" height="7" rx="3.5" fill="currentColor"/><circle cx="8.5" cy="12.5" r="1.5" fill="var(--surface)"/><circle cx="19.5" cy="9.5" r="3.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M15.5 11.5l2.3-1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>`;
+        }
+
         function betTypeLabel(type, selection) {
             const tpl = BET_TYPE_LABELS[type];
             if (!tpl) return type || '?';
@@ -690,7 +697,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             // earliest (when the action starts) plus a count of the rest.
             const kickoffTimes = [...new Set(legs.map(l => l.matchUtcDate).filter(Boolean))].sort();
             const kickoffHtml = kickoffTimes.length ? `
-                <span class="ticket-kickoff"> · ⏱ ${fmtDate(kickoffTimes[0])}${kickoffTimes.length > 1 ? ` (+${kickoffTimes.length - 1})` : ''}</span>
+                <span class="ticket-kickoff"> · ${whistleIcon()} ${fmtDate(kickoffTimes[0])}${kickoffTimes.length > 1 ? ` (+${kickoffTimes.length - 1})` : ''}</span>
             ` : '';
 
             const resultClass = bet.result === 'WIN' ? 'ticket-win' : bet.result === 'LOSS' ? 'ticket-loss' : '';
