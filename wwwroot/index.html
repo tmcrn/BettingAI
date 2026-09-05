@@ -513,20 +513,24 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             COMBO: 'Combiné'
         };
 
-        // football-data.org competition code -> flag, so a match reads at a
-        // glance instead of only from the (sometimes unfamiliar-looking,
-        // but correct - that's just each club's real official name) team
-        // names alone.
-        const COMPETITION_FLAGS = {
-            FL1: '🇫🇷', // Ligue 1
-            PL: '🏴󠁧󠁢󠁥󠁮󠁧󠁿', // Premier League
-            PD: '🇪🇸', // La Liga
-            SA: '🇮🇹', // Serie A
-            BL1: '🇩🇪' // Bundesliga
+        // football-data.org competition code -> flag icon, so a match reads
+        // at a glance instead of only from the (sometimes unfamiliar-
+        // looking, but correct - that's just each club's real official
+        // name) team names alone. Round flag icons hotlinked from uxwing.com
+        // (same asset path for every country, just the name changes).
+        const UXWING_FLAG_BASE = 'https://uxwing.com/wp-content/themes/uxwing/download/flags-landmarks/';
+        const COMPETITION_FLAG_FILES = {
+            FL1: 'france-flag-round-circle-icon.png', // Ligue 1
+            PL: 'england-flag-round-circle-icon.png', // Premier League
+            PD: 'spain-flag-round-circle-icon.png', // La Liga
+            SA: 'italy-flag-round-circle-icon.png', // Serie A
+            BL1: 'germany-flag-round-circle-icon.png' // Bundesliga
         };
 
         function competitionFlag(code) {
-            return COMPETITION_FLAGS[code] || '⚽';
+            const file = COMPETITION_FLAG_FILES[code];
+            if (!file) return '';
+            return `<img src="${UXWING_FLAG_BASE}${file}" alt="${code}" style="width:18px; height:18px; vertical-align:middle;" onerror="this.remove()">`;
         }
 
         // Club crest - onerror removes the broken <img> outright (some
