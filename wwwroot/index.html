@@ -508,7 +508,17 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
 
         function fmtDate(iso) {
             if (!iso) return '';
-            const d = new Date(iso);
+            // Every date this API sends (CreatedAt, MatchUtcDate) is
+            // genuinely UTC, but SQLite has no real datetime type - a
+            // DateTime round-tripped through it comes back as
+            // Kind=Unspecified, which System.Text.Json then serializes
+            // WITHOUT a trailing Z or offset (e.g. "2026-09-05T18:45:00").
+            // Per the JS Date spec, a timezone-less ISO string is parsed as
+            // LOCAL time, not UTC - so a 20:45 Paris kickoff (18:45 UTC)
+            // never got shifted back up and displayed as 18:45. Append Z
+            // when it's missing so the browser knows to convert it.
+            const hasTz = /Z$|[+-]\d{2}:\d{2}$/.test(iso);
+            const d = new Date(hasTz ? iso : iso + 'Z');
             return d.toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
         }
 
