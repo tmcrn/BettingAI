@@ -189,6 +189,7 @@ button:disabled { opacity: 0.5; cursor: default; transform: none; }
     text-transform: uppercase;
     letter-spacing: 0.03em;
 }
+.ticket-score { font-weight: 800; font-size: 0.95em; flex-shrink: 0; }
 .badge-pending { background: var(--pending-bg); color: var(--pending); }
 .badge-win { background: var(--win-bg); color: var(--win); }
 .badge-loss { background: var(--loss-bg); color: var(--loss); }
@@ -589,6 +590,12 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                 groups.get(l.match).push(l);
             }
 
+            // Collected while building each match group below, then shown in
+            // the header (always visible, even collapsed) - a live score is
+            // exactly the kind of thing you want to see without having to
+            // expand every ticket to check.
+            const headerScores = [];
+
             const groupsHtml = Array.from(groups.values()).map(groupLegs => {
                 const kind = groupLegs[0].kind;
                 const pendingIds = groupLegs.filter(l => l.result === 'PENDING').map(l => l.id);
@@ -605,6 +612,10 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                 const allStillPending = groupLegs.every(l => l.result === 'PENDING');
                 const groupIds = groupLegs.map(l => l.id).join(',');
                 const groupMatch = groupLegs[0].match;
+
+                if (knownScore) {
+                    headerScores.push({ score: `${knownScore.homeScore}-${knownScore.awayScore}`, live: allStillPending });
+                }
 
                 const rowsHtml = groupLegs.map(l => `
                     <div class="leg-row">
@@ -663,6 +674,13 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             // alone can collide (a Bet #5 and a BetCombo #5 both existing).
             const uid = `${bet.isCombo ? 'combo' : 'single'}-${bet.id}`;
 
+            // Shown next to the badge, outside the collapsible body - a live
+            // score (or a final one) stays visible even with the ticket
+            // folded, instead of needing an expand just to check it.
+            const headerScoreHtml = headerScores.map(s => `
+                <span class="ticket-score">${s.score}${s.live ? ' <span style="color:var(--loss);">🔴</span>' : ''}</span>
+            `).join('');
+
             return `
                 <div class="ticket ${resultClass}">
                     <div class="ticket-header">
@@ -671,6 +689,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                             <div class="ticket-time">${fmtDate(bet.createdAt)}${kickoffHtml}</div>
                         </div>
                         <div style="display:flex; align-items:center; gap:8px;">
+                            ${headerScoreHtml}
                             <span class="badge ${badgeClass(bet.result)}">${bet.result}</span>
                             <button type="button" class="ticket-toggle-btn" title="Replier/déplier" aria-expanded="false" onclick="toggleTicketDetail('${uid}', this)">▸</button>
                         </div>
