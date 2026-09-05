@@ -672,10 +672,10 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                         </div>
                         <div style="display:flex; align-items:center; gap:8px;">
                             <span class="badge ${badgeClass(bet.result)}">${bet.result}</span>
-                            <button type="button" class="ticket-toggle-btn" title="Replier/déplier" aria-expanded="true" onclick="toggleTicketDetail('${uid}', this)">▾</button>
+                            <button type="button" class="ticket-toggle-btn" title="Replier/déplier" aria-expanded="false" onclick="toggleTicketDetail('${uid}', this)">▸</button>
                         </div>
                     </div>
-                    <div class="ticket-body" id="detail-${uid}">
+                    <div class="ticket-body" id="detail-${uid}" hidden>
                         <div class="bet-type-row">
                             <span class="bet-type-chip ${bet.isCombo ? 'combo-chip' : ''}">${betTypeLabel(bet.betType, bet.selection)}</span>
                         </div>
