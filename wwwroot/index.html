@@ -230,6 +230,7 @@ button:disabled { opacity: 0.5; cursor: default; transform: none; }
 .footer-row .val { font-weight: 700; }
 .footer-row.cote .val { font-size: 1.15em; color: var(--accent); }
 .footer-row .val.win { color: var(--win); }
+.footer-row .val.loss { color: var(--loss); }
 .ticket-ref { font-size: 0.68em; color: var(--text-faint); margin-top: 6px; }
 
 .confidence-wrap .label-row { display: flex; justify-content: space-between; font-size: 0.75em; color: var(--text-dim); margin-bottom: 5px; }
@@ -506,6 +507,15 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             return (n ?? 0).toFixed(2) + '€';
         }
 
+        // Same as fmtEuro but with an explicit sign and a "-" placeholder
+        // while still PENDING - for a profit/loss figure, "12.25€" alone
+        // doesn't say whether that's a gain or (already negative, so this
+        // only really adds the "+") a loss.
+        function fmtSigned(n) {
+            if (n == null) return '-';
+            return (n > 0 ? '+' : '') + fmtEuro(n);
+        }
+
         function fmtDate(iso) {
             if (!iso) return '';
             const d = new Date(iso);
@@ -686,6 +696,15 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
 
             const resultClass = bet.result === 'WIN' ? 'ticket-win' : bet.result === 'LOSS' ? 'ticket-loss' : '';
 
+            // What Winnings alone didn't show: on a WIN it's the gross
+            // payout (stake included), so a WIN and a LOSS could both read
+            // "0,00€" at a glance if you weren't looking at the badge - the
+            // actual profit/loss is Winnings minus the stake already spent
+            // (a LOSS never has Winnings recorded, so it's just -stake).
+            const netResult = bet.result === 'WIN' ? (bet.winnings ?? 0) - bet.stake
+                : bet.result === 'LOSS' ? -bet.stake
+                : null;
+
             // Distinguishes a Bet from a BetCombo for this DOM id - their ids
             // come from two separate tables/sequences, so a plain bet.id
             // alone can collide (a Bet #5 and a BetCombo #5 both existing).
@@ -737,7 +756,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                     <div class="ticket-footer">
                         <div class="footer-row cote"><span class="label">Cote totale</span><span class="val">${displayOdds(bet.odds, bet.confidence)}</span></div>
                         <div class="footer-row"><span class="label">Mise</span><span class="val">${fmtEuro(bet.stake)}</span></div>
-                        <div class="footer-row"><span class="label">Gains</span><span class="val ${bet.result === 'WIN' ? 'win' : ''}">${bet.winnings != null ? fmtEuro(bet.winnings) : '-'}</span></div>
+                        <div class="footer-row"><span class="label">Bénéfice</span><span class="val ${netResult > 0 ? 'win' : netResult < 0 ? 'loss' : ''}">${fmtSigned(netResult)}</span></div>
                         <div class="ticket-ref">Ticket #${bet.id}${bet.isCombo ? ' · combiné' : ''}</div>
                     </div>
                 </div>
