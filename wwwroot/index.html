@@ -189,6 +189,17 @@ button:disabled { opacity: 0.5; cursor: default; transform: none; }
 .badge-loss { background: var(--loss-bg); color: var(--loss); }
 
 .ticket-body { padding: 16px; display: flex; flex-direction: column; gap: 12px; flex: 1; }
+/* Author CSS beats the browser's own [hidden]{display:none} rule even at
+   equal specificity, so without this the collapsed body would stay
+   visible regardless of the hidden attribute toggleTicketDetail() sets. */
+.ticket-body[hidden] { display: none; }
+.ticket-toggle-btn {
+    padding: 3px 8px;
+    font-size: 0.85em;
+    line-height: 1;
+    box-shadow: none;
+    flex-shrink: 0;
+}
 
 .bet-type-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .bet-type-chip {
@@ -514,6 +525,17 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             if (el) el.hidden = !el.hidden;
         }
 
+        // Collapses/expands a ticket's detail section (AI reasoning, legs) -
+        // mise/cote/gain in the footer stay visible either way, only the
+        // "why" is folded away.
+        function toggleTicketDetail(uid, btnEl) {
+            const el = document.getElementById(`detail-${uid}`);
+            if (!el) return;
+            el.hidden = !el.hidden;
+            btnEl.textContent = el.hidden ? '▸' : '▾';
+            btnEl.setAttribute('aria-expanded', String(!el.hidden));
+        }
+
         // Same idea as settleFormBlock, but for several combo legs that all
         // belong to the SAME real match (e.g. HOME_WIN + OVER_GOALS on one
         // match, merged into one combo ticket) - one score entry settles
@@ -636,6 +658,11 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
 
             const resultClass = bet.result === 'WIN' ? 'ticket-win' : bet.result === 'LOSS' ? 'ticket-loss' : '';
 
+            // Distinguishes a Bet from a BetCombo for this DOM id - their ids
+            // come from two separate tables/sequences, so a plain bet.id
+            // alone can collide (a Bet #5 and a BetCombo #5 both existing).
+            const uid = `${bet.isCombo ? 'combo' : 'single'}-${bet.id}`;
+
             return `
                 <div class="ticket ${resultClass}">
                     <div class="ticket-header">
@@ -643,9 +670,12 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                             <div class="ticket-match">${bet.match}</div>
                             <div class="ticket-time">${fmtDate(bet.createdAt)}${kickoffHtml}</div>
                         </div>
-                        <span class="badge ${badgeClass(bet.result)}">${bet.result}</span>
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <span class="badge ${badgeClass(bet.result)}">${bet.result}</span>
+                            <button type="button" class="ticket-toggle-btn" title="Replier/déplier" aria-expanded="true" onclick="toggleTicketDetail('${uid}', this)">▾</button>
+                        </div>
                     </div>
-                    <div class="ticket-body">
+                    <div class="ticket-body" id="detail-${uid}">
                         <div class="bet-type-row">
                             <span class="bet-type-chip ${bet.isCombo ? 'combo-chip' : ''}">${betTypeLabel(bet.betType, bet.selection)}</span>
                         </div>
