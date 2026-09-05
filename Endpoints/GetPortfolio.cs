@@ -134,6 +134,15 @@ public class GetPortfolioRequest
     // nothing pathological can be requested.
     [QueryParam]
     public int? Limit { get; set; }
+
+    // Optional: a football-data.org competition code (e.g. "FL1") - narrows
+    // RecentBets to tickets in that league, combined with ResultFilter
+    // rather than replacing it. A single bet matches on its own
+    // CompetitionCode; a combo matches if ANY of its legs does (a combo's
+    // legs never actually mix leagues in practice, but this checks properly
+    // rather than assuming it).
+    [QueryParam]
+    public string? League { get; set; }
 }
 
 public class GetPortfolioEndpoint : Endpoint<GetPortfolioRequest, GetPortfolioResponse>
@@ -265,6 +274,9 @@ public class GetPortfolioEndpoint : Endpoint<GetPortfolioRequest, GetPortfolioRe
             .OrderByDescending(x => x.CreatedAt)
             .Select(x => x.Item)
             .Where(item => req.ResultFilter == null || item.Result == req.ResultFilter)
+            .Where(item => req.League == null
+                || item.CompetitionCode == req.League
+                || (item.Legs?.Any(l => l.CompetitionCode == req.League) ?? false))
             .ToList();
 
         var limit = Math.Clamp(req.Limit ?? DefaultRecentBetsLimit, 1, MaxRecentBets);

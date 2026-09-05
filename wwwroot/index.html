@@ -222,6 +222,45 @@ button:disabled { opacity: 0.5; cursor: default; transform: none; }
     color: var(--text-dim);
 }
 .icon-toggle-btn:hover { color: var(--accent); }
+.icon-toggle-btn.active { color: var(--accent); }
+
+.league-filter-wrap { position: relative; display: inline-flex; align-items: center; }
+.league-filter-panel {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    margin-top: 6px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: var(--shadow);
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 170px;
+    z-index: 40;
+}
+.league-filter-panel[hidden] { display: none; }
+.league-filter-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 7px;
+    background: none;
+    border: none;
+    box-shadow: none;
+    font-size: 0.85em;
+    font-weight: 600;
+    color: var(--text-dim);
+    text-align: left;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.league-filter-option img { width: 16px; height: 16px; }
+.league-filter-option:hover { background: var(--surface-2); }
+.league-filter-option.active { background: var(--accent-dim); color: var(--accent); }
 
 /* ---- Tickets ---- */
 .tickets-container {
@@ -695,6 +734,22 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                 <button class="filter-btn" data-filter="PENDING" onclick="setTicketFilter('PENDING')">En cours (<span id="filterCountPending">0</span>)</button>
                 <button class="filter-btn" data-filter="WIN" onclick="setTicketFilter('WIN')">Gagnés (<span id="filterCountWon">0</span>)</button>
                 <button class="filter-btn" data-filter="LOSS" onclick="setTicketFilter('LOSS')">Perdus (<span id="filterCountLost">0</span>)</button>
+
+                <!-- Hidden behind a filter icon rather than its own always-visible
+                     row of 5 buttons (Tous/FL1/PL/PD/SA/BL1), per request. -->
+                <div class="league-filter-wrap" id="leagueFilterWrap">
+                    <button type="button" id="leagueFilterBtn" class="icon-toggle-btn" onclick="toggleLeagueFilterPanel(event)" title="Filtrer par ligue">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M3 4h18l-7 8.5V19l-4 2v-8.5L3 4z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+                    </button>
+                    <div class="league-filter-panel" id="leagueFilterPanel" hidden>
+                        <button class="league-filter-option active" data-league="" onclick="setLeagueFilter('')">Toutes les ligues</button>
+                        <button class="league-filter-option" data-league="FL1" onclick="setLeagueFilter('FL1')"><img src="https://uxwing.com/wp-content/themes/uxwing/download/flags-landmarks/france-flag-round-circle-icon.png" onerror="this.remove()">Ligue 1</button>
+                        <button class="league-filter-option" data-league="PL" onclick="setLeagueFilter('PL')"><img src="https://uxwing.com/wp-content/themes/uxwing/download/flags-landmarks/uk-flag-round-circle-icon.png" onerror="this.remove()">Premier League</button>
+                        <button class="league-filter-option" data-league="PD" onclick="setLeagueFilter('PD')"><img src="https://uxwing.com/wp-content/themes/uxwing/download/flags-landmarks/spain-country-flag-round-icon.png" onerror="this.remove()">La Liga</button>
+                        <button class="league-filter-option" data-league="SA" onclick="setLeagueFilter('SA')"><img src="https://uxwing.com/wp-content/themes/uxwing/download/flags-landmarks/italy-flag-round-circle-icon.png" onerror="this.remove()">Serie A</button>
+                        <button class="league-filter-option" data-league="BL1" onclick="setLeagueFilter('BL1')"><img src="https://uxwing.com/wp-content/themes/uxwing/download/flags-landmarks/germany-flag-round-circle-icon.png" onerror="this.remove()">Bundesliga</button>
+                    </div>
+                </div>
             </div>
             <div class="tickets-container" id="ticketsContainer">
                 <div class="empty-state">Chargement…</div>
@@ -1111,6 +1166,34 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             refreshPortfolio();
         }
 
+        // League filter - hidden behind the funnel icon rather than its own
+        // row of buttons, per request. Combines with ticketFilter (result)
+        // rather than replacing it - both narrow the list together.
+        let leagueFilter = '';
+
+        function toggleLeagueFilterPanel(event) {
+            event.stopPropagation();
+            document.getElementById('leagueFilterPanel').hidden = !document.getElementById('leagueFilterPanel').hidden;
+        }
+
+        function setLeagueFilter(code) {
+            leagueFilter = code;
+            ticketsLimit = 15;
+            document.querySelectorAll('.league-filter-option').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.league === code);
+            });
+            document.getElementById('leagueFilterBtn').classList.toggle('active', code !== '');
+            document.getElementById('leagueFilterPanel').hidden = true;
+            refreshPortfolio();
+        }
+
+        // Closes the panel on any click outside it - stopPropagation() above
+        // on the funnel button itself keeps this from re-closing it the
+        // instant it's opened.
+        document.addEventListener('click', () => {
+            document.getElementById('leagueFilterPanel').hidden = true;
+        });
+
         function loadMoreTickets() {
             ticketsLimit += 15;
             refreshPortfolio();
@@ -1119,6 +1202,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
         async function refreshPortfolio() {
             const params = new URLSearchParams({ limit: ticketsLimit });
             if (ticketFilter) params.set('resultFilter', ticketFilter);
+            if (leagueFilter) params.set('league', leagueFilter);
             const res = await fetch(`/api/portfolio?${params}`);
             const p = await res.json();
 
