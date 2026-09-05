@@ -234,7 +234,6 @@ button:disabled { opacity: 0.5; cursor: default; transform: none; }
     font-size: 0.8em;
 }
 .leg-row .leg-match { font-weight: 600; }
-.leg-kickoff { font-weight: 400; font-size: 0.85em; color: var(--text-faint); }
 .leg-row .leg-type { color: var(--text-faint); }
 .leg-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
 
@@ -572,7 +571,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                     <div class="leg-row">
                         <span class="leg-dot" style="background: ${l.result === 'WIN' ? 'var(--win)' : l.result === 'LOSS' ? 'var(--loss)' : 'var(--pending)'}"></span>
                         <span class="badge ${badgeClass(l.result)}" style="font-size:0.75em; padding:2px 6px;">${l.result}</span>
-                        <span class="leg-match" style="flex:1">${l.match}${l.matchUtcDate ? ` <span class="leg-kickoff">${fmtDate(l.matchUtcDate)}</span>` : ''}</span>
+                        <span class="leg-match" style="flex:1">${l.match}</span>
                         <span class="leg-type">${betTypeLabel(l.betType, l.selection)}</span>
                         ${l.result === 'PENDING' ? `
                         <span class="leg-odds-edit">
@@ -600,12 +599,22 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                 ${groupsHtml}
             </div>`;
 
+            // Kickoff time(s), shown in the ticket title next to when the AI
+            // placed it - not per leg any more. A single-match ticket (a
+            // single bet, or a combo whose legs share one match) has one
+            // real kickoff; a cross-match combo has several, so show the
+            // earliest (when the action starts) plus a count of the rest.
+            const kickoffTimes = [...new Set(legs.map(l => l.matchUtcDate).filter(Boolean))].sort();
+            const kickoffHtml = kickoffTimes.length ? `
+                <span class="ticket-kickoff"> · ⏱ ${fmtDate(kickoffTimes[0])}${kickoffTimes.length > 1 ? ` (+${kickoffTimes.length - 1})` : ''}</span>
+            ` : '';
+
             return `
                 <div class="ticket">
                     <div class="ticket-header">
                         <div>
                             <div class="ticket-match">${bet.match}</div>
-                            <div class="ticket-time">${fmtDate(bet.createdAt)}</div>
+                            <div class="ticket-time">${fmtDate(bet.createdAt)}${kickoffHtml}</div>
                         </div>
                         <span class="badge ${badgeClass(bet.result)}">${bet.result}</span>
                     </div>
