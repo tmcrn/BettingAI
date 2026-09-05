@@ -40,6 +40,11 @@ public class BetHistoryItem
     // on ComboLegItem instead.
     public int? HomeScore { get; set; }
     public int? AwayScore { get; set; }
+
+    // Real kickoff time, not to be confused with CreatedAt (when the AI
+    // placed the bet) - only meaningful for a standalone bet, same reason
+    // as HomeScore/AwayScore above (a combo can span several matches).
+    public DateTime? MatchUtcDate { get; set; }
 }
 
 public class ComboLegItem
@@ -55,6 +60,9 @@ public class ComboLegItem
     // settlement. Null while PENDING.
     public int? HomeScore { get; set; }
     public int? AwayScore { get; set; }
+
+    // Real kickoff time for this leg's own match.
+    public DateTime? MatchUtcDate { get; set; }
 }
 
 public class GetPortfolioRequest
@@ -121,7 +129,8 @@ public class GetPortfolioEndpoint : Endpoint<GetPortfolioRequest, GetPortfolioRe
                 CreatedAt = b.CreatedAt,
                 IsCombo = false,
                 HomeScore = b.HomeScore,
-                AwayScore = b.AwayScore
+                AwayScore = b.AwayScore,
+                MatchUtcDate = b.MatchUtcDate
             }))
             .Concat(combos.Select(c => (CreatedAt: c.CreatedAt, Item: new BetHistoryItem
             {
@@ -155,7 +164,8 @@ public class GetPortfolioEndpoint : Endpoint<GetPortfolioRequest, GetPortfolioRe
                     Odds = l.Odds,
                     Result = l.Result,
                     HomeScore = l.HomeScore,
-                    AwayScore = l.AwayScore
+                    AwayScore = l.AwayScore,
+                    MatchUtcDate = l.MatchUtcDate
                 }).ToList()
             })))
             .OrderByDescending(x => x.CreatedAt)

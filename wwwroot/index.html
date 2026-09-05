@@ -234,6 +234,7 @@ button:disabled { opacity: 0.5; cursor: default; transform: none; }
     font-size: 0.8em;
 }
 .leg-row .leg-match { font-weight: 600; }
+.leg-kickoff { font-weight: 400; font-size: 0.85em; color: var(--text-faint); }
 .leg-row .leg-type { color: var(--text-faint); }
 .leg-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
 
@@ -529,7 +530,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                 : [{
                     id: bet.id, match: bet.match, betType: bet.betType, selection: bet.selection,
                     odds: bet.odds, result: bet.result, homeScore: bet.homeScore, awayScore: bet.awayScore,
-                    kind: 'bet'
+                    matchUtcDate: bet.matchUtcDate, kind: 'bet'
                   }];
 
             // Legs are grouped by which real match they're on - a same-match
@@ -571,7 +572,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                     <div class="leg-row">
                         <span class="leg-dot" style="background: ${l.result === 'WIN' ? 'var(--win)' : l.result === 'LOSS' ? 'var(--loss)' : 'var(--pending)'}"></span>
                         <span class="badge ${badgeClass(l.result)}" style="font-size:0.75em; padding:2px 6px;">${l.result}</span>
-                        <span class="leg-match" style="flex:1">${l.match}</span>
+                        <span class="leg-match" style="flex:1">${l.match}${l.matchUtcDate ? ` <span class="leg-kickoff">${fmtDate(l.matchUtcDate)}</span>` : ''}</span>
                         <span class="leg-type">${betTypeLabel(l.betType, l.selection)}</span>
                         ${l.result === 'PENDING' ? `
                         <span class="leg-odds-edit">
