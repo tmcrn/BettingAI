@@ -94,21 +94,54 @@ body {
 }
 .container { max-width: 1320px; margin: 0 auto; padding: 32px 24px 80px; }
 
-/* ---- Header ---- */
-header {
+/* ---- Desktop sidebar ----
+   Wide-screen equivalent of the mobile top bar + bottom tab bar combined:
+   brand mark, the same 4 tabs (now as labelled nav items instead of an
+   icon-only floating bar - more room, and a mouse doesn't need the bar
+   within thumb's reach), theme toggle and wallet pill at the bottom.
+   Fixed, so the main content area is offset by its width via body's
+   padding-left below; hidden entirely under the mobile breakpoint,
+   where .mobile-topbar/.mobile-tabbar take over instead. */
+body { padding-left: 240px; }
+.desktop-sidebar {
     display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    margin-bottom: 28px;
+    flex-direction: column;
+    position: fixed;
+    top: 0; left: 0; bottom: 0;
+    width: 240px;
+    padding: 24px 16px;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    z-index: 50;
 }
-.title-block h1 { font-size: 1.7em; font-weight: 700; letter-spacing: -0.02em; }
-.title-block p { color: var(--text-dim); font-size: 0.92em; margin-top: 4px; }
+.sidebar-brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 1.15em; padding: 0 8px; margin-bottom: 28px; }
+.sidebar-brand img { width: 34px; height: 34px; border-radius: 10px; display: block; }
+.sidebar-nav { display: flex; flex-direction: column; gap: 2px; flex: 1; }
+.side-nav-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 11px 12px;
+    border-radius: 10px;
+    background: none;
+    border: none;
+    box-shadow: none;
+    color: var(--text-dim);
+    font-size: 0.92em;
+    font-weight: 600;
+    text-align: left;
+}
+.side-nav-item svg { flex-shrink: 0; }
+.side-nav-item.active { background: var(--accent-dim); color: var(--accent); }
+.sidebar-footer { display: flex; flex-direction: column; gap: 10px; padding-top: 16px; margin-top: 16px; border-top: 1px solid var(--border); }
+.desktop-theme-btn { width: 100%; text-align: left; }
+.sidebar-footer .wallet-pill { text-align: center; }
 
-/* Shared by the desktop header's pill and the mobile top bar's pill (same
-   class, two places) - unconditional so it still looks right on desktop,
-   where .mobile-topbar itself is hidden. */
+/* Shared by the desktop sidebar's pill and the mobile top bar's pill (same
+   class, two places) - unconditional so it still looks right wherever
+   it's placed. */
 .wallet-pill {
     background: var(--accent-dim);
     color: var(--accent);
@@ -425,16 +458,22 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
     margin-top: 6px;
 }
 
+/* Only one tab-panel shows at a time - true on both desktop (driven by
+   .desktop-sidebar's nav) and mobile (driven by .mobile-tabbar), unlike
+   the very first version of this redesign where desktop still showed
+   every section stacked in one continuous scroll. */
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+
 /* ---- Mobile-only chrome (fixed top bar, floating bottom tab bar) ----
-   Hidden entirely on desktop; the tab-panel split below only takes effect
-   inside the same breakpoint, so a wide browser window still just shows
-   every section stacked in one scroll, same as before this redesign. */
+   Hidden entirely on desktop, which uses .desktop-sidebar instead. */
 .mobile-topbar { display: none; }
 .mobile-tabbar { display: none; }
 
 @media (max-width: 700px) {
-    body { padding-top: 62px; padding-bottom: 90px; }
+    body { padding-left: 0; padding-top: 62px; padding-bottom: 90px; }
     .container { padding: 12px 14px 24px; }
+    .desktop-sidebar { display: none; }
 
     .mobile-topbar {
         display: flex;
@@ -489,12 +528,6 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
         transition: color 0.15s ease, background 0.15s ease;
     }
     .tab-btn.active { color: var(--accent); background: var(--accent-dim); }
-
-    /* Superseded on mobile by .mobile-topbar's brand mark + icon toggle. */
-    #desktopHeader, #themeBtn { display: none; }
-
-    .tab-panel { display: none; }
-    .tab-panel.active { display: block; }
 }
 </style>
 </head>
@@ -510,15 +543,36 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
         </div>
     </div>
 
-    <div class="container">
-        <header id="desktopHeader">
-            <div class="title-block">
-                <h1>⚔️ Robert</h1>
-                <p>Décisions basées sur les stats réelles (xG, forme, H2H) • Apprentissage en temps réel</p>
-            </div>
+    <nav class="desktop-sidebar" id="desktopSidebar">
+        <div class="sidebar-brand">
+            <img src="/apple-touch-icon.png" alt="Robert">
+            <span>Robert</span>
+        </div>
+        <div class="sidebar-nav">
+            <button class="tab-btn side-nav-item active" data-tab="home" onclick="setActiveTab('home')">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M3 11.5L12 4l9 7.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5.5 10v8.5a1 1 0 001 1h11a1 1 0 001-1V10" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><rect x="10" y="14" width="4" height="5.5" fill="currentColor"/></svg>
+                <span>Accueil</span>
+            </button>
+            <button class="tab-btn side-nav-item" data-tab="stats" onclick="setActiveTab('stats')">
+                <svg width="20" height="20" viewBox="0 0 24 24"><rect x="4" y="12" width="4" height="8" rx="1" fill="currentColor"/><rect x="10" y="7" width="4" height="13" rx="1" fill="currentColor"/><rect x="16" y="3" width="4" height="17" rx="1" fill="currentColor"/></svg>
+                <span>Stats</span>
+            </button>
+            <button class="tab-btn side-nav-item" data-tab="tickets" onclick="setActiveTab('tickets')">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><rect x="3" y="6" width="18" height="12" rx="2.5" stroke="currentColor" stroke-width="2"/><line x1="12" y1="6" x2="12" y2="18" stroke="currentColor" stroke-width="2" stroke-dasharray="2.2 2.2" stroke-linecap="round"/></svg>
+                <span>Tickets</span>
+            </button>
+            <button class="tab-btn side-nav-item" data-tab="learning" onclick="setActiveTab('learning')">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M12 6.5c-1.8-1.4-4.2-2-6.5-2-1 0-1.5.3-1.5 1v11c0 .6.5 1 1.5 1 2.3 0 4.7.6 6.5 2 1.8-1.4 4.2-2 6.5-2 1 0 1.5-.4 1.5-1v-11c0-.7-.5-1-1.5-1-2.3 0-4.7.6-6.5 2z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><line x1="12" y1="6.5" x2="12" y2="19.5" stroke="currentColor" stroke-width="1.8"/></svg>
+                <span>Learning Book</span>
+            </button>
+        </div>
+        <div class="sidebar-footer">
+            <button class="desktop-theme-btn" id="desktopThemeBtn" onclick="toggleTheme()">🌙 Mode sombre</button>
             <div class="wallet-pill" id="walletPillDesktop">-</div>
-        </header>
+        </div>
+    </nav>
 
+    <div class="container">
         <div class="tab-panel active" data-tab="home">
             <div class="readme">
                 <h1>⚔️ Robert</h1>
@@ -561,7 +615,6 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                 <button onclick="checkResults()" id="checkResultsBtn">🔄 Vérifier les résultats</button>
                 <button onclick="predictScores()" id="pronosBtn">🎯 Prono MPP</button>
                 <button onclick="resetSystem()" class="danger">🗑️ Reset historique</button>
-                <button onclick="toggleTheme()" id="themeBtn">🌙 Mode sombre</button>
             </div>
 
             <div class="ticket" id="pronosPanel" style="display:none; margin-bottom: 28px;">
@@ -624,16 +677,16 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
     </div>
 
     <nav class="mobile-tabbar">
-        <button class="tab-btn active" data-tab="home" onclick="setMobileTab('home')" title="Accueil">
+        <button class="tab-btn active" data-tab="home" onclick="setActiveTab('home')" title="Accueil">
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M3 11.5L12 4l9 7.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5.5 10v8.5a1 1 0 001 1h11a1 1 0 001-1V10" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><rect x="10" y="14" width="4" height="5.5" fill="currentColor"/></svg>
         </button>
-        <button class="tab-btn" data-tab="stats" onclick="setMobileTab('stats')" title="Stats">
+        <button class="tab-btn" data-tab="stats" onclick="setActiveTab('stats')" title="Stats">
             <svg width="28" height="28" viewBox="0 0 24 24"><rect x="4" y="12" width="4" height="8" rx="1" fill="currentColor"/><rect x="10" y="7" width="4" height="13" rx="1" fill="currentColor"/><rect x="16" y="3" width="4" height="17" rx="1" fill="currentColor"/></svg>
         </button>
-        <button class="tab-btn" data-tab="tickets" onclick="setMobileTab('tickets')" title="Tickets">
+        <button class="tab-btn" data-tab="tickets" onclick="setActiveTab('tickets')" title="Tickets">
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none"><rect x="3" y="6" width="18" height="12" rx="2.5" stroke="currentColor" stroke-width="2"/><line x1="12" y1="6" x2="12" y2="18" stroke="currentColor" stroke-width="2" stroke-dasharray="2.2 2.2" stroke-linecap="round"/></svg>
         </button>
-        <button class="tab-btn" data-tab="learning" onclick="setMobileTab('learning')" title="Learning Book">
+        <button class="tab-btn" data-tab="learning" onclick="setActiveTab('learning')" title="Learning Book">
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M12 6.5c-1.8-1.4-4.2-2-6.5-2-1 0-1.5.3-1.5 1v11c0 .6.5 1 1.5 1 2.3 0 4.7.6 6.5 2 1.8-1.4 4.2-2 6.5-2 1 0 1.5-.4 1.5-1v-11c0-.7-.5-1-1.5-1-2.3 0-4.7.6-6.5 2z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><line x1="12" y1="6.5" x2="12" y2="19.5" stroke="currentColor" stroke-width="1.8"/></svg>
         </button>
     </nav>
@@ -651,11 +704,12 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
         }
 
         function updateThemeBtnLabel() {
-            const btn = document.getElementById('themeBtn');
-            if (btn) btn.textContent = currentEffectiveTheme() === 'dark' ? '☀️ Mode clair' : '🌙 Mode sombre';
-            // Mobile top bar's icon-only twin - same state, sobre (juste l'icône).
+            // Mobile top bar's icon-only toggle.
             const mobileBtn = document.getElementById('mobileThemeBtn');
             if (mobileBtn) mobileBtn.textContent = currentEffectiveTheme() === 'dark' ? '☀️' : '🌙';
+            // Desktop sidebar's labelled twin - same state.
+            const desktopBtn = document.getElementById('desktopThemeBtn');
+            if (desktopBtn) desktopBtn.textContent = currentEffectiveTheme() === 'dark' ? '☀️ Mode clair' : '🌙 Mode sombre';
         }
 
         function toggleTheme() {
@@ -673,28 +727,28 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             updateThemeBtnLabel();
         })();
 
-        // Mobile bottom tab bar - switches which .tab-panel is visible.
-        // No effect on desktop (the media query keeps every .tab-panel shown
-        // at once there), but persisted anyway so it's ready if the window
-        // is later resized down, and so re-opening on mobile lands back on
-        // the last tab used rather than always resetting to "home".
-        function setMobileTab(tab) {
+        // Switches which .tab-panel is visible - shared by the desktop
+        // sidebar's labelled nav items and the mobile bottom bar's icons
+        // (both use .tab-btn + a matching data-tab, just styled differently
+        // by which fixed container they're in). Persisted so a reload lands
+        // back on the last tab used instead of always resetting to "home".
+        function setActiveTab(tab) {
             document.querySelectorAll('.tab-panel').forEach(el => {
                 el.classList.toggle('active', el.dataset.tab === tab);
             });
             document.querySelectorAll('.tab-btn').forEach(el => {
                 el.classList.toggle('active', el.dataset.tab === tab);
             });
-            try { localStorage.setItem('mobileTab', tab); } catch (e) {}
+            try { localStorage.setItem('activeTab', tab); } catch (e) {}
         }
 
-        (function initMobileTab() {
+        (function initActiveTab() {
             let tab = 'home';
             try {
-                const stored = localStorage.getItem('mobileTab');
+                const stored = localStorage.getItem('activeTab');
                 if (stored) tab = stored;
             } catch (e) {}
-            setMobileTab(tab);
+            setActiveTab(tab);
         })();
 
         const BET_TYPE_LABELS = {
@@ -991,8 +1045,8 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
 
             // #balance (desktop stats-grid) no longer exists - the wallet now
             // lives in a pill instead: the fixed mobile top bar's on phones,
-            // a twin in the desktop header on wider screens. Both share the
-            // same .wallet-pill styling, just placed differently by CSS.
+            // a twin in the desktop sidebar's footer on wider screens. Both
+            // share the same .wallet-pill styling, just placed differently.
             document.getElementById('walletPill').textContent = fmtEuro(p.currentBalance);
             document.getElementById('walletPillDesktop').textContent = fmtEuro(p.currentBalance);
             document.getElementById('staked').textContent = fmtEuro(p.totalStaked);
