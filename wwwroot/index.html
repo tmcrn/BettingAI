@@ -306,26 +306,6 @@ button:disabled { opacity: 0.5; cursor: default; transform: none; }
 }
 
 /* ---- Editable odds ---- */
-.odds-edit { display: flex; align-items: center; gap: 4px; margin-top: 2px; }
-.odds-edit input {
-    width: 56px;
-    padding: 4px 6px;
-    border-radius: 6px;
-    border: 1px solid var(--border);
-    background: var(--surface-2);
-    color: var(--text);
-    font-size: 0.85em;
-    font-weight: 700;
-}
-.odds-edit input:focus { outline: none; border-color: var(--accent); }
-.odds-edit button {
-    padding: 3px 7px;
-    font-size: 0.78em;
-    background: var(--accent);
-    color: #fff;
-    border-color: var(--accent);
-    box-shadow: none;
-}
 .leg-odds-edit { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
 .leg-odds-edit input {
     width: 46px;
@@ -346,11 +326,6 @@ button:disabled { opacity: 0.5; cursor: default; transform: none; }
 }
 
 /* ---- Self-serve result validation (any PENDING bet, not just 3h-stuck) ---- */
-.settle-toggle-btn {
-    padding: 6px 12px;
-    font-size: 0.8em;
-    align-self: flex-start;
-}
 .leg-validate-btn {
     padding: 2px 6px;
     font-size: 0.75em;
@@ -544,86 +519,86 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
         function ticketCard(bet) {
             const confPct = Math.round((bet.confidence || 0) * 100);
 
+            // A single bet is treated as a combo of exactly one leg, so both
+            // render through the identical legs-box path below instead of a
+            // single bet having its own separate (and previously
+            // inconsistent) layout for odds editing, score entry and result
+            // validation. `kind` says which table/endpoint a leg-like item
+            // belongs to ('bet' vs the real ComboLeg 'leg').
+            const legs = (bet.isCombo && bet.legs && bet.legs.length)
+                ? bet.legs.map(l => ({ ...l, kind: 'leg' }))
+                : [{
+                    id: bet.id, match: bet.match, betType: bet.betType, selection: bet.selection,
+                    odds: bet.odds, result: bet.result, homeScore: bet.homeScore, awayScore: bet.awayScore,
+                    kind: 'bet'
+                  }];
+
             // Legs are grouped by which real match they're on - a same-match
             // combo (e.g. HOME_WIN + OVER_GOALS merged into one ticket) has
             // 2+ legs sharing one match, and they need exactly ONE shared
             // score entry, not one per leg (which risked - and in practice
-            // let you - enter two different scores for the same match).
-            // Cross-match combo legs (each on a different match) still each
-            // get their own independent score form, since they genuinely are
-            // different matches.
-            let legsHtml = '';
-            if (bet.isCombo && bet.legs && bet.legs.length) {
-                const groups = new Map();
-                for (const l of bet.legs) {
-                    if (!groups.has(l.match)) groups.set(l.match, []);
-                    groups.get(l.match).push(l);
-                }
-
-                const groupsHtml = Array.from(groups.values()).map(legs => {
-                    const pendingIds = legs.filter(l => l.result === 'PENDING').map(l => l.id);
-                    const sharedForm = pendingIds.length > 1;
-
-                    // All legs in this group share one real match, so they
-                    // share ONE score, not one per leg - showing/entering it
-                    // per row let the same match get a different score typed
-                    // on each leg.
-                    const knownScore = legs.find(l => l.homeScore !== null && l.homeScore !== undefined);
-                    const anySettled = legs.some(l => l.result !== 'PENDING');
-                    const allStillPending = legs.every(l => l.result === 'PENDING');
-                    const groupIds = legs.map(l => l.id).join(',');
-                    const groupScoreHtml = knownScore ? `
-                        <div class="group-score" style="font-size:0.8em; opacity:0.85; margin:2px 0 4px;">Score : <strong>${knownScore.homeScore}-${knownScore.awayScore}</strong>${allStillPending ? ' <span style=\"color:var(--loss);\">🔴 en direct</span>' : ''}</div>
-                    ` : (anySettled ? `
-                        <div class="group-score-edit" style="display:flex; align-items:center; gap:4px; margin:2px 0 4px; font-size:0.8em;">
-                            <span>Score :</span>
-                            <input type="number" min="0" step="1" id="score-home-group-${groupIds}" placeholder="0" style="width:30px;">-<input type="number" min="0" step="1" id="score-away-group-${groupIds}" placeholder="0" style="width:30px;">
-                            <button type="button" onclick="saveScoreGroup('${groupIds}', this)">✓</button>
-                        </div>
-                    ` : '');
-
-                    const rowsHtml = legs.map(l => `
-                        <div class="leg-row">
-                            <span class="leg-dot" style="background: ${l.result === 'WIN' ? 'var(--win)' : l.result === 'LOSS' ? 'var(--loss)' : 'var(--pending)'}"></span>
-                            <span class="badge ${badgeClass(l.result)}" style="font-size:0.75em; padding:2px 6px;">${l.result}</span>
-                            <span class="leg-match" style="flex:1">${l.match}</span>
-                            <span class="leg-type">${betTypeLabel(l.betType, l.selection)}</span>
-                            ${l.result === 'PENDING' ? `
-                            <span class="leg-odds-edit">
-                                <input type="number" min="1" step="0.01" id="odds-leg-${l.id}" value="${l.odds ? l.odds.toFixed(2) : ''}">
-                                <button type="button" onclick="saveOdds('leg', ${l.id}, this)">✓</button>
-                            </span>
-                            ${sharedForm ? '' : `<button type="button" class="leg-validate-btn" title="Valider le résultat" onclick="toggleSettleForm('settle-form-leg-${l.id}')">✅</button>`}
-                            ` : `<span class="leg-type">${l.odds ? l.odds.toFixed(2) : '-'}</span>`}
-                        </div>
-                        ${(l.result === 'PENDING' && !sharedForm) ? settleFormBlock('leg', l.id) : ''}
-                    `).join('');
-
-                    const sharedFormHtml = sharedForm ? `
-                        <button type="button" class="leg-validate-btn" title="Valider le résultat pour ce match" onclick="toggleSettleForm('settle-form-group-${pendingIds.join('-')}')">✅ Valider ce match (${pendingIds.length} jambes)</button>
-                        ${settleFormBlockGroup(pendingIds)}
-                    ` : '';
-
-                    return groupScoreHtml + rowsHtml + sharedFormHtml;
-                }).join('');
-
-                legsHtml = `
-                <div class="legs-box">
-                    <div class="lt">Jambes du combiné (${bet.legs.length})</div>
-                    ${groupsHtml}
-                </div>`;
+            // let you - enter two different scores for the same match). A
+            // single bet always ends up as one group of one leg, same idea.
+            const groups = new Map();
+            for (const l of legs) {
+                if (!groups.has(l.match)) groups.set(l.match, []);
+                groups.get(l.match).push(l);
             }
 
-            // A combo's own odds are always the product of its legs (edit those
-            // individually below, in the legs box) - only single bets get an
-            // editable top-level field.
-            const oddsCell = (!bet.isCombo && bet.result === 'PENDING') ? `
-                <div class="odds-edit">
-                    <input type="number" min="1" step="0.01" id="odds-bet-${bet.id}"
-                           value="${bet.odds ? bet.odds.toFixed(2) : ''}"
-                           placeholder="${(bet.confidence > 0 ? 1 / bet.confidence : 2).toFixed(2)}">
-                    <button type="button" onclick="saveOdds('bet', ${bet.id}, this)">✓</button>
-                </div>` : `<div class="val">${displayOdds(bet.odds, bet.confidence)}</div>`;
+            const groupsHtml = Array.from(groups.values()).map(groupLegs => {
+                const kind = groupLegs[0].kind;
+                const pendingIds = groupLegs.filter(l => l.result === 'PENDING').map(l => l.id);
+                const sharedForm = pendingIds.length > 1;
+
+                // All legs in this group share one real match, so they
+                // share ONE score, not one per leg - showing/entering it
+                // per row let the same match get a different score typed
+                // on each leg.
+                const knownScore = groupLegs.find(l => l.homeScore !== null && l.homeScore !== undefined);
+                const anySettled = groupLegs.some(l => l.result !== 'PENDING');
+                const allStillPending = groupLegs.every(l => l.result === 'PENDING');
+                const groupIds = groupLegs.map(l => l.id).join(',');
+                const groupScoreHtml = knownScore ? `
+                    <div class="group-score" style="font-size:0.8em; opacity:0.85; margin:2px 0 4px;">Score : <strong>${knownScore.homeScore}-${knownScore.awayScore}</strong>${allStillPending ? ' <span style=\"color:var(--loss);\">🔴 en direct</span>' : ''}</div>
+                ` : (anySettled ? `
+                    <div class="group-score-edit" style="display:flex; align-items:center; gap:4px; margin:2px 0 4px; font-size:0.8em;">
+                        <span>Score :</span>
+                        <input type="number" min="0" step="1" id="score-home-group-${kind}-${groupIds}" placeholder="0" style="width:30px;">-<input type="number" min="0" step="1" id="score-away-group-${kind}-${groupIds}" placeholder="0" style="width:30px;">
+                        <button type="button" onclick="saveScoreGroup('${groupIds}', '${kind}', this)">✓</button>
+                    </div>
+                ` : '');
+
+                const rowsHtml = groupLegs.map(l => `
+                    <div class="leg-row">
+                        <span class="leg-dot" style="background: ${l.result === 'WIN' ? 'var(--win)' : l.result === 'LOSS' ? 'var(--loss)' : 'var(--pending)'}"></span>
+                        <span class="badge ${badgeClass(l.result)}" style="font-size:0.75em; padding:2px 6px;">${l.result}</span>
+                        <span class="leg-match" style="flex:1">${l.match}</span>
+                        <span class="leg-type">${betTypeLabel(l.betType, l.selection)}</span>
+                        ${l.result === 'PENDING' ? `
+                        <span class="leg-odds-edit">
+                            <input type="number" min="1" step="0.01" id="odds-${l.kind}-${l.id}" value="${l.odds ? l.odds.toFixed(2) : ''}"
+                                   ${l.kind === 'bet' ? `placeholder="${(bet.confidence > 0 ? 1 / bet.confidence : 2).toFixed(2)}"` : ''}>
+                            <button type="button" onclick="saveOdds('${l.kind}', ${l.id}, this)">✓</button>
+                        </span>
+                        ${sharedForm ? '' : `<button type="button" class="leg-validate-btn" title="Valider le résultat" onclick="toggleSettleForm('settle-form-${l.kind}-${l.id}')">✅</button>`}
+                        ` : `<span class="leg-type">${l.odds ? l.odds.toFixed(2) : '-'}</span>`}
+                    </div>
+                    ${(l.result === 'PENDING' && !sharedForm) ? settleFormBlock(l.kind, l.id) : ''}
+                `).join('');
+
+                const sharedFormHtml = sharedForm ? `
+                    <button type="button" class="leg-validate-btn" title="Valider le résultat pour ce match" onclick="toggleSettleForm('settle-form-group-${pendingIds.join('-')}')">✅ Valider ce match (${pendingIds.length} jambes)</button>
+                    ${settleFormBlockGroup(pendingIds)}
+                ` : '';
+
+                return groupScoreHtml + rowsHtml + sharedFormHtml;
+            }).join('');
+
+            const legsHtml = `
+            <div class="legs-box">
+                <div class="lt">${bet.isCombo ? `Jambes du combiné (${legs.length})` : 'Détail du pari'}</div>
+                ${groupsHtml}
+            </div>`;
 
             return `
                 <div class="ticket">
@@ -632,14 +607,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                             <div class="ticket-match">${bet.match}</div>
                             <div class="ticket-time">${fmtDate(bet.createdAt)}</div>
                         </div>
-                        <div style="display:flex; align-items:center; gap:8px;">
-                            ${(!bet.isCombo && bet.homeScore !== null && bet.homeScore !== undefined) ? `<span class="score-tag" style="font-weight:600;">${bet.homeScore}-${bet.awayScore}</span>${bet.result === 'PENDING' ? ' <span style="font-size:0.8em; color:var(--loss);">🔴 en direct</span>' : ''}` : (!bet.isCombo && bet.result !== 'PENDING' ? `
-                            <span class="score-edit" style="display:flex; align-items:center; gap:2px;">
-                                <input type="number" min="0" step="1" id="score-home-bet-${bet.id}" placeholder="0" style="width:30px;">-<input type="number" min="0" step="1" id="score-away-bet-${bet.id}" placeholder="0" style="width:30px;">
-                                <button type="button" onclick="saveScore('bet', ${bet.id}, this)" style="font-size:0.75em;">✓</button>
-                            </span>` : '')}
-                            <span class="badge ${badgeClass(bet.result)}">${bet.result}</span>
-                        </div>
+                        <span class="badge ${badgeClass(bet.result)}">${bet.result}</span>
                     </div>
                     <div class="ticket-body">
                         <div class="bet-type-row">
@@ -648,7 +616,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
 
                         <div class="info-grid">
                             <div class="info-item"><div class="label">Mise</div><div class="val">${fmtEuro(bet.stake)}</div></div>
-                            <div class="info-item"><div class="label">Cote</div>${oddsCell}</div>
+                            <div class="info-item"><div class="label">Cote</div><div class="val">${displayOdds(bet.odds, bet.confidence)}</div></div>
                             <div class="info-item"><div class="label">Gain</div><div class="val">${bet.winnings != null ? fmtEuro(bet.winnings) : '-'}</div></div>
                         </div>
 
@@ -664,11 +632,6 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                         </div>` : ''}
 
                         ${legsHtml}
-
-                        ${(!bet.isCombo && bet.result === 'PENDING') ? `
-                        <button type="button" class="settle-toggle-btn" onclick="toggleSettleForm('settle-form-bet-${bet.id}')">✅ Valider le résultat</button>
-                        ${settleFormBlock('bet', bet.id)}
-                        ` : ''}
                     </div>
                 </div>
             `;
@@ -836,41 +799,15 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
 
         // Backfills the real score on a ticket settled before scores were
         // tracked - only ever touches HomeScore/AwayScore, never Result or
-        // Winnings (those are already correct from settlement time).
-        async function saveScore(kind, id, btnEl) {
-            const homeInput = document.getElementById(`score-home-${kind}-${id}`);
-            const awayInput = document.getElementById(`score-away-${kind}-${id}`);
-            const homeScore = parseInt(homeInput.value, 10);
-            const awayScore = parseInt(awayInput.value, 10);
-            if (isNaN(homeScore) || isNaN(awayScore) || homeScore < 0 || awayScore < 0) {
-                alert('Entre un score valide (ex: 2 et 1)');
-                return;
-            }
-
-            btnEl.disabled = true;
-            try {
-                const res = await fetch('/api/set-score', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ kind, id, homeScore, awayScore })
-                });
-                const data = await res.json();
-                if (!data.success) throw new Error(data.message);
-                await refreshAll();
-            } catch (e) {
-                alert('Erreur: ' + e.message);
-                btnEl.disabled = false;
-            }
-        }
-
-        // Same idea as saveScore, but for a match shared by several combo
-        // legs (e.g. HOME_WIN + OVER_GOALS on one game) - one score entered
-        // once gets applied to every leg on that match, since it's the same
-        // real match for all of them.
-        async function saveScoreGroup(idsCsv, btnEl) {
+        // Winnings (those are already correct from settlement time). Every
+        // ticket (single bet or combo) is one or more grouped legs on the
+        // dashboard now, so this always goes through the group form even
+        // for a single bet's own 1-leg group - one score entered once gets
+        // applied to every leg id in that group (just one, for a single bet).
+        async function saveScoreGroup(idsCsv, kind, btnEl) {
             const ids = idsCsv.split(',').map(s => parseInt(s, 10));
-            const homeInput = document.getElementById(`score-home-group-${idsCsv}`);
-            const awayInput = document.getElementById(`score-away-group-${idsCsv}`);
+            const homeInput = document.getElementById(`score-home-group-${kind}-${idsCsv}`);
+            const awayInput = document.getElementById(`score-away-group-${kind}-${idsCsv}`);
             const homeScore = parseInt(homeInput.value, 10);
             const awayScore = parseInt(awayInput.value, 10);
             if (isNaN(homeScore) || isNaN(awayScore) || homeScore < 0 || awayScore < 0) {
@@ -884,7 +821,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                     const res = await fetch('/api/set-score', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ kind: 'leg', id, homeScore, awayScore })
+                        body: JSON.stringify({ kind, id, homeScore, awayScore })
                     });
                     const data = await res.json();
                     if (!data.success) throw new Error(data.message);
