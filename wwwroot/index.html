@@ -164,12 +164,12 @@ button:disabled { opacity: 0.5; cursor: default; transform: none; }
     overflow: hidden;
     box-shadow: var(--shadow);
     border: 1px solid var(--border);
-    border-left: 4px solid var(--pending);
+    border-top: 4px solid var(--pending);
     display: flex;
     flex-direction: column;
 }
-.ticket-win { border-left-color: var(--win); }
-.ticket-loss { border-left-color: var(--loss); }
+.ticket-win { border-top-color: var(--win); }
+.ticket-loss { border-top-color: var(--loss); }
 .ticket-header {
     padding: 14px 16px;
     border-bottom: 1px solid var(--border);
@@ -217,22 +217,19 @@ button:disabled { opacity: 0.5; cursor: default; transform: none; }
 }
 .combo-chip { background: var(--pending-bg); color: var(--pending); }
 
-/* Summary footer (mise/cote/gain) - separated from the selections like a
-   real bet slip's recap strip at the bottom, cote as the headline number
-   since that's what a bookmaker slip always foregrounds. */
+/* Summary footer (cote/mise/gains) - stacked label/value rows like a real
+   bet slip's recap strip, rather than a 3-column grid. */
 .ticket-footer {
-    padding: 12px 16px;
+    padding: 10px 16px 12px;
     border-top: 1px dashed var(--border);
     background: var(--surface-2);
 }
-.info-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
-    gap: 10px;
-}
-.info-item .label { font-size: 0.68em; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 3px; }
-.info-item .val { font-size: 0.95em; font-weight: 700; }
-.info-item.cote .val { font-size: 1.3em; color: var(--accent); }
+.footer-row { display: flex; justify-content: space-between; align-items: baseline; padding: 2px 0; font-size: 0.85em; }
+.footer-row .label { color: var(--text-faint); }
+.footer-row .val { font-weight: 700; }
+.footer-row.cote .val { font-size: 1.15em; color: var(--accent); }
+.footer-row .val.win { color: var(--win); }
+.ticket-ref { font-size: 0.68em; color: var(--text-faint); margin-top: 6px; }
 
 .confidence-wrap .label-row { display: flex; justify-content: space-between; font-size: 0.75em; color: var(--text-dim); margin-bottom: 5px; }
 .confidence-track { height: 6px; background: var(--surface-2); border-radius: 999px; overflow: hidden; border: 1px solid var(--border); }
@@ -251,27 +248,32 @@ button:disabled { opacity: 0.5; cursor: default; transform: none; }
 
 .legs-box { display: flex; flex-direction: column; gap: 6px; }
 .legs-box .lt { font-size: 0.75em; font-weight: 700; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 2px; }
-/* Each selection reads like a bookmaker slip line: match + market on the
-   left, odds big and bold on the right, a colored left edge (not just a
-   small dot) for the same at-a-glance win/loss/pending scan as the ticket's
-   own left border. */
+/* One row per selection: a plain win/loss/pending icon (not a colored
+   border - a real slip doesn't repeat the same accent on every line) plus
+   the market label, odds right-aligned. The match name itself isn't
+   repeated per leg - legs sharing a match show it ONCE, in .leg-match-line
+   below them, the same way a same-game multi-bet slip does. */
 .leg-row {
     display: flex;
     align-items: center;
     gap: 10px;
-    background: var(--surface);
-    padding: 10px 12px;
-    border-radius: 8px;
-    border-left: 3px solid var(--pending);
-    font-size: 0.85em;
+    padding: 6px 2px;
+    font-size: 0.88em;
 }
-.leg-row.leg-win { border-left-color: var(--win); }
-.leg-row.leg-loss { border-left-color: var(--loss); }
-.leg-main { flex: 1; min-width: 0; }
-.leg-main .leg-match { font-weight: 700; line-height: 1.3; }
-.leg-main .leg-sel { color: var(--text-faint); font-size: 0.88em; margin-top: 1px; }
-.leg-result { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
-.leg-odds-val { font-weight: 800; font-size: 1.05em; }
+.leg-icon { width: 16px; text-align: center; flex-shrink: 0; font-weight: 700; }
+.leg-icon.win { color: var(--win); }
+.leg-icon.loss { color: var(--loss); }
+.leg-icon.pending { color: var(--pending); }
+.leg-label { flex: 1; min-width: 0; font-weight: 600; }
+.leg-odds-val { font-weight: 800; font-size: 1.05em; flex-shrink: 0; }
+.leg-match-line {
+    color: var(--text-faint);
+    font-size: 0.82em;
+    padding: 2px 2px 6px 26px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 2px;
+}
+.leg-match-line strong { color: var(--text); }
 
 /* ---- Learning notebook ---- */
 .learning-notebook {
@@ -370,10 +372,6 @@ button:disabled { opacity: 0.5; cursor: default; transform: none; }
 }
 .settle-inline-form { margin-top: 8px; }
 footer { text-align: center; color: var(--text-faint); font-size: 0.78em; padding-top: 12px; }
-
-@media (max-width: 640px) {
-    .info-grid { grid-template-columns: 1fr 1fr; }
-}
 </style>
 </head>
 <body>
@@ -599,27 +597,19 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                 // All legs in this group share one real match, so they
                 // share ONE score, not one per leg - showing/entering it
                 // per row let the same match get a different score typed
-                // on each leg.
+                // on each leg. The match name itself is shown once too,
+                // below the legs (not repeated on every row) - same idea as
+                // a same-game multi-bet slip.
                 const knownScore = groupLegs.find(l => l.homeScore !== null && l.homeScore !== undefined);
                 const anySettled = groupLegs.some(l => l.result !== 'PENDING');
                 const allStillPending = groupLegs.every(l => l.result === 'PENDING');
                 const groupIds = groupLegs.map(l => l.id).join(',');
-                const groupScoreHtml = knownScore ? `
-                    <div class="group-score" style="font-size:0.8em; opacity:0.85; margin:2px 0 4px;">Score : <strong>${knownScore.homeScore}-${knownScore.awayScore}</strong>${allStillPending ? ' <span style=\"color:var(--loss);\">🔴 en direct</span>' : ''}</div>
-                ` : (anySettled ? `
-                    <div class="group-score-edit" style="display:flex; align-items:center; gap:4px; margin:2px 0 4px; font-size:0.8em;">
-                        <span>Score :</span>
-                        <input type="number" min="0" step="1" id="score-home-group-${kind}-${groupIds}" placeholder="0" style="width:30px;">-<input type="number" min="0" step="1" id="score-away-group-${kind}-${groupIds}" placeholder="0" style="width:30px;">
-                        <button type="button" onclick="saveScoreGroup('${groupIds}', '${kind}', this)">✓</button>
-                    </div>
-                ` : '');
+                const groupMatch = groupLegs[0].match;
 
                 const rowsHtml = groupLegs.map(l => `
-                    <div class="leg-row ${l.result === 'WIN' ? 'leg-win' : l.result === 'LOSS' ? 'leg-loss' : ''}">
-                        <div class="leg-main">
-                            <div class="leg-match">${l.match}</div>
-                            <div class="leg-sel">${betTypeLabel(l.betType, l.selection)}</div>
-                        </div>
+                    <div class="leg-row">
+                        <span class="leg-icon ${l.result === 'WIN' ? 'win' : l.result === 'LOSS' ? 'loss' : 'pending'}">${l.result === 'WIN' ? '✓' : l.result === 'LOSS' ? '✗' : '•'}</span>
+                        <span class="leg-label">${betTypeLabel(l.betType, l.selection)}</span>
                         ${l.result === 'PENDING' ? `
                         <span class="leg-odds-edit">
                             <input type="number" min="1" step="0.01" id="odds-${l.kind}-${l.id}" value="${l.odds ? l.odds.toFixed(2) : ''}"
@@ -627,22 +617,27 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                             <button type="button" onclick="saveOdds('${l.kind}', ${l.id}, this)">✓</button>
                         </span>
                         ${sharedForm ? '' : `<button type="button" class="leg-validate-btn" title="Valider le résultat" onclick="toggleSettleForm('settle-form-${l.kind}-${l.id}')">✅</button>`}
-                        ` : `
-                        <div class="leg-result">
-                            <span class="leg-odds-val">${l.odds ? l.odds.toFixed(2) : '-'}</span>
-                            <span class="badge ${badgeClass(l.result)}" style="font-size:0.7em; padding:2px 7px;">${l.result}</span>
-                        </div>
-                        `}
+                        ` : `<span class="leg-odds-val">${l.odds ? l.odds.toFixed(2) : '-'}</span>`}
                     </div>
                     ${(l.result === 'PENDING' && !sharedForm) ? settleFormBlock(l.kind, l.id) : ''}
                 `).join('');
+
+                const matchLineHtml = knownScore ? `
+                    <div class="leg-match-line">${groupMatch} <strong>${knownScore.homeScore}-${knownScore.awayScore}</strong>${allStillPending ? ' <span style=\"color:var(--loss);\">🔴 en direct</span>' : ''}</div>
+                ` : (anySettled ? `
+                    <div class="leg-match-line" style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
+                        <span>${groupMatch}</span>
+                        <input type="number" min="0" step="1" id="score-home-group-${kind}-${groupIds}" placeholder="0" style="width:30px;">-<input type="number" min="0" step="1" id="score-away-group-${kind}-${groupIds}" placeholder="0" style="width:30px;">
+                        <button type="button" onclick="saveScoreGroup('${groupIds}', '${kind}', this)">✓</button>
+                    </div>
+                ` : `<div class="leg-match-line">${groupMatch}</div>`);
 
                 const sharedFormHtml = sharedForm ? `
                     <button type="button" class="leg-validate-btn" title="Valider le résultat pour ce match" onclick="toggleSettleForm('settle-form-group-${pendingIds.join('-')}')">✅ Valider ce match (${pendingIds.length} jambes)</button>
                     ${settleFormBlockGroup(pendingIds)}
                 ` : '';
 
-                return groupScoreHtml + rowsHtml + sharedFormHtml;
+                return rowsHtml + matchLineHtml + sharedFormHtml;
             }).join('');
 
             const legsHtml = `
@@ -699,11 +694,10 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                         ${legsHtml}
                     </div>
                     <div class="ticket-footer">
-                        <div class="info-grid">
-                            <div class="info-item"><div class="label">Mise</div><div class="val">${fmtEuro(bet.stake)}</div></div>
-                            <div class="info-item cote"><div class="label">Cote</div><div class="val">${displayOdds(bet.odds, bet.confidence)}</div></div>
-                            <div class="info-item"><div class="label">Gain</div><div class="val">${bet.winnings != null ? fmtEuro(bet.winnings) : '-'}</div></div>
-                        </div>
+                        <div class="footer-row cote"><span class="label">Cote totale</span><span class="val">${displayOdds(bet.odds, bet.confidence)}</span></div>
+                        <div class="footer-row"><span class="label">Mise</span><span class="val">${fmtEuro(bet.stake)}</span></div>
+                        <div class="footer-row"><span class="label">Gains</span><span class="val ${bet.result === 'WIN' ? 'win' : ''}">${bet.winnings != null ? fmtEuro(bet.winnings) : '-'}</span></div>
+                        <div class="ticket-ref">Ticket #${bet.id}${bet.isCombo ? ' · combiné' : ''}</div>
                     </div>
                 </div>
             `;
