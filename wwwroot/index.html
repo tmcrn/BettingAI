@@ -694,7 +694,6 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                 const anySettled = groupLegs.some(l => l.result !== 'PENDING');
                 const allStillPending = groupLegs.every(l => l.result === 'PENDING');
                 const groupIds = groupLegs.map(l => l.id).join(',');
-                const groupMatch = groupLegs[0].match;
 
                 if (knownScore) {
                     headerScores.push({ score: `${knownScore.homeScore}-${knownScore.awayScore}`, live: allStillPending });
@@ -716,21 +715,17 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                     ${(l.result === 'PENDING' && !sharedForm) ? settleFormBlock(l.kind, l.id) : ''}
                 `).join('');
 
-                const groupFlag = competitionFlag(groupLegs[0].competitionCode);
-                // The score itself is shown once already, at the top of the
-                // ticket (headerScoreHtml) - repeating it here per group
-                // would just duplicate it, so a known score only earns this
-                // line the plain match name (still useful when a
-                // cross-match combo has more than one group).
-                const matchLineHtml = knownScore ? `
-                    <div class="leg-match-line">${groupFlag} ${groupMatch}</div>
-                ` : (anySettled ? `
+                // The match name and score are both already shown once, at
+                // the top of the ticket - nothing left to repeat here
+                // except, when a ticket is settled but still missing its
+                // score, the backfill form itself.
+                const matchLineHtml = (!knownScore && anySettled) ? `
                     <div class="leg-match-line" style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
-                        <span>${groupFlag} ${groupMatch}</span>
+                        <span>Score :</span>
                         <input type="number" min="0" step="1" id="score-home-group-${kind}-${groupIds}" placeholder="0" style="width:30px;">-<input type="number" min="0" step="1" id="score-away-group-${kind}-${groupIds}" placeholder="0" style="width:30px;">
                         <button type="button" onclick="saveScoreGroup('${groupIds}', '${kind}', this)">✓</button>
                     </div>
-                ` : `<div class="leg-match-line">${groupFlag} ${groupMatch}</div>`);
+                ` : '';
 
                 const sharedFormHtml = sharedForm ? `
                     <button type="button" class="leg-validate-btn" title="Valider le résultat pour ce match" onclick="toggleSettleForm('settle-form-group-${pendingIds.join('-')}')">✅ Valider ce match (${pendingIds.length} jambes)</button>
