@@ -536,7 +536,13 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
         // kickoff time - same reasoning as resultIcon: no network dependency,
         // colored to match the surrounding faint text.
         function whistleIcon() {
-            return `<svg width="13" height="13" viewBox="0 0 24 24" style="vertical-align:middle;"><rect x="2" y="9" width="13" height="7" rx="3.5" fill="currentColor"/><circle cx="8.5" cy="12.5" r="1.5" fill="var(--surface)"/><circle cx="19.5" cy="9.5" r="3.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M15.5 11.5l2.3-1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>`;
+            // Classic side-profile referee whistle: rounded barrel with a
+            // vent hole punched near the mouthpiece, a collar, and a ring
+            // for the lanyard - all solid fills (rather than thin strokes)
+            // so it stays legible at this small a size. The punched holes
+            // match the ticket footer's own background (where this icon is
+            // always shown) so they read as holes rather than dots.
+            return `<svg width="15" height="15" viewBox="0 0 24 24" style="vertical-align:middle;"><circle cx="18.5" cy="12" r="4.3" fill="currentColor"/><circle cx="18.5" cy="12" r="2.2" fill="var(--surface-2)"/><rect x="13" y="9.8" width="3.5" height="4.4" fill="currentColor"/><rect x="1.5" y="8" width="13" height="8" rx="4" fill="currentColor"/><circle cx="6.3" cy="12" r="1.6" fill="var(--surface-2)"/></svg>`;
         }
 
         function betTypeLabel(type, selection) {
