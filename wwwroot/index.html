@@ -159,9 +159,12 @@ button:disabled { opacity: 0.5; cursor: default; transform: none; }
     overflow: hidden;
     box-shadow: var(--shadow);
     border: 1px solid var(--border);
+    border-left: 4px solid var(--pending);
     display: flex;
     flex-direction: column;
 }
+.ticket-win { border-left-color: var(--win); }
+.ticket-loss { border-left-color: var(--loss); }
 .ticket-header {
     padding: 14px 16px;
     border-bottom: 1px solid var(--border);
@@ -170,7 +173,7 @@ button:disabled { opacity: 0.5; cursor: default; transform: none; }
     justify-content: space-between;
     gap: 8px;
 }
-.ticket-match { font-size: 1em; font-weight: 700; line-height: 1.3; }
+.ticket-match { font-size: 1.05em; font-weight: 700; line-height: 1.3; }
 .ticket-time { font-size: 0.78em; color: var(--text-faint); margin-top: 3px; }
 .badge {
     flex-shrink: 0;
@@ -198,6 +201,14 @@ button:disabled { opacity: 0.5; cursor: default; transform: none; }
 }
 .combo-chip { background: var(--pending-bg); color: var(--pending); }
 
+/* Summary footer (mise/cote/gain) - separated from the selections like a
+   real bet slip's recap strip at the bottom, cote as the headline number
+   since that's what a bookmaker slip always foregrounds. */
+.ticket-footer {
+    padding: 12px 16px;
+    border-top: 1px dashed var(--border);
+    background: var(--surface-2);
+}
 .info-grid {
     display: grid;
     grid-template-columns: 1fr 1fr 1fr;
@@ -205,6 +216,7 @@ button:disabled { opacity: 0.5; cursor: default; transform: none; }
 }
 .info-item .label { font-size: 0.68em; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 3px; }
 .info-item .val { font-size: 0.95em; font-weight: 700; }
+.info-item.cote .val { font-size: 1.3em; color: var(--accent); }
 
 .confidence-wrap .label-row { display: flex; justify-content: space-between; font-size: 0.75em; color: var(--text-dim); margin-bottom: 5px; }
 .confidence-track { height: 6px; background: var(--surface-2); border-radius: 999px; overflow: hidden; border: 1px solid var(--border); }
@@ -223,19 +235,27 @@ button:disabled { opacity: 0.5; cursor: default; transform: none; }
 
 .legs-box { display: flex; flex-direction: column; gap: 6px; }
 .legs-box .lt { font-size: 0.75em; font-weight: 700; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 2px; }
+/* Each selection reads like a bookmaker slip line: match + market on the
+   left, odds big and bold on the right, a colored left edge (not just a
+   small dot) for the same at-a-glance win/loss/pending scan as the ticket's
+   own left border. */
 .leg-row {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    background: var(--surface-2);
-    padding: 8px 10px;
+    gap: 10px;
+    background: var(--surface);
+    padding: 10px 12px;
     border-radius: 8px;
-    font-size: 0.8em;
+    border-left: 3px solid var(--pending);
+    font-size: 0.85em;
 }
-.leg-row .leg-match { font-weight: 600; }
-.leg-row .leg-type { color: var(--text-faint); }
-.leg-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.leg-row.leg-win { border-left-color: var(--win); }
+.leg-row.leg-loss { border-left-color: var(--loss); }
+.leg-main { flex: 1; min-width: 0; }
+.leg-main .leg-match { font-weight: 700; line-height: 1.3; }
+.leg-main .leg-sel { color: var(--text-faint); font-size: 0.88em; margin-top: 1px; }
+.leg-result { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.leg-odds-val { font-weight: 800; font-size: 1.05em; }
 
 /* ---- Learning notebook ---- */
 .learning-notebook {
@@ -568,11 +588,11 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                 ` : '');
 
                 const rowsHtml = groupLegs.map(l => `
-                    <div class="leg-row">
-                        <span class="leg-dot" style="background: ${l.result === 'WIN' ? 'var(--win)' : l.result === 'LOSS' ? 'var(--loss)' : 'var(--pending)'}"></span>
-                        <span class="badge ${badgeClass(l.result)}" style="font-size:0.75em; padding:2px 6px;">${l.result}</span>
-                        <span class="leg-match" style="flex:1">${l.match}</span>
-                        <span class="leg-type">${betTypeLabel(l.betType, l.selection)}</span>
+                    <div class="leg-row ${l.result === 'WIN' ? 'leg-win' : l.result === 'LOSS' ? 'leg-loss' : ''}">
+                        <div class="leg-main">
+                            <div class="leg-match">${l.match}</div>
+                            <div class="leg-sel">${betTypeLabel(l.betType, l.selection)}</div>
+                        </div>
                         ${l.result === 'PENDING' ? `
                         <span class="leg-odds-edit">
                             <input type="number" min="1" step="0.01" id="odds-${l.kind}-${l.id}" value="${l.odds ? l.odds.toFixed(2) : ''}"
@@ -580,7 +600,12 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                             <button type="button" onclick="saveOdds('${l.kind}', ${l.id}, this)">✓</button>
                         </span>
                         ${sharedForm ? '' : `<button type="button" class="leg-validate-btn" title="Valider le résultat" onclick="toggleSettleForm('settle-form-${l.kind}-${l.id}')">✅</button>`}
-                        ` : `<span class="leg-type">${l.odds ? l.odds.toFixed(2) : '-'}</span>`}
+                        ` : `
+                        <div class="leg-result">
+                            <span class="leg-odds-val">${l.odds ? l.odds.toFixed(2) : '-'}</span>
+                            <span class="badge ${badgeClass(l.result)}" style="font-size:0.7em; padding:2px 7px;">${l.result}</span>
+                        </div>
+                        `}
                     </div>
                     ${(l.result === 'PENDING' && !sharedForm) ? settleFormBlock(l.kind, l.id) : ''}
                 `).join('');
@@ -609,8 +634,10 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                 <span class="ticket-kickoff"> · ⏱ ${fmtDate(kickoffTimes[0])}${kickoffTimes.length > 1 ? ` (+${kickoffTimes.length - 1})` : ''}</span>
             ` : '';
 
+            const resultClass = bet.result === 'WIN' ? 'ticket-win' : bet.result === 'LOSS' ? 'ticket-loss' : '';
+
             return `
-                <div class="ticket">
+                <div class="ticket ${resultClass}">
                     <div class="ticket-header">
                         <div>
                             <div class="ticket-match">${bet.match}</div>
@@ -621,12 +648,6 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                     <div class="ticket-body">
                         <div class="bet-type-row">
                             <span class="bet-type-chip ${bet.isCombo ? 'combo-chip' : ''}">${betTypeLabel(bet.betType, bet.selection)}</span>
-                        </div>
-
-                        <div class="info-grid">
-                            <div class="info-item"><div class="label">Mise</div><div class="val">${fmtEuro(bet.stake)}</div></div>
-                            <div class="info-item"><div class="label">Cote</div><div class="val">${displayOdds(bet.odds, bet.confidence)}</div></div>
-                            <div class="info-item"><div class="label">Gain</div><div class="val">${bet.winnings != null ? fmtEuro(bet.winnings) : '-'}</div></div>
                         </div>
 
                         <div class="confidence-wrap">
@@ -641,6 +662,13 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                         </div>` : ''}
 
                         ${legsHtml}
+                    </div>
+                    <div class="ticket-footer">
+                        <div class="info-grid">
+                            <div class="info-item"><div class="label">Mise</div><div class="val">${fmtEuro(bet.stake)}</div></div>
+                            <div class="info-item cote"><div class="label">Cote</div><div class="val">${displayOdds(bet.odds, bet.confidence)}</div></div>
+                            <div class="info-item"><div class="label">Gain</div><div class="val">${bet.winnings != null ? fmtEuro(bet.winnings) : '-'}</div></div>
+                        </div>
                     </div>
                 </div>
             `;
