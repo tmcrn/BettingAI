@@ -59,6 +59,13 @@ using (var scope = app.Services.CreateScope())
 }
 
 // 🌐 MIDDLEWARE
+// UseDefaultFiles (must run BEFORE UseStaticFiles) makes "/" itself serve
+// wwwroot/index.html - without it, only the exact "/index.html" path
+// worked, which happened to go unnoticed locally (an already-bookmarked
+// URL/home-screen icon keeps whatever path it was saved with) but broke
+// the bare link through a tunnel (a fresh visitor lands on "/" with
+// nothing to show).
+app.UseDefaultFiles();
 app.UseStaticFiles();
 app.UseFastEndpoints();
 
