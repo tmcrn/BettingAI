@@ -19,7 +19,10 @@ public class RefreshLiveScoresResponse
 // of BetSettlementService's 2h post-kickoff buffer (that buffer exists
 // precisely to wait until a match SHOULD be over before treating a score
 // as final; this is the opposite - a number that keeps changing until the
-// real settlement pass takes over).
+// real settlement pass takes over). Deliberately NOT behind OwnerAuth,
+// unlike every other mutating endpoint - a guest watching a live match is
+// exactly the kind of thing a read-only visitor should be able to do, and
+// this never touches anything a settlement/reset actually protects.
 public class RefreshLiveScoresEndpoint : EndpointWithoutRequest<RefreshLiveScoresResponse>
 {
     private readonly BetSettlementService _settlementService;
@@ -37,12 +40,6 @@ public class RefreshLiveScoresEndpoint : EndpointWithoutRequest<RefreshLiveScore
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        if (!OwnerAuth.IsAuthorized(HttpContext))
-        {
-            HttpContext.Response.StatusCode = 403;
-            return;
-        }
-
         var updated = await _settlementService.RefreshLiveScoresAsync(ct);
 
         await Send.OkAsync(new RefreshLiveScoresResponse

@@ -1706,7 +1706,10 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
         // refreshes the live in-progress score for matches still being
         // played (RefreshLiveScoresEndpoint - purely cosmetic, never
         // touches Result/Winnings). Was two separate buttons; merged since
-        // there's no reason to check one without the other.
+        // there's no reason to check one without the other - except for a
+        // guest, who only gets the live-score half (settle-pending-bets
+        // actually changes Result/Winnings/training, so it stays owner-
+        // only server-side too - see SettlePendingBetsEndpoint).
         async function checkResults() {
             const btn = document.getElementById('checkResultsBtn');
             btn.disabled = true;
@@ -1719,12 +1722,17 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                 // hitting a "database is locked" error (and since that
                 // error response isn't valid JSON, the whole button broke
                 // rather than just one half of it).
-                const settleRes = await mutatingFetch('/api/settle-pending-bets', { method: 'POST' });
-                const settleData = await settleRes.json();
+                const messages = [];
+                if (!IS_GUEST) {
+                    const settleRes = await mutatingFetch('/api/settle-pending-bets', { method: 'POST' });
+                    const settleData = await settleRes.json();
+                    messages.push(settleData.message);
+                }
                 const liveRes = await mutatingFetch('/api/refresh-live-scores', { method: 'POST' });
                 const liveData = await liveRes.json();
+                messages.push(liveData.message);
                 await refreshAll();
-                showAppAlert([settleData.message, liveData.message].filter(Boolean).join('\n'));
+                showAppAlert(messages.filter(Boolean).join('\n'));
             } catch (e) {
                 showAppAlert('Erreur pendant la vérification: ' + e.message);
             } finally {
@@ -1756,7 +1764,9 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             const guestPillDesktop = document.getElementById('guestPillDesktop');
             if (guestPill) guestPill.hidden = false;
             if (guestPillDesktop) guestPillDesktop.hidden = false;
-            for (const id of ['forceBtn', 'pronosBtn', 'resetBtn', 'checkResultsBtn']) {
+            // checkResultsBtn stays enabled - see the comment on
+            // checkResults() for why a guest can still use it.
+            for (const id of ['forceBtn', 'pronosBtn', 'resetBtn']) {
                 const btn = document.getElementById(id);
                 if (!btn) continue;
                 btn.disabled = true;
