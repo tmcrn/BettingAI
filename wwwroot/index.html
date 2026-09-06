@@ -310,12 +310,20 @@ button:disabled { opacity: 0.5; cursor: default; transform: none; }
 .match-title-plain { grid-column: 1 / -1; text-align: center; }
 /* font-size:0/color:transparent hides the alt text some browsers render
    inside the image box while it's still loading (or if it never loads
-   and onerror hasn't swapped it out yet) - the name only ever shows as
-   a title tooltip on hover, never printed next to the crest. */
+   and onerror hasn't swapped it out yet) - the name is never printed
+   next to the crest, only revealed via the tap popover (see below). */
 .team-crest { width: 30px; height: 30px; object-fit: contain; vertical-align: middle; font-size: 0; color: transparent; flex-shrink: 0; }
-/* Text fallback (crest missing/broken) truncates instead of stretching
-   its 1fr column and dragging the center "vs" off to one side. */
-.team-name-fallback { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.team-monogram { display: flex; align-items: center; justify-content: center; background: var(--surface-2); border: 1px solid var(--border); border-radius: 50%; font-size: 11px !important; color: var(--text-faint) !important; font-weight: 700; }
+/* Wraps a crest/monogram so its tap-revealed name popover can be
+   positioned relative to it. */
+.crest-tap { position: relative; display: inline-flex; cursor: pointer; }
+.team-name-popover {
+    position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%) translateY(-4px);
+    background: var(--text); color: var(--bg); padding: 4px 8px; border-radius: 6px;
+    font-size: 0.72em; font-weight: 600; white-space: nowrap; pointer-events: none;
+    opacity: 0; visibility: hidden; transition: opacity 0.15s ease; z-index: 5;
+}
+.team-name-popover.visible { opacity: 1; visibility: visible; }
 .vs-sep { color: var(--text-faint); font-size: 0.75em; font-weight: 600; display: flex; align-items: center; gap: 4px; justify-content: center; white-space: nowrap; }
 .ticket-score { font-weight: 800; font-size: 1.05em; }
 
@@ -904,26 +912,54 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
         // Club crest, shown instead of the team name - but a hotlink can
         // fail (some hosts block hotlinking) or a row saved before crests
         // existed may have no URL at all, so this never lets the team's
-        // identity just vanish: onCrestError() swaps the broken <img> for
-        // the team's name itself the moment it fails to load, and a
-        // missing URL renders the name directly instead of an empty slot.
-        // When a logo IS shown, the name isn't printed alongside it at all -
-        // it's only a native "title" tooltip on mouse hover (and the alt
-        // text is visually hidden via .team-crest's font-size:0 so it can't
-        // flash next to the crest while the image is still loading).
+        // identity just vanish - but it also never PRINTS the name inline
+        // next to a small logo (illegible, and on a phone there's no mouse
+        // to hover a title tooltip with anyway): a real crest always wins,
+        // a missing/broken one falls back to a small monogram bubble
+        // (first 2 letters), and either way the full name only shows up
+        // as a tap-revealed popover (see toggleTeamNamePopover) - the same
+        // interaction on desktop and mobile alike.
         function crestOrName(url, teamName) {
             const safeName = teamName || '?';
-            if (!url) return `<span class="team-name-fallback">${safeName}</span>`;
             const escapedName = safeName.replace(/"/g, '&quot;');
-            return `<img src="${url}" alt="${escapedName}" title="${escapedName}" data-fallback="${escapedName}" class="team-crest" onerror="onCrestError(this)">`;
+            const visual = url
+                ? `<img src="${url}" alt="${escapedName}" data-fallback="${escapedName}" class="team-crest" onerror="onCrestError(this)">`
+                : `<span class="team-crest team-monogram">${monogram(safeName)}</span>`;
+            return `<span class="crest-tap" onclick="toggleTeamNamePopover(this)" role="button" tabindex="0">${visual}<span class="team-name-popover">${escapedName}</span></span>`;
         }
 
+        // First 2 letters, uppercased - not a real abbreviation (no attempt
+        // at "PSG"-style acronyms), just enough of a visual anchor to tell
+        // two monogram bubbles apart at a glance until the popover is tapped.
+        function monogram(name) {
+            return (name || '?').trim().slice(0, 2).toUpperCase();
+        }
+
+        // Only the <img> is swapped out (not the whole .crest-tap wrapper),
+        // so the tap-to-reveal popover next to it keeps working unchanged.
         function onCrestError(img) {
             const span = document.createElement('span');
-            span.className = 'team-name-fallback';
-            span.textContent = img.dataset.fallback || '';
+            span.className = 'team-crest team-monogram';
+            span.textContent = monogram(img.dataset.fallback);
             img.replaceWith(span);
         }
+
+        // Tap/click a crest (or monogram) to show its team name in a small
+        // popover, tap again (or elsewhere - see the document click
+        // listener below) to close it. Mirrors the league-filter-panel's
+        // open/close-on-outside-click pattern used elsewhere on this page.
+        function toggleTeamNamePopover(wrap) {
+            const popover = wrap.querySelector('.team-name-popover');
+            if (!popover) return;
+            const wasVisible = popover.classList.contains('visible');
+            document.querySelectorAll('.team-name-popover.visible').forEach(p => p.classList.remove('visible'));
+            if (!wasVisible) popover.classList.add('visible');
+        }
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.crest-tap')) {
+                document.querySelectorAll('.team-name-popover.visible').forEach(p => p.classList.remove('visible'));
+            }
+        });
 
         // Referee whistle, drawn by hand (no matching emoji exists) for the
         // kickoff time - same reasoning as resultIcon: no network dependency,
