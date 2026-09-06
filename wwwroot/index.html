@@ -533,6 +533,16 @@ button:disabled { opacity: 0.5; cursor: default; transform: none; }
 footer { text-align: center; color: var(--text-faint); font-size: 0.78em; padding-top: 12px; }
 
 /* ---- README (Home tab) ---- */
+.readme { position: relative; }
+/* See the comment on the readme-close-btn markup - hidden by default,
+   only shown while body.readme-open is set (the wide-desktop modal). */
+.readme-close-btn {
+    display: none;
+    position: absolute; top: 0; right: 0;
+    padding: 6px; background: none; border: none; box-shadow: none;
+    color: var(--text-faint); font-size: 1.1em; line-height: 1;
+}
+.readme-close-btn:hover { color: var(--text); }
 .readme h1 { font-size: 1.5em; margin-bottom: 4px; }
 .readme .tagline { color: var(--text-dim); margin-bottom: 20px; font-size: 0.95em; }
 .readme h2 {
@@ -576,9 +586,80 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
 /* Only one tab-panel shows at a time - true on both desktop (driven by
    .desktop-sidebar's nav) and mobile (driven by .mobile-tabbar), unlike
    the very first version of this redesign where desktop still showed
-   every section stacked in one continuous scroll. */
+   every section stacked in one continuous scroll. Overridden below on a
+   genuinely wide screen, which goes back to showing everything at once -
+   properly laid out in 3 columns this time, not one long stack. */
 .tab-panel { display: none; }
 .tab-panel.active { display: block; }
+
+/* ---- Wide-desktop dashboard: Stats / Tickets / Learning side by side ----
+   Stats and Tickets and the Learning Notebook are three genuinely
+   different things you want to glance between constantly, not pages you
+   navigate to one at a time - on a screen with the room for it (a Mac,
+   basically), show all three as their own sticky, independently-
+   scrolling column instead of hiding two of them behind tab clicks.
+   Tickets is the wide center column since it's the one you actually
+   read top-to-bottom; Stats (numbers + controls) and the Learning
+   Notebook (a block of text) both work fine narrower on either side.
+   The README ("Accueil") has no ongoing/live content, so instead of a
+   4th column for something read once, it becomes a modal popup (see
+   body.readme-open) that the same "Accueil" nav click opens. */
+@media (min-width: 1150px) {
+    .container {
+        max-width: 1600px;
+        display: grid;
+        grid-template-columns: 300px minmax(420px, 720px) 340px;
+        align-items: start;
+        gap: 24px;
+    }
+    .tab-panel[data-tab="home"] { display: none; }
+    .tab-panel[data-tab="stats"],
+    .tab-panel[data-tab="tickets"],
+    .tab-panel[data-tab="learning"] {
+        display: block;
+        position: sticky;
+        top: 24px;
+        max-height: calc(100vh - 48px);
+        overflow-y: auto;
+        overflow-x: hidden;
+        /* Breathing room so a column's own scrollbar doesn't sit flush
+           against its content. */
+        padding-right: 6px;
+    }
+    .tab-panel[data-tab="stats"] { grid-column: 1; }
+    .tab-panel[data-tab="tickets"] { grid-column: 2; }
+    .tab-panel[data-tab="learning"] { grid-column: 3; }
+
+    /* One ticket per row in this column, not the multi-card auto-fill
+       grid used when there's room for several side by side - the whole
+       point here is a single focused column, exactly as asked. */
+    .tab-panel[data-tab="tickets"] .tickets-container { grid-template-columns: 1fr; }
+
+    /* The nav becomes redundant once Stats/Tickets/Learning are all
+       already visible at once - only "Accueil" keeps doing something
+       (see setActiveTab and body.readme-open below). */
+    .side-nav-item[data-tab="stats"],
+    .side-nav-item[data-tab="tickets"],
+    .side-nav-item[data-tab="learning"] { display: none; }
+
+    body.readme-open .tab-panel[data-tab="home"] {
+        display: block;
+        position: fixed; inset: 0; z-index: 200;
+        background: rgba(0,0,0,0.5);
+        padding: 48px 20px;
+        overflow-y: auto;
+    }
+    body.readme-open .tab-panel[data-tab="home"] .readme {
+        max-width: 640px;
+        margin: 0 auto;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        padding: 32px;
+    }
+    body.readme-open .readme-close-btn { display: block; }
+}
 
 /* ---- Mobile-only chrome (fixed top bar, floating bottom tab bar) ----
    Hidden entirely on desktop, which uses .desktop-sidebar instead. */
@@ -665,7 +746,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             <span>Robert</span>
         </div>
         <div class="sidebar-nav">
-            <button class="tab-btn side-nav-item active" data-tab="home" onclick="setActiveTab('home')">
+            <button class="tab-btn side-nav-item active" data-tab="home" onclick="activateHomeTab()">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M3 11.5L12 4l9 7.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5.5 10v8.5a1 1 0 001 1h11a1 1 0 001-1V10" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><rect x="10" y="14" width="4" height="5.5" fill="currentColor"/></svg>
                 <span>Accueil</span>
             </button>
@@ -690,8 +771,13 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
     </nav>
 
     <div class="container">
-        <div class="tab-panel active" data-tab="home">
+        <div class="tab-panel active" data-tab="home" onclick="if (event.target === this) closeReadmeModal()">
             <div class="readme">
+                <!-- Only ever visible in the wide-desktop 3-column
+                     dashboard (see body.readme-open) - this same content
+                     is a normal tab everywhere narrower, where "closing"
+                     doesn't mean anything. -->
+                <button type="button" class="readme-close-btn" onclick="closeReadmeModal()" title="Fermer" aria-label="Fermer">✕</button>
                 <h1>⚔️ Robert</h1>
                 <p class="tagline">Un système de paris IA qui décide à partir de vraies statistiques — jamais des cotes.</p>
 
@@ -836,7 +922,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
     </div>
 
     <nav class="mobile-tabbar">
-        <button class="tab-btn active" data-tab="home" onclick="setActiveTab('home')" title="Accueil">
+        <button class="tab-btn active" data-tab="home" onclick="activateHomeTab()" title="Accueil">
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M3 11.5L12 4l9 7.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5.5 10v8.5a1 1 0 001 1h11a1 1 0 001-1V10" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><rect x="10" y="14" width="4" height="5.5" fill="currentColor"/></svg>
         </button>
         <button class="tab-btn" data-tab="stats" onclick="setActiveTab('stats')" title="Stats">
@@ -963,6 +1049,25 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             });
             try { localStorage.setItem('activeTab', tab); } catch (e) {}
         }
+
+        // The "Accueil" nav button's own onclick (both the desktop sidebar's
+        // and the mobile tab bar's copy) - on a screen wide enough for the
+        // 3-column dashboard the README isn't a tab any more, it's a modal
+        // (see body.readme-open in the stylesheet), so this checks the same
+        // breakpoint rather than always going through the normal tab switch.
+        function activateHomeTab() {
+            if (window.matchMedia('(min-width: 1150px)').matches) {
+                document.body.classList.add('readme-open');
+                return;
+            }
+            setActiveTab('home');
+        }
+        function closeReadmeModal() {
+            document.body.classList.remove('readme-open');
+        }
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeReadmeModal();
+        });
 
         (function initActiveTab() {
             let tab = 'home';
