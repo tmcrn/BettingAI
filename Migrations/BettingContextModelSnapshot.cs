@@ -78,9 +78,6 @@ namespace BettingAI.Migrations
                     b.Property<DateTime?>("MatchUtcDate")
                         .HasColumnType("TEXT");
 
-                    b.Property<int?>("Minute")
-                        .HasColumnType("INTEGER");
-
                     b.Property<decimal?>("MomentumAlignmentFeature")
                         .HasColumnType("TEXT");
 
@@ -204,9 +201,6 @@ namespace BettingAI.Migrations
 
                     b.Property<DateTime?>("MatchUtcDate")
                         .HasColumnType("TEXT");
-
-                    b.Property<int?>("Minute")
-                        .HasColumnType("INTEGER");
 
                     b.Property<decimal?>("MomentumAlignmentFeature")
                         .HasColumnType("TEXT");

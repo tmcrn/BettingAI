@@ -41,13 +41,6 @@ public class Bet
     public int? HomeScore { get; set; }
     public int? AwayScore { get; set; }
 
-    // Live match minute (from football-data.org's "minute" field), set only
-    // while the match is actually in progress - see
-    // BetSettlementService.RefreshLiveScoresAsync. Cleared back to null
-    // once settled, same as HomeScore/AwayScore are meaningful precisely
-    // while PENDING.
-    public int? Minute { get; set; }
-
     // The learned model's input features AS THEY WERE at decision time
     // (see WinPredictionService.ComputeFeatures) - persisted rather than
     // recomputed at settlement time, since the underlying TeamStats will

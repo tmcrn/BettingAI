@@ -77,10 +77,6 @@ public class BetHistoryItem
     public int? HomeScore { get; set; }
     public int? AwayScore { get; set; }
 
-    // Live match minute - see the comment on Bet.Minute. Only meaningful
-    // while PENDING, same as HomeScore/AwayScore above.
-    public int? Minute { get; set; }
-
     // Real kickoff time, not to be confused with CreatedAt (when the AI
     // placed the bet) - only meaningful for a standalone bet, same reason
     // as HomeScore/AwayScore above (a combo can span several matches).
@@ -109,9 +105,6 @@ public class ComboLegItem
     // settlement. Null while PENDING.
     public int? HomeScore { get; set; }
     public int? AwayScore { get; set; }
-
-    // See the comment on BetHistoryItem.Minute.
-    public int? Minute { get; set; }
 
     // Real kickoff time for this leg's own match.
     public DateTime? MatchUtcDate { get; set; }
@@ -234,7 +227,6 @@ public class GetPortfolioEndpoint : Endpoint<GetPortfolioRequest, GetPortfolioRe
                 IsCombo = false,
                 HomeScore = b.HomeScore,
                 AwayScore = b.AwayScore,
-                Minute = b.Minute,
                 MatchUtcDate = b.MatchUtcDate,
                 CompetitionCode = b.CompetitionCode,
                 HomeTeamCrest = b.HomeTeamCrest,
@@ -273,7 +265,6 @@ public class GetPortfolioEndpoint : Endpoint<GetPortfolioRequest, GetPortfolioRe
                     Result = l.Result,
                     HomeScore = l.HomeScore,
                     AwayScore = l.AwayScore,
-                    Minute = l.Minute,
                     MatchUtcDate = l.MatchUtcDate,
                     CompetitionCode = l.CompetitionCode,
                     HomeTeamCrest = l.HomeTeamCrest,

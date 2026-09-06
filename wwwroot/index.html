@@ -328,7 +328,7 @@ button:disabled { opacity: 0.5; cursor: default; transform: none; }
 }
 .vs-sep { color: var(--text-faint); font-size: 0.75em; font-weight: 600; display: flex; align-items: center; gap: 4px; justify-content: center; white-space: nowrap; }
 .ticket-score { font-weight: 800; font-size: 1.05em; }
-.live-minute { color: var(--loss); font-size: 0.7em; font-weight: 700; }
+.ticket-score-live { color: var(--loss); opacity: 0.65; }
 
 .ticket-body { padding: 16px; display: flex; flex-direction: column; gap: 12px; flex: 1; }
 /* Author CSS beats the browser's own [hidden]{display:none} rule even at
@@ -1115,7 +1115,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                 : [{
                     id: bet.id, match: bet.match, betType: bet.betType, selection: bet.selection,
                     odds: bet.odds, result: bet.result, homeScore: bet.homeScore, awayScore: bet.awayScore,
-                    minute: bet.minute, matchUtcDate: bet.matchUtcDate, competitionCode: bet.competitionCode,
+                    matchUtcDate: bet.matchUtcDate, competitionCode: bet.competitionCode,
                     homeTeamCrest: bet.homeTeamCrest, awayTeamCrest: bet.awayTeamCrest, kind: 'bet'
                   }];
 
@@ -1151,7 +1151,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                 const groupIds = groupLegs.map(l => l.id).join(',');
 
                 if (knownScore) {
-                    headerScores.push({ score: `${knownScore.homeScore}-${knownScore.awayScore}`, live: allStillPending, minute: knownScore.minute });
+                    headerScores.push({ score: `${knownScore.homeScore}-${knownScore.awayScore}`, live: allStillPending });
                 }
 
                 const rowsHtml = groupLegs.map(l => `
@@ -1208,13 +1208,12 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
 
             // Outside the collapsible body - a live score (or a final one)
             // stays visible even with the ticket folded, instead of needing
-            // an expand just to check it.
-            // A real minute (from football-data.org, only set while the
-            // match is actually being played) replaces the plain red dot
-            // with the minute itself in red - falls back to the dot when
-            // the match is live but no minute came back (e.g. API hiccup).
+            // an expand just to check it. A live match's score prints in a
+            // pale red instead of the default color - no dot, no minute
+            // (football-data.org doesn't actually provide one, even
+            // IN_PLAY - confirmed against the raw API response).
             const headerScoreHtml = headerScores.map(s => `
-                <span class="ticket-score">${s.score}${s.live ? (s.minute != null ? ` <span class="live-minute">${s.minute}'</span>` : ' <span style="color:var(--loss);">🔴</span>') : ''}</span>
+                <span class="ticket-score${s.live ? ' ticket-score-live' : ''}">${s.score}</span>
             `).join('');
 
             // First leg with a known competition - a cross-match combo could
