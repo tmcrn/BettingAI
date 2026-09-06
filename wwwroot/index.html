@@ -630,9 +630,14 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
        grid items instead, without touching the DOM (still one shared
        tab/panel everywhere narrower). */
     .tab-panel[data-tab="stats"] { display: contents; }
-    .stats-commands { grid-column: 1; }
-    .tab-panel[data-tab="tickets"] { grid-column: 2; }
-    .stats-numbers { grid-column: 3; }
+    /* grid-row is set explicitly on all three (not left to auto-
+       placement) - display: contents' children don't always get
+       auto-placed at the position their now-transparent wrapper had in
+       Safari, which pushed Tickets down onto its own row instead of
+       lining up with the commands/stats row. */
+    .stats-commands { grid-column: 1; grid-row: 1; }
+    .tab-panel[data-tab="tickets"] { grid-column: 2; grid-row: 1; }
+    .stats-numbers { grid-column: 3; grid-row: 1; }
 
     /* Stats reads as its own boxed panel (card background/border/
        shadow), same idea as a real sportsbook's bet-slip-style side
