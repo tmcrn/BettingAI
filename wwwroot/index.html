@@ -592,48 +592,74 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
 .tab-panel { display: none; }
 .tab-panel.active { display: block; }
 
-/* ---- Wide-desktop dashboard: Stats up top, Tickets + Learning below ----
-   Stats, Tickets and the Learning Notebook are three genuinely different
-   things you want to glance between constantly, not pages you navigate
-   to one at a time - on a screen with the room for it (a Mac, basically),
-   show all three at once instead of hiding two behind tab clicks.
-   Deliberately ONE shared page scrollbar, not a separate cramped
-   scrollbox per column - Stats gets a full-width row on top (its own
-   stat-card grid already spreads out nicely there, instead of being
-   squeezed into a narrow sidebar), Tickets and the Learning Notebook
-   share a wide row below, each with real room to breathe. The README
-   ("Accueil") has no ongoing/live content worth a permanent spot here,
-   so it's a modal popup instead (body.readme-open) that the same
-   "Accueil" nav click opens. */
+/* ---- Wide-desktop dashboard: one wide ticket feed + a boxed side panel ----
+   Loosely modeled on a real sportsbook's layout (nav down the left,
+   one continuous match feed as the star of the page, a boxed panel of
+   secondary widgets stacked on the right) rather than plain flat rows -
+   Tickets stays the single column it was asked to be, spanning the full
+   height as the main feed; Stats and the Learning Notebook stack as
+   their own distinct boxed panels beside it (see the panel-box rules
+   below), reading as separate "views" instead of bare content loose on
+   the page background. Deliberately still ONE shared page scrollbar,
+   not a cramped scrollbox per column. The README ("Accueil") has no
+   ongoing/live content worth a permanent spot here, so it's a modal
+   popup instead (body.readme-open) that the same "Accueil" nav click
+   opens. */
 @media (min-width: 1150px) {
     .container {
-        max-width: 1800px;
+        max-width: 1600px;
         display: grid;
-        grid-template-columns: minmax(560px, 920px) minmax(420px, 560px);
+        grid-template-columns: minmax(560px, 720px) minmax(360px, 420px);
         justify-content: center;
         grid-template-areas:
-            "stats  stats"
+            "tickets stats"
             "tickets learning";
-        gap: 36px;
+        gap: 32px;
         align-items: start;
     }
     .tab-panel[data-tab="home"] { display: none; }
     .tab-panel[data-tab="stats"],
     .tab-panel[data-tab="tickets"],
     .tab-panel[data-tab="learning"] { display: block; }
-    .tab-panel[data-tab="stats"] { grid-area: stats; }
     .tab-panel[data-tab="tickets"] { grid-area: tickets; }
+    .tab-panel[data-tab="stats"] { grid-area: stats; }
     .tab-panel[data-tab="learning"] { grid-area: learning; }
 
-    /* The stats row is the one place still worth a bit more room than
-       the narrow column it used to be squeezed into - let its stat
-       cards spread out further before wrapping. */
-    .tab-panel[data-tab="stats"] .stats-grid { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+    /* Stats and Learning read as their own boxed panel (card background/
+       border/shadow), same idea as a real sportsbook's bet-slip-style
+       side panels - not just bare content floating on the page. Their
+       own inner boxes (stat-card, .learning-notebook) go flat/borderless
+       right below so nothing ends up double-boxed. */
+    .tab-panel[data-tab="stats"],
+    .tab-panel[data-tab="learning"] {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        padding: 22px;
+    }
+    .tab-panel[data-tab="stats"] .stat-card { background: var(--surface-2); box-shadow: none; }
+    .tab-panel[data-tab="learning"] .learning-notebook {
+        background: none; border: none; box-shadow: none; padding: 0; margin-bottom: 0;
+    }
 
     /* One ticket per row, not the multi-card auto-fill grid used when
        there's room for several side by side - the whole point here is a
-       single focused column, exactly as asked. */
-    .tab-panel[data-tab="tickets"] .tickets-container { grid-template-columns: 1fr; }
+       single focused column, exactly as asked. A bit more visual weight
+       than the phone-sized version too: bigger crests, more breathing
+       room in the header, a gentle hover lift - this is the star of the
+       page here, not one card among several. */
+    .tab-panel[data-tab="tickets"] .tickets-container { grid-template-columns: 1fr; gap: 20px; }
+    .tab-panel[data-tab="tickets"] .ticket-header { padding: 22px 44px; }
+    .tab-panel[data-tab="tickets"] .team-crest { width: 42px; height: 42px; }
+    .tab-panel[data-tab="tickets"] .ticket-match { font-size: 1.2em; }
+    .tab-panel[data-tab="tickets"] .ticket {
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .tab-panel[data-tab="tickets"] .ticket:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 2px 6px rgba(0,0,0,0.12), 0 16px 32px rgba(0,0,0,0.18);
+    }
 
     /* The nav becomes redundant once Stats/Tickets/Learning are all
        already visible at once - only "Accueil" keeps doing something
