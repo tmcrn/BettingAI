@@ -185,8 +185,13 @@ public class FootballDataService
                         ?? TeamShortNames.Lookup(homeTeamEl.GetProperty("name").GetString()),
                     AwayTeamShort = (awayTeamEl.TryGetProperty("shortName", out var awayShortEl) ? awayShortEl.GetString() : null)
                         ?? TeamShortNames.Lookup(awayTeamEl.GetProperty("name").GetString()),
-                    HomeTeamCrest = homeTeamEl.TryGetProperty("crest", out var homeCrestEl) ? homeCrestEl.GetString() : null,
-                    AwayTeamCrest = awayTeamEl.TryGetProperty("crest", out var awayCrestEl) ? awayCrestEl.GetString() : null,
+                    // Same fallback logic as HomeTeamShort/AwayTeamShort above,
+                    // but via TeamCrests - real URLs pulled straight from
+                    // football-data.org's own teams endpoint, not guessed.
+                    HomeTeamCrest = (homeTeamEl.TryGetProperty("crest", out var homeCrestEl) ? homeCrestEl.GetString() : null)
+                        ?? TeamCrests.Lookup(homeTeamEl.GetProperty("name").GetString()),
+                    AwayTeamCrest = (awayTeamEl.TryGetProperty("crest", out var awayCrestEl) ? awayCrestEl.GetString() : null)
+                        ?? TeamCrests.Lookup(awayTeamEl.GetProperty("name").GetString()),
                     UtcDate = matchTime,
                     Status = "SCHEDULED",
                     HomeScore = GetScoreOrZero(fullTime, "home"),
