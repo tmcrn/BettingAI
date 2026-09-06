@@ -42,6 +42,20 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
         "HOME_WIN", "AWAY_WIN", "DRAW", "HOME_WIN_OR_DRAW", "AWAY_WIN_OR_DRAW"
     };
 
+    // Same reasoning as OneXTwoFamilyTypes, for goal-line markets: a real
+    // sportsbook doesn't multiply "Plus de 2.5 buts" (total) with "Domicile
+    // +1.5 buts" (that team's own goals) on the same match into a bigger
+    // combined price - the two overlap too much (a team scoring enough to
+    // clear its own line already does most of the work toward the total
+    // line too), so it's priced as if only the stronger single leg were
+    // there. Simplest correct fix here is the same one already used for
+    // 1X2 markets: only one goal-line leg allowed per match in a combo -
+    // see TryBuildCombo.
+    private static readonly HashSet<string> GoalLineFamilyTypes = new()
+    {
+        "OVER_GOALS", "UNDER_GOALS", "HOME_OVER_GOALS", "AWAY_OVER_GOALS"
+    };
+
     // Configurable via env var so switching the local Ollama model (e.g. to
     // try a different 7B-class model) is a deploy-time change, not a
     // recompile - set OLLAMA_MODEL to any tag already pulled locally
@@ -541,6 +555,22 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
             allSingles.AddRange(goalsBets);
             if (allSingles.Count < 2) return; // nothing to merge, or ambiguous - leave as-is
 
+            // Same correlation guard as TryBuildCombo's "only one goal-line
+            // leg per match" rule - the GOALS call can independently decide
+            // more than one goal-line bet type here (see the comment
+            // above), which would otherwise get folded in and multiplied
+            // together into an inflated combined price (e.g. "Plus de 2.5
+            // buts" and "Domicile +1.5 buts" don't actually stack). Keep
+            // only the first; any extra goal-line bet(s) are left exactly
+            // as they were - their own standalone single ticket(s).
+            var extraGoalLineSingles = allSingles.Where(b => GoalLineFamilyTypes.Contains(b.BetType ?? "")).Skip(1).ToList();
+            if (extraGoalLineSingles.Count > 0)
+            {
+                foreach (var extra in extraGoalLineSingles) allSingles.Remove(extra);
+                debugLog.Add($"MERGE SKIPPED {extraGoalLineSingles.Count} EXTRA GOAL-LINE BET(S) (too correlated to combine) for {shortMatchId}");
+            }
+            if (allSingles.Count < 2) return; // nothing left worth merging into a combo
+
             foreach (var b in allSingles)
             {
                 _context.Bets.Remove(b);
@@ -1012,6 +1042,12 @@ REMEMBER: Start with [ immediately. No preamble. No markdown. Just JSON.";
             if (OneXTwoFamilyTypes.Contains(legDecision.Type) && typesForMatch.Count(t => OneXTwoFamilyTypes.Contains(t)) > 1)
             {
                 debugLog.Add($"COMBO REJECTED: two '1X2-family' legs (who-wins markets) on the same match (matchId='{legDecision.MatchId}')");
+                return null;
+            }
+
+            if (GoalLineFamilyTypes.Contains(legDecision.Type) && typesForMatch.Count(t => GoalLineFamilyTypes.Contains(t)) > 1)
+            {
+                debugLog.Add($"COMBO REJECTED: two 'goal-line' legs (total/team goals markets) on the same match (matchId='{legDecision.MatchId}') - too correlated to combine into a bigger price");
                 return null;
             }
 
