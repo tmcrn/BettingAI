@@ -320,11 +320,21 @@ public class FootballDataService
             var status = doc.RootElement.GetProperty("status").GetString();
             var fullTime = doc.RootElement.GetProperty("score").GetProperty("fullTime");
 
+            // Only present (and non-null) while the match is actually being
+            // played (IN_PLAY/PAUSED) - null for anything scheduled, finished,
+            // postponed, etc. Read defensively (TryGetProperty + a Number
+            // ValueKind check) since it isn't documented as guaranteed on
+            // every plan/response.
+            int? minute = doc.RootElement.TryGetProperty("minute", out var minuteEl) && minuteEl.ValueKind == JsonValueKind.Number
+                ? minuteEl.GetInt32()
+                : null;
+
             return new MatchStatus
             {
                 Finished = status == "FINISHED",
                 HomeScore = GetScoreOrZero(fullTime, "home"),
-                AwayScore = GetScoreOrZero(fullTime, "away")
+                AwayScore = GetScoreOrZero(fullTime, "away"),
+                Minute = minute
             };
         }
         catch (Exception ex)
@@ -340,6 +350,9 @@ public class MatchStatus
     public bool Finished { get; set; }
     public int HomeScore { get; set; }
     public int AwayScore { get; set; }
+
+    // Live match minute - see the comment in GetMatchStatusAsync.
+    public int? Minute { get; set; }
 }
 
 public class FinishedMatch

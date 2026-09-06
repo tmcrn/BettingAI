@@ -101,6 +101,7 @@ public class BetSettlementService
             {
                 bet.HomeScore = status.HomeScore;
                 bet.AwayScore = status.AwayScore;
+                bet.Minute = status.Minute;
                 updated++;
             }
         }
@@ -120,6 +121,7 @@ public class BetSettlementService
             {
                 leg.HomeScore = status.HomeScore;
                 leg.AwayScore = status.AwayScore;
+                leg.Minute = status.Minute;
                 updated++;
             }
         }
@@ -160,6 +162,7 @@ public class BetSettlementService
                 bet.Result = won ? "WIN" : "LOSS";
                 bet.HomeScore = status.HomeScore;
                 bet.AwayScore = status.AwayScore;
+                bet.Minute = null; // match is over - no more live minute to show
                 // Real odds (when Sofascore had them at decision time) price the payout for
                 // real; otherwise estimate from the AI's own confidence - odds never
                 // influenced whether this bet was placed, only how much it pays out now.
@@ -217,6 +220,7 @@ public class BetSettlementService
                 leg.Result = won ? "WIN" : "LOSS";
                 leg.HomeScore = status.HomeScore;
                 leg.AwayScore = status.AwayScore;
+                leg.Minute = null; // see the comment in SettleSingleBetsAsync
                 await TrainModelAsync(leg.EdgeAlignmentFeature, leg.FormAlignmentFeature, leg.MomentumAlignmentFeature, leg.Confidence, won, ct);
                 settledLegCount++;
                 affectedCombos.Add(leg.BetComboId);

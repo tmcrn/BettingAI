@@ -26,6 +26,9 @@ public class ComboLeg
     public int? HomeScore { get; set; }
     public int? AwayScore { get; set; }
 
+    // See the comment on Bet.Minute.
+    public int? Minute { get; set; }
+
     // The combo's own Confidence is the PRODUCT across all legs, not any
     // one leg's individual confidence - not usable as a training feature
     // for this specific leg's own win/loss. This is the leg's own value:
