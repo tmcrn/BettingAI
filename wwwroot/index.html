@@ -334,6 +334,10 @@ button:disabled { opacity: 0.5; cursor: default; transform: none; }
     display: flex; align-items: center; justify-content: center;
     padding: 20px; z-index: 100;
 }
+/* Same trap as .ticket-body/.league-filter-panel above: author CSS beats
+   the browser's own [hidden]{display:none} at equal specificity, so
+   without this the overlay stays visible (empty) regardless of hidden. */
+.app-alert-overlay[hidden] { display: none; }
 .app-alert-box {
     background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
     box-shadow: var(--shadow); padding: 20px; max-width: 360px; width: 100%;
