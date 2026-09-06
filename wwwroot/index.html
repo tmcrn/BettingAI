@@ -534,8 +534,14 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
 
 /* ---- README (Home tab) ---- */
 .readme { position: relative; }
+/* Same role as .readme above, for the Learning Notebook's own modal
+   card (see body.learning-open) - needed so its close button (shared
+   .readme-close-btn styling) positions against this card, not the
+   full-viewport backdrop behind it. */
+.learning-modal-card { position: relative; }
 /* See the comment on the readme-close-btn markup - hidden by default,
-   only shown while body.readme-open is set (the wide-desktop modal). */
+   only shown while body.readme-open or body.learning-open is set (the
+   wide-desktop modals). */
 .readme-close-btn {
     display: none;
     position: absolute; top: 0; right: 0;
@@ -592,56 +598,55 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
 .tab-panel { display: none; }
 .tab-panel.active { display: block; }
 
-/* ---- Wide-desktop dashboard: one wide ticket feed + a boxed side panel ----
-   Loosely modeled on a real sportsbook's layout (nav down the left,
-   one continuous match feed as the star of the page, a boxed panel of
-   secondary widgets stacked on the right) rather than plain flat rows -
-   Tickets stays the single column it was asked to be, spanning the full
-   height as the main feed; Stats and the Learning Notebook stack as
-   their own distinct boxed panels beside it (see the panel-box rules
-   below), reading as separate "views" instead of bare content loose on
-   the page background. Deliberately still ONE shared page scrollbar,
-   not a cramped scrollbox per column. The README ("Accueil") has no
-   ongoing/live content worth a permanent spot here, so it's a modal
-   popup instead (body.readme-open) that the same "Accueil" nav click
-   opens. */
+/* ---- Wide-desktop dashboard: commands / ticket feed / stats ----
+   Loosely modeled on a real sportsbook's layout (nav down the left, one
+   continuous feed as the star of the page, boxed secondary panels
+   around it) rather than plain flat rows - three columns: the action
+   commands (Lancer le cycle, Prono MPP, ...) stay on the left, the
+   single wide ticket feed in the middle, the numeric Stats as their own
+   boxed panel on the right. The Learning Notebook has no ongoing/live
+   content worth a permanent column (it's a block of text you read
+   occasionally, not something changing every refresh like the other
+   two) - like the README, it's its own view instead: a modal popup
+   (body.learning-open) that the same "Learning" nav click opens.
+   Deliberately still ONE shared page scrollbar, not a cramped scrollbox
+   per column. */
 @media (min-width: 1150px) {
     .container {
         max-width: 1600px;
         display: grid;
-        grid-template-columns: minmax(560px, 720px) minmax(360px, 420px);
+        grid-template-columns: minmax(240px, 280px) minmax(520px, 680px) minmax(340px, 400px);
         justify-content: center;
-        grid-template-areas:
-            "tickets stats"
-            "tickets learning";
         gap: 32px;
         align-items: start;
     }
-    .tab-panel[data-tab="home"] { display: none; }
-    .tab-panel[data-tab="stats"],
-    .tab-panel[data-tab="tickets"],
-    .tab-panel[data-tab="learning"] { display: block; }
-    .tab-panel[data-tab="tickets"] { grid-area: tickets; }
-    .tab-panel[data-tab="stats"] { grid-area: stats; }
-    .tab-panel[data-tab="learning"] { grid-area: learning; }
+    .tab-panel[data-tab="home"],
+    .tab-panel[data-tab="learning"] { display: none; }
+    .tab-panel[data-tab="tickets"] { display: block; }
 
-    /* Stats and Learning read as their own boxed panel (card background/
-       border/shadow), same idea as a real sportsbook's bet-slip-style
-       side panels - not just bare content floating on the page. Their
-       own inner boxes (stat-card, .learning-notebook) go flat/borderless
-       right below so nothing ends up double-boxed. */
-    .tab-panel[data-tab="stats"],
-    .tab-panel[data-tab="learning"] {
+    /* .stats is itself never a grid item here - "display: contents"
+       makes the wrapper transparent to the grid, so its two children
+       (.stats-commands, .stats-numbers) become independently placeable
+       grid items instead, without touching the DOM (still one shared
+       tab/panel everywhere narrower). */
+    .tab-panel[data-tab="stats"] { display: contents; }
+    .stats-commands { grid-column: 1; }
+    .tab-panel[data-tab="tickets"] { grid-column: 2; }
+    .stats-numbers { grid-column: 3; }
+
+    /* Stats reads as its own boxed panel (card background/border/
+       shadow), same idea as a real sportsbook's bet-slip-style side
+       panel - not just bare content floating on the page. Its own inner
+       boxes (stat-card) go flat/borderless right below so nothing ends
+       up double-boxed. */
+    .stats-numbers {
         background: var(--surface);
         border: 1px solid var(--border);
         border-radius: var(--radius);
         box-shadow: var(--shadow);
         padding: 22px;
     }
-    .tab-panel[data-tab="stats"] .stat-card { background: var(--surface-2); box-shadow: none; }
-    .tab-panel[data-tab="learning"] .learning-notebook {
-        background: none; border: none; box-shadow: none; padding: 0; margin-bottom: 0;
-    }
+    .stats-numbers .stat-card { background: var(--surface-2); box-shadow: none; }
 
     /* One ticket per row, not the multi-card auto-fill grid used when
        there's room for several side by side - the whole point here is a
@@ -661,12 +666,12 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
         box-shadow: 0 2px 6px rgba(0,0,0,0.12), 0 16px 32px rgba(0,0,0,0.18);
     }
 
-    /* The nav becomes redundant once Stats/Tickets/Learning are all
-       already visible at once - only "Accueil" keeps doing something
-       (see setActiveTab and body.readme-open below). */
+    /* The nav becomes redundant once commands/Tickets/Stats are all
+       already visible at once - only "Accueil" and "Learning" keep
+       doing something (see activateHomeTab/activateLearningTab and the
+       two body.*-open modal rules below). */
     .side-nav-item[data-tab="stats"],
-    .side-nav-item[data-tab="tickets"],
-    .side-nav-item[data-tab="learning"] { display: none; }
+    .side-nav-item[data-tab="tickets"] { display: none; }
 
     body.readme-open .tab-panel[data-tab="home"] {
         display: block;
@@ -684,7 +689,26 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
         box-shadow: var(--shadow);
         padding: 32px;
     }
-    body.readme-open .readme-close-btn { display: block; }
+
+    body.learning-open .tab-panel[data-tab="learning"] {
+        display: block;
+        position: fixed; inset: 0; z-index: 200;
+        background: rgba(0,0,0,0.5);
+        padding: 48px 20px;
+        overflow-y: auto;
+    }
+    body.learning-open .tab-panel[data-tab="learning"] .learning-modal-card {
+        max-width: 760px;
+        margin: 0 auto;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        padding: 32px;
+    }
+
+    body.readme-open .readme-close-btn,
+    body.learning-open .readme-close-btn { display: block; }
 }
 
 /* ---- Mobile-only chrome (fixed top bar, floating bottom tab bar) ----
@@ -784,7 +808,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><rect x="3" y="6" width="18" height="12" rx="2.5" stroke="currentColor" stroke-width="2"/><line x1="12" y1="6" x2="12" y2="18" stroke="currentColor" stroke-width="2" stroke-dasharray="2.2 2.2" stroke-linecap="round"/></svg>
                 <span>Tickets</span>
             </button>
-            <button class="tab-btn side-nav-item" data-tab="learning" onclick="setActiveTab('learning')">
+            <button class="tab-btn side-nav-item" data-tab="learning" onclick="activateLearningTab()">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M12 6.5c-1.8-1.4-4.2-2-6.5-2-1 0-1.5.3-1.5 1v11c0 .6.5 1 1.5 1 2.3 0 4.7.6 6.5 2 1.8-1.4 4.2-2 6.5-2 1 0 1.5-.4 1.5-1v-11c0-.7-.5-1-1.5-1-2.3 0-4.7.6-6.5 2z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><line x1="12" y1="6.5" x2="12" y2="19.5" stroke="currentColor" stroke-width="1.8"/></svg>
                 <span>Learning Book</span>
             </button>
@@ -838,6 +862,12 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
         </div>
 
         <div class="tab-panel" data-tab="stats">
+            <!-- Split in two (see .stats-commands/.stats-numbers) purely so
+                 the wide-desktop layout can place them separately
+                 (commands on the left, the numbers themselves on the
+                 right - see the "display: contents" comment below) -
+                 still ONE tab, shown/hidden together everywhere narrower. -->
+            <div class="stats-commands">
             <div class="button-row">
                 <button class="primary" onclick="refreshAll()">🔄 Rafraîchir</button>
                 <button onclick="forceCycle()" id="forceBtn">🤖 Lancer le cycle</button>
@@ -853,7 +883,9 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                     <button onclick="copyPronos()">📋 Copier pour le groupe</button>
                 </div>
             </div>
+            </div>
 
+            <div class="stats-numbers">
             <div class="stats-grid">
                 <div class="stat-card">
                     <h3>Misé</h3>
@@ -897,6 +929,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                 <div class="section-title">⚠️ Saisie manuelle requise <span class="count" id="reviewCount"></span></div>
                 <div class="review-container" id="reviewContainer"></div>
             </div>
+            </div>
         </div>
 
         <div class="tab-panel" data-tab="tickets">
@@ -939,9 +972,18 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             </div>
         </div>
 
-        <div class="tab-panel" data-tab="learning">
-            <div class="section-title">🧠 Mémoire d'apprentissage</div>
-            <div class="learning-notebook" id="learningNotebook">Chargement…</div>
+        <div class="tab-panel" data-tab="learning" onclick="if (event.target === this) closeLearningModal()">
+            <!-- Only a distinct "card" wrapper (matching .readme's own
+                 role for the Accueil modal) while in the wide-desktop
+                 layout's modal state (see body.learning-open) - the close
+                 button positions against THIS, not the full-viewport
+                 backdrop. No effect on the normal tab view everywhere
+                 narrower, where "closing" doesn't mean anything. -->
+            <div class="learning-modal-card">
+                <button type="button" class="readme-close-btn" onclick="closeLearningModal()" title="Fermer" aria-label="Fermer">✕</button>
+                <div class="section-title">🧠 Mémoire d'apprentissage</div>
+                <div class="learning-notebook" id="learningNotebook">Chargement…</div>
+            </div>
         </div>
 
         <footer>Robert · clique "🔄 Rafraîchir" pour mettre à jour</footer>
@@ -957,7 +999,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
         <button class="tab-btn" data-tab="tickets" onclick="setActiveTab('tickets')" title="Tickets">
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none"><rect x="3" y="6" width="18" height="12" rx="2.5" stroke="currentColor" stroke-width="2"/><line x1="12" y1="6" x2="12" y2="18" stroke="currentColor" stroke-width="2" stroke-dasharray="2.2 2.2" stroke-linecap="round"/></svg>
         </button>
-        <button class="tab-btn" data-tab="learning" onclick="setActiveTab('learning')" title="Learning Book">
+        <button class="tab-btn" data-tab="learning" onclick="activateLearningTab()" title="Learning Book">
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M12 6.5c-1.8-1.4-4.2-2-6.5-2-1 0-1.5.3-1.5 1v11c0 .6.5 1 1.5 1 2.3 0 4.7.6 6.5 2 1.8-1.4 4.2-2 6.5-2 1 0 1.5-.4 1.5-1v-11c0-.7-.5-1-1.5-1-2.3 0-4.7.6-6.5 2z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><line x1="12" y1="6.5" x2="12" y2="19.5" stroke="currentColor" stroke-width="1.8"/></svg>
         </button>
     </nav>
@@ -1091,8 +1133,26 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
         function closeReadmeModal() {
             document.body.classList.remove('readme-open');
         }
+
+        // Same idea as activateHomeTab/closeReadmeModal, for the Learning
+        // Notebook - it's its own view/modal in the wide-desktop layout
+        // (see body.learning-open) instead of a permanently-visible panel,
+        // since unlike Stats it's a block of text you read occasionally,
+        // not something worth a permanent spot next to the ticket feed.
+        function activateLearningTab() {
+            if (window.matchMedia('(min-width: 1150px)').matches) {
+                document.body.classList.add('learning-open');
+                return;
+            }
+            setActiveTab('learning');
+        }
+        function closeLearningModal() {
+            document.body.classList.remove('learning-open');
+        }
         document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') closeReadmeModal();
+            if (e.key !== 'Escape') return;
+            closeReadmeModal();
+            closeLearningModal();
         });
 
         (function initActiveTab() {
