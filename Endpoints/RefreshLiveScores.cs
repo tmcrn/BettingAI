@@ -37,6 +37,12 @@ public class RefreshLiveScoresEndpoint : EndpointWithoutRequest<RefreshLiveScore
 
     public override async Task HandleAsync(CancellationToken ct)
     {
+        if (!OwnerAuth.IsAuthorized(HttpContext))
+        {
+            HttpContext.Response.StatusCode = 403;
+            return;
+        }
+
         var updated = await _settlementService.RefreshLiveScoresAsync(ct);
 
         await Send.OkAsync(new RefreshLiveScoresResponse

@@ -41,10 +41,9 @@ public class AutoDecideBetsBackgroundService : BackgroundService
             try
             {
                 var client = _httpClientFactory.CreateClient();
-                var response = await client.PostAsync(
-                    "http://localhost:5255/api/auto-decide-bets",
-                    content: null,
-                    stoppingToken);
+                var request = new HttpRequestMessage(HttpMethod.Post, "http://localhost:5255/api/auto-decide-bets");
+                OwnerAuth.AttachSelfCallToken(request);
+                var response = await client.SendAsync(request, stoppingToken);
                 var body = await response.Content.ReadAsStringAsync(stoppingToken);
                 Console.WriteLine($"📅 Daily auto-decide cycle: {body}");
             }

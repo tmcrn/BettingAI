@@ -30,6 +30,12 @@ public class SettlePendingBetsEndpoint : EndpointWithoutRequest<SettlePendingBet
 
     public override async Task HandleAsync(CancellationToken ct)
     {
+        if (!OwnerAuth.IsAuthorized(HttpContext))
+        {
+            HttpContext.Response.StatusCode = 403;
+            return;
+        }
+
         var settled = await _settlementService.SettlePendingBetsAsync(ct);
 
         await Send.OkAsync(new SettlePendingBetsResponse

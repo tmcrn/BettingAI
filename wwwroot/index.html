@@ -151,6 +151,20 @@ body { padding-left: 240px; }
     font-size: 0.92em;
     white-space: nowrap;
 }
+/* Same twin-pill pattern as .wallet-pill, shown only for a guest link
+   (see IS_GUEST) - a plain color, not --accent, so it doesn't read as
+   another balance/stat. */
+.guest-pill {
+    background: var(--surface-2);
+    color: var(--text-faint);
+    border: 1px solid var(--border);
+    padding: 8px 14px;
+    border-radius: 999px;
+    font-weight: 700;
+    font-size: 0.85em;
+    white-space: nowrap;
+}
+.guest-pill[hidden] { display: none; }
 
 /* ---- Buttons ---- */
 .button-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 28px; }
@@ -639,6 +653,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             <span>Robert</span>
         </div>
         <div class="mobile-topbar-right">
+            <div class="guest-pill" id="guestPill" hidden title="Lecture seule - les actions sont désactivées">👁️ Invité</div>
             <button class="mobile-theme-btn" id="mobileThemeBtn" onclick="toggleTheme()" title="Mode sombre/clair">🌙</button>
             <div class="wallet-pill" id="walletPill">-</div>
         </div>
@@ -668,6 +683,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             </button>
         </div>
         <div class="sidebar-footer">
+            <div class="guest-pill" id="guestPillDesktop" hidden title="Lecture seule - les actions sont désactivées">👁️ Mode invité</div>
             <button class="desktop-theme-btn" id="desktopThemeBtn" onclick="toggleTheme()">🌙 Mode sombre</button>
             <div class="wallet-pill" id="walletPillDesktop">-</div>
         </div>
@@ -714,7 +730,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                 <button class="primary" onclick="refreshAll()">🔄 Rafraîchir</button>
                 <button onclick="forceCycle()" id="forceBtn">🤖 Lancer le cycle</button>
                 <button onclick="predictScores()" id="pronosBtn">🎯 Prono MPP</button>
-                <button onclick="resetSystem()" class="danger">🗑️ Reset historique</button>
+                <button onclick="resetSystem()" id="resetBtn" class="danger">🗑️ Reset historique</button>
             </div>
 
             <div class="ticket" id="pronosPanel" style="display:none; margin-bottom: 28px;">
@@ -853,6 +869,38 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
     </div>
 
     <script>
+        // Guest mode: opening this page's own URL with ?owner=<TOKEN> once
+        // (matching the OWNER_TOKEN environment variable the server was
+        // started with - see OwnerAuth.cs) saves it to localStorage and
+        // grants full control from then on, on this browser. Anyone else -
+        // a friend sent the plain link, or the URL with no/wrong token -
+        // is a guest: action buttons and manual-entry forms are hidden
+        // below (see IS_GUEST), and every mutating endpoint independently
+        // rejects the request server-side regardless of what the UI shows,
+        // so this is never just cosmetic.
+        (function bootstrapOwnerToken() {
+            const params = new URLSearchParams(window.location.search);
+            const ownerParam = params.get('owner');
+            if (!ownerParam) return;
+            try { localStorage.setItem('ownerToken', ownerParam); } catch {}
+            // Strip it from the address bar/history - it's the kind of
+            // thing you don't want sitting in a shared screenshot or a
+            // synced browser history.
+            params.delete('owner');
+            const qs = params.toString();
+            history.replaceState(null, '', window.location.pathname + (qs ? `?${qs}` : ''));
+        })();
+        function getOwnerToken() {
+            try { return localStorage.getItem('ownerToken') || ''; } catch { return ''; }
+        }
+        const IS_GUEST = !getOwnerToken();
+        // Drop-in replacement for fetch() on every endpoint that changes
+        // data - attaches the owner token header (a no-op if there isn't
+        // one, which is exactly the guest case).
+        function mutatingFetch(url, opts = {}) {
+            return fetch(url, { ...opts, headers: { ...(opts.headers || {}), 'X-Owner-Token': getOwnerToken() } });
+        }
+
         // Manual dark-mode override on top of the automatic
         // prefers-color-scheme media query in <style> - persisted per
         // browser via localStorage so it sticks across reloads. Wrapped in
@@ -1203,7 +1251,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                     <div class="leg-row">
                         <span class="leg-icon">${resultIcon(l.result, 16)}</span>
                         <span class="leg-label">${betTypeLabel(l.betType, l.selection)}</span>
-                        ${l.result === 'PENDING' ? `
+                        ${(l.result === 'PENDING' && !IS_GUEST) ? `
                         <span class="leg-odds-edit">
                             <input type="number" min="1" step="0.01" id="odds-${l.kind}-${l.id}" value="${l.odds ? l.odds.toFixed(2) : ''}"
                                    ${l.kind === 'bet' ? `placeholder="${(bet.confidence > 0 ? 1 / bet.confidence : 2).toFixed(2)}"` : ''}>
@@ -1216,8 +1264,10 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                 // The match name and score are both already shown once, at
                 // the top of the ticket - nothing left to repeat here
                 // except, when a ticket is settled but still missing its
-                // score, the backfill form itself.
-                const matchLineHtml = (!knownScore && anySettled) ? `
+                // score, the backfill form itself (never for a guest -
+                // there's nothing read-only to show in its place, so it's
+                // just omitted rather than shown disabled).
+                const matchLineHtml = (!knownScore && anySettled && !IS_GUEST) ? `
                     <div class="leg-match-line" style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
                         <span>Score :</span>
                         <input type="number" min="0" step="1" id="score-home-group-${kind}-${groupIds}" placeholder="0" style="width:30px;">-<input type="number" min="0" step="1" id="score-away-group-${kind}-${groupIds}" placeholder="0" style="width:30px;">
@@ -1473,9 +1523,14 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
         }
 
         async function refreshManualReview() {
+            const section = document.getElementById('manualReviewSection');
+            // Nothing but an action form (settle a bet manually) - no
+            // read-only equivalent worth showing a guest, so the whole
+            // section is skipped rather than shown with a disabled form.
+            if (IS_GUEST) { section.style.display = 'none'; return; }
+
             const res = await fetch('/api/needs-manual-review');
             const data = await res.json();
-            const section = document.getElementById('manualReviewSection');
             const container = document.getElementById('reviewContainer');
             const countEl = document.getElementById('reviewCount');
 
@@ -1501,7 +1556,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             submitBtn.textContent = '⏳ Enregistrement…';
 
             try {
-                const res = await fetch('/api/manual-settle', {
+                const res = await mutatingFetch('/api/manual-settle', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ kind, id, homeScore, awayScore, realOdds })
@@ -1526,7 +1581,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
 
             btnEl.disabled = true;
             try {
-                const res = await fetch('/api/set-odds', {
+                const res = await mutatingFetch('/api/set-odds', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ kind, id, odds })
@@ -1561,7 +1616,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             btnEl.disabled = true;
             try {
                 for (const id of ids) {
-                    const res = await fetch('/api/set-score', {
+                    const res = await mutatingFetch('/api/set-score', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ kind, id, homeScore, awayScore })
@@ -1599,7 +1654,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             document.getElementById('pronosList').textContent = 'Génération en cours (peut prendre 1-2 minutes selon le modèle)…';
             document.getElementById('pronosText').value = '';
             try {
-                const res = await fetch('/api/predict-scores');
+                const res = await mutatingFetch('/api/predict-scores');
                 const data = await res.json();
                 if (!data.success) {
                     document.getElementById('pronosList').textContent = data.message || 'Erreur inconnue.';
@@ -1634,7 +1689,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             btn.disabled = true;
             btn.textContent = '⏳ Cycle en cours…';
             try {
-                const res = await fetch('/api/auto-decide-bets', { method: 'POST' });
+                const res = await mutatingFetch('/api/auto-decide-bets', { method: 'POST' });
                 const data = await res.json();
                 await refreshAll();
                 showAppAlert(data.message || 'Cycle terminé.');
@@ -1664,9 +1719,9 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                 // hitting a "database is locked" error (and since that
                 // error response isn't valid JSON, the whole button broke
                 // rather than just one half of it).
-                const settleRes = await fetch('/api/settle-pending-bets', { method: 'POST' });
+                const settleRes = await mutatingFetch('/api/settle-pending-bets', { method: 'POST' });
                 const settleData = await settleRes.json();
-                const liveRes = await fetch('/api/refresh-live-scores', { method: 'POST' });
+                const liveRes = await mutatingFetch('/api/refresh-live-scores', { method: 'POST' });
                 const liveData = await liveRes.json();
                 await refreshAll();
                 showAppAlert([settleData.message, liveData.message].filter(Boolean).join('\n'));
@@ -1682,7 +1737,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
         async function resetSystem() {
             if (!confirm('Supprimer tout l\'historique de paris (portefeuille remis à 10€) ? Les stats d\'équipes ne sont pas touchées.')) return;
             try {
-                const res = await fetch('/api/reset-system', { method: 'DELETE' });
+                const res = await mutatingFetch('/api/reset-system', { method: 'DELETE' });
                 const data = await res.json();
                 await refreshAll();
                 showAppAlert(data.message || 'Système réinitialisé.');
@@ -1690,6 +1745,25 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                 showAppAlert('Erreur pendant le reset: ' + e.message);
             }
         }
+
+        // Static action buttons (the ticket-level manual-entry forms are
+        // handled inline in ticketCard/reviewCard/refreshManualReview
+        // instead, since those are rebuilt on every refresh) - disabled
+        // once here since they never disappear/reappear afterward.
+        function applyGuestRestrictions() {
+            if (!IS_GUEST) return;
+            const guestPill = document.getElementById('guestPill');
+            const guestPillDesktop = document.getElementById('guestPillDesktop');
+            if (guestPill) guestPill.hidden = false;
+            if (guestPillDesktop) guestPillDesktop.hidden = false;
+            for (const id of ['forceBtn', 'pronosBtn', 'resetBtn', 'checkResultsBtn']) {
+                const btn = document.getElementById(id);
+                if (!btn) continue;
+                btn.disabled = true;
+                btn.title = 'Désactivé en mode invité';
+            }
+        }
+        applyGuestRestrictions();
 
         // No auto-refresh interval - it used to re-render the whole page
         // every 10s, which reset any odds/score input the user was mid-

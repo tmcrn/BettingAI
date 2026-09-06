@@ -1,4 +1,5 @@
 using BettingAI.Data;
+using BettingAI.Services;
 using BettingAI.Models;
 using FastEndpoints;
 using Microsoft.EntityFrameworkCore;
@@ -34,6 +35,12 @@ public class FetchMatchDataEndpoint : Endpoint<FetchMatchDataRequest, FetchMatch
 
     public override async Task HandleAsync(FetchMatchDataRequest req, CancellationToken ct)
     {
+        if (!OwnerAuth.IsAuthorized(HttpContext))
+        {
+            HttpContext.Response.StatusCode = 403;
+            return;
+        }
+
         if (req.HomeTeam == "Rennes" && req.AwayTeam == "Le Mans")
         {
             // Clear old data

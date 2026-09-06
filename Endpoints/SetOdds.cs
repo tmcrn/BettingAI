@@ -42,6 +42,12 @@ public class SetOddsEndpoint : Endpoint<SetOddsRequest, SetOddsResponse>
 
     public override async Task HandleAsync(SetOddsRequest req, CancellationToken ct)
     {
+        if (!OwnerAuth.IsAuthorized(HttpContext))
+        {
+            HttpContext.Response.StatusCode = 403;
+            return;
+        }
+
         if (req.Odds < 1m)
         {
             await Send.OkAsync(new SetOddsResponse { Success = false, Message = "❌ La cote doit être >= 1.0" });

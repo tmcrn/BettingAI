@@ -43,6 +43,12 @@ public class SeedOpenFootballStatsEndpoint : Endpoint<SeedOpenFootballStatsReque
 
     public override async Task HandleAsync(SeedOpenFootballStatsRequest req, CancellationToken ct)
     {
+        if (!OwnerAuth.IsAuthorized(HttpContext))
+        {
+            HttpContext.Response.StatusCode = 403;
+            return;
+        }
+
         var (success, message, teamsUpdated) = await _seedingService.SeedFromOpenFootballAsync(req.Season, ct);
 
         await Send.OkAsync(new SeedOpenFootballStatsResponse

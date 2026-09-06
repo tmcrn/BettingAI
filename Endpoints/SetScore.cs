@@ -1,4 +1,5 @@
 using BettingAI.Data;
+using BettingAI.Services;
 using FastEndpoints;
 using Microsoft.EntityFrameworkCore;
 
@@ -41,6 +42,12 @@ public class SetScoreEndpoint : Endpoint<SetScoreRequest, SetScoreResponse>
 
     public override async Task HandleAsync(SetScoreRequest req, CancellationToken ct)
     {
+        if (!OwnerAuth.IsAuthorized(HttpContext))
+        {
+            HttpContext.Response.StatusCode = 403;
+            return;
+        }
+
         if (req.HomeScore < 0 || req.AwayScore < 0)
         {
             await Send.OkAsync(new SetScoreResponse { Success = false, Message = "❌ Le score doit être >= 0" });

@@ -1,4 +1,5 @@
 using BettingAI.Data;
+using BettingAI.Services;
 using FastEndpoints;
 using Microsoft.EntityFrameworkCore;
 
@@ -27,6 +28,12 @@ public class ResetSystemEndpoint : EndpointWithoutRequest<ResetSystemResponse>
 
     public override async Task HandleAsync(CancellationToken ct)
     {
+        if (!OwnerAuth.IsAuthorized(HttpContext))
+        {
+            HttpContext.Response.StatusCode = 403;
+            return;
+        }
+
         // Clears betting history/portfolio state only. TeamStats is
         // deliberately left alone: seeding it now takes ~8-10 minutes
         // (paced requests across a 2-season window - see

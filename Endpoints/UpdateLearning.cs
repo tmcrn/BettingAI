@@ -36,6 +36,12 @@ public class UpdateLearningEndpoint : Endpoint<UpdateLearningRequest, UpdateLear
 
     public override async Task HandleAsync(UpdateLearningRequest req, CancellationToken ct)
     {
+        if (!OwnerAuth.IsAuthorized(HttpContext))
+        {
+            HttpContext.Response.StatusCode = 403;
+            return;
+        }
+
         await _settlementService.RefreshLearningNotebookAsync(ct);
 
         var notebook = await _context.LearningNotebook

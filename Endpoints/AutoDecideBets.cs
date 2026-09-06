@@ -62,6 +62,12 @@ public class AutoDecideBetsEndpoint : Endpoint<AutoDecideBetsRequest, AutoDecide
 
     public override async Task HandleAsync(AutoDecideBetsRequest req, CancellationToken ct)
     {
+        if (!OwnerAuth.IsAuthorized(HttpContext))
+        {
+            HttpContext.Response.StatusCode = 403;
+            return;
+        }
+
         try
         {
             Console.WriteLine("🤖 AUTO-DECIDE-BETS STARTED");
@@ -89,7 +95,9 @@ public class AutoDecideBetsEndpoint : Endpoint<AutoDecideBetsRequest, AutoDecide
             // prochain passage du service de règlement automatique (15min).
             try
             {
-                var settleResp = await _httpClient.PostAsync("http://localhost:5255/api/settle-pending-bets", null, ct);
+                var settleRequest = new HttpRequestMessage(HttpMethod.Post, "http://localhost:5255/api/settle-pending-bets");
+                OwnerAuth.AttachSelfCallToken(settleRequest);
+                var settleResp = await _httpClient.SendAsync(settleRequest, ct);
                 var settleBody = await settleResp.Content.ReadAsStringAsync(ct);
                 Console.WriteLine($"🎯 Pré-règlement avant décision: {settleBody}");
             }
@@ -197,11 +205,15 @@ public class AutoDecideBetsEndpoint : Endpoint<AutoDecideBetsRequest, AutoDecide
                 bettingHistory = (object?)null
             };
 
-            var response = await _httpClient.PostAsJsonAsync(
-                "http://localhost:5255/api/decide-bets",
-                decideBetsPayload,
-                cancellationToken: ct
-            );
+            // Real loopback HTTP call (not an in-process method call), so
+            // it hits DecideBetsEndpoint's own OwnerAuth guard like any
+            // other request would - see AttachSelfCallToken.
+            var decideBetsRequest = new HttpRequestMessage(HttpMethod.Post, "http://localhost:5255/api/decide-bets")
+            {
+                Content = JsonContent.Create(decideBetsPayload)
+            };
+            OwnerAuth.AttachSelfCallToken(decideBetsRequest);
+            var response = await _httpClient.SendAsync(decideBetsRequest, ct);
 
             if (!response.IsSuccessStatusCode)
             {

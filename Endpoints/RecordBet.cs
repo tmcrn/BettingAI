@@ -1,4 +1,5 @@
 using BettingAI.Data;
+using BettingAI.Services;
 using BettingAI.Models;
 using FastEndpoints;
 
@@ -39,6 +40,12 @@ public class RecordBetEndpoint : Endpoint<RecordBetRequest, RecordBetResponse>
 
     public override async Task HandleAsync(RecordBetRequest req, CancellationToken ct)
     {
+        if (!OwnerAuth.IsAuthorized(HttpContext))
+        {
+            HttpContext.Response.StatusCode = 403;
+            return;
+        }
+
         var bet = new Bet
         {
             MatchId = req.MatchId,

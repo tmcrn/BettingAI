@@ -45,6 +45,12 @@ public class FetchOddsEndpoint : Endpoint<FetchOddsRequest, FetchOddsResponse>
 
     public override async Task HandleAsync(FetchOddsRequest req, CancellationToken ct)
     {
+        if (!OwnerAuth.IsAuthorized(HttpContext))
+        {
+            HttpContext.Response.StatusCode = 403;
+            return;
+        }
+
         try
         {
             var oddsDict = await _scraper.GetSofascoreOdds(req.HomeTeam, req.AwayTeam);

@@ -30,6 +30,12 @@ public class SeedRealTeamStatsEndpoint : EndpointWithoutRequest<SeedRealTeamStat
 
     public override async Task HandleAsync(CancellationToken ct)
     {
+        if (!OwnerAuth.IsAuthorized(HttpContext))
+        {
+            HttpContext.Response.StatusCode = 403;
+            return;
+        }
+
         var (success, message, teamsUpdated) = await _seedingService.SeedFromRealMatchesAsync(ct);
 
         await Send.OkAsync(new SeedRealTeamStatsResponse

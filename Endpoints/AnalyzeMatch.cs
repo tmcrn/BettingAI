@@ -1,4 +1,5 @@
 using BettingAI.Data;
+using BettingAI.Services;
 using BettingAI.Models;
 using FastEndpoints;
 using Microsoft.EntityFrameworkCore;
@@ -56,6 +57,12 @@ public class AnalyzeMatchEndpoint : Endpoint<AnalyzeMatchRequest, AnalyzeMatchRe
 
     public override async Task HandleAsync(AnalyzeMatchRequest req, CancellationToken ct)
     {
+        if (!OwnerAuth.IsAuthorized(HttpContext))
+        {
+            HttpContext.Response.StatusCode = 403;
+            return;
+        }
+
         // Récupère stats des équipes
         var homeStats = await _context.TeamStats
             .FirstOrDefaultAsync(t => t.TeamName == req.HomeTeam, cancellationToken: ct);

@@ -40,6 +40,12 @@ public class RecordMatchResultEndpoint : Endpoint<RecordMatchResultRequest, Reco
 
     public override async Task HandleAsync(RecordMatchResultRequest req, CancellationToken ct)
     {
+        if (!OwnerAuth.IsAuthorized(HttpContext))
+        {
+            HttpContext.Response.StatusCode = 403;
+            return;
+        }
+
         var bets = await _context.Bets
             .Where(b => b.MatchId == req.MatchId && b.Result == "PENDING")
             .ToListAsync(cancellationToken: ct);

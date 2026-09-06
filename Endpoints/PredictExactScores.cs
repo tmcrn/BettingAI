@@ -71,6 +71,12 @@ public class PredictExactScoresEndpoint : Endpoint<PredictExactScoresRequest, Pr
 
     public override async Task HandleAsync(PredictExactScoresRequest req, CancellationToken ct)
     {
+        if (!OwnerAuth.IsAuthorized(HttpContext))
+        {
+            HttpContext.Response.StatusCode = 403;
+            return;
+        }
+
         var competition = string.IsNullOrWhiteSpace(req.Competition) ? DefaultCompetition : req.Competition;
         var windowHours = (req.WindowDays ?? 7) * 24;
 

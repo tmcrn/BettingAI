@@ -39,6 +39,12 @@ public class ManualSettleEndpoint : Endpoint<ManualSettleRequest, ManualSettleRe
 
     public override async Task HandleAsync(ManualSettleRequest req, CancellationToken ct)
     {
+        if (!OwnerAuth.IsAuthorized(HttpContext))
+        {
+            HttpContext.Response.StatusCode = 403;
+            return;
+        }
+
         var (success, message) = req.Kind switch
         {
             "bet" => await _settlementService.ManualSettleBetAsync(req.Id, req.HomeScore, req.AwayScore, req.RealOdds, ct),

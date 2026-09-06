@@ -1,4 +1,5 @@
 using BettingAI.Data;
+using BettingAI.Services;
 using BettingAI.Models;
 using FastEndpoints;
 
@@ -21,6 +22,12 @@ public class SeedTestDataEndpoint : EndpointWithoutRequest
 
     public override async Task HandleAsync(CancellationToken ct)
     {
+        if (!OwnerAuth.IsAuthorized(HttpContext))
+        {
+            HttpContext.Response.StatusCode = 403;
+            return;
+        }
+
         // Clear existing
         _context.TeamStats.RemoveRange(_context.TeamStats);
         _context.MatchContexts.RemoveRange(_context.MatchContexts);

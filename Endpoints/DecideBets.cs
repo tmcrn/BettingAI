@@ -72,6 +72,12 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
 
     public override async Task HandleAsync(DecideBetsRequest req, CancellationToken ct)
     {
+        if (!OwnerAuth.IsAuthorized(HttpContext))
+        {
+            HttpContext.Response.StatusCode = 403;
+            return;
+        }
+
         if (req.Matches == null || req.Matches.Count == 0)
         {
             req.Matches = new List<FootballMatch>();
@@ -96,11 +102,12 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
             try
             {
                 var analysisRequest = new { matchId = match.Id, homeTeam = match.HomeTeam, awayTeam = match.AwayTeam };
-                var analysisResp = await _httpClient.PostAsJsonAsync(
-                    "http://localhost:5255/api/analyze-match",
-                    analysisRequest,
-                    cancellationToken: ct
-                );
+                var analysisHttpRequest = new HttpRequestMessage(HttpMethod.Post, "http://localhost:5255/api/analyze-match")
+                {
+                    Content = JsonContent.Create(analysisRequest)
+                };
+                OwnerAuth.AttachSelfCallToken(analysisHttpRequest);
+                var analysisResp = await _httpClient.SendAsync(analysisHttpRequest, ct);
                 var analysis = await analysisResp.Content.ReadFromJsonAsync<AnalyzeMatchResponse>(cancellationToken: ct);
 
                 if (analysis != null)
@@ -198,11 +205,12 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
         {
             try
             {
-                var oddsResp = await _httpClient.PostAsJsonAsync(
-                    "http://localhost:5255/api/fetch-odds",
-                    new { homeTeam = match.HomeTeam, awayTeam = match.AwayTeam },
-                    cancellationToken: ct
-                );
+                var oddsHttpRequest = new HttpRequestMessage(HttpMethod.Post, "http://localhost:5255/api/fetch-odds")
+                {
+                    Content = JsonContent.Create(new { homeTeam = match.HomeTeam, awayTeam = match.AwayTeam })
+                };
+                OwnerAuth.AttachSelfCallToken(oddsHttpRequest);
+                var oddsResp = await _httpClient.SendAsync(oddsHttpRequest, ct);
                 var oddsText = await oddsResp.Content.ReadAsStringAsync();
                 oddsPerMatch[match.Id ?? "unknown"] = oddsText;
 
@@ -655,11 +663,12 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
 
         if (savedBets.Count > 0 || savedCombos.Count > 0)
         {
-            await _httpClient.PostAsJsonAsync(
-                "http://localhost:5255/api/update-learning",
-                new { betId = 0, result = "PENDING" },
-                cancellationToken: ct
-            );
+            var updateLearningRequest = new HttpRequestMessage(HttpMethod.Post, "http://localhost:5255/api/update-learning")
+            {
+                Content = JsonContent.Create(new { betId = 0, result = "PENDING" })
+            };
+            OwnerAuth.AttachSelfCallToken(updateLearningRequest);
+            await _httpClient.SendAsync(updateLearningRequest, ct);
         }
 
         await Send.OkAsync(new DecideBetsResponse
