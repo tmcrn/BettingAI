@@ -178,8 +178,13 @@ public class FootballDataService
                     Id = fixture.GetProperty("id").GetInt32().ToString(),
                     HomeTeam = homeTeamEl.GetProperty("name").GetString(),
                     AwayTeam = awayTeamEl.GetProperty("name").GetString(),
-                    HomeTeamShort = homeTeamEl.TryGetProperty("shortName", out var homeShortEl) ? homeShortEl.GetString() : null,
-                    AwayTeamShort = awayTeamEl.TryGetProperty("shortName", out var awayShortEl) ? awayShortEl.GetString() : null,
+                    // Falls back to TeamShortNames when the API itself gave no
+                    // shortName (either the property was missing, or present
+                    // but null) - display only, never a source of truth.
+                    HomeTeamShort = (homeTeamEl.TryGetProperty("shortName", out var homeShortEl) ? homeShortEl.GetString() : null)
+                        ?? TeamShortNames.Lookup(homeTeamEl.GetProperty("name").GetString()),
+                    AwayTeamShort = (awayTeamEl.TryGetProperty("shortName", out var awayShortEl) ? awayShortEl.GetString() : null)
+                        ?? TeamShortNames.Lookup(awayTeamEl.GetProperty("name").GetString()),
                     HomeTeamCrest = homeTeamEl.TryGetProperty("crest", out var homeCrestEl) ? homeCrestEl.GetString() : null,
                     AwayTeamCrest = awayTeamEl.TryGetProperty("crest", out var awayCrestEl) ? awayCrestEl.GetString() : null,
                     UtcDate = matchTime,
