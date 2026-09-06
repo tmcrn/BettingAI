@@ -102,7 +102,7 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
             try
             {
                 var analysisRequest = new { matchId = match.Id, homeTeam = match.HomeTeam, awayTeam = match.AwayTeam };
-                var analysisHttpRequest = new HttpRequestMessage(HttpMethod.Post, "http://localhost:5255/api/analyze-match")
+                var analysisHttpRequest = new HttpRequestMessage(System.Net.Http.HttpMethod.Post, "http://localhost:5255/api/analyze-match")
                 {
                     Content = JsonContent.Create(analysisRequest)
                 };
@@ -205,7 +205,7 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
         {
             try
             {
-                var oddsHttpRequest = new HttpRequestMessage(HttpMethod.Post, "http://localhost:5255/api/fetch-odds")
+                var oddsHttpRequest = new HttpRequestMessage(System.Net.Http.HttpMethod.Post, "http://localhost:5255/api/fetch-odds")
                 {
                     Content = JsonContent.Create(new { homeTeam = match.HomeTeam, awayTeam = match.AwayTeam })
                 };
@@ -663,7 +663,7 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
 
         if (savedBets.Count > 0 || savedCombos.Count > 0)
         {
-            var updateLearningRequest = new HttpRequestMessage(HttpMethod.Post, "http://localhost:5255/api/update-learning")
+            var updateLearningRequest = new HttpRequestMessage(System.Net.Http.HttpMethod.Post, "http://localhost:5255/api/update-learning")
             {
                 Content = JsonContent.Create(new { betId = 0, result = "PENDING" })
             };

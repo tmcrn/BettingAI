@@ -95,7 +95,7 @@ public class AutoDecideBetsEndpoint : Endpoint<AutoDecideBetsRequest, AutoDecide
             // prochain passage du service de règlement automatique (15min).
             try
             {
-                var settleRequest = new HttpRequestMessage(HttpMethod.Post, "http://localhost:5255/api/settle-pending-bets");
+                var settleRequest = new HttpRequestMessage(System.Net.Http.HttpMethod.Post, "http://localhost:5255/api/settle-pending-bets");
                 OwnerAuth.AttachSelfCallToken(settleRequest);
                 var settleResp = await _httpClient.SendAsync(settleRequest, ct);
                 var settleBody = await settleResp.Content.ReadAsStringAsync(ct);
@@ -208,7 +208,7 @@ public class AutoDecideBetsEndpoint : Endpoint<AutoDecideBetsRequest, AutoDecide
             // Real loopback HTTP call (not an in-process method call), so
             // it hits DecideBetsEndpoint's own OwnerAuth guard like any
             // other request would - see AttachSelfCallToken.
-            var decideBetsRequest = new HttpRequestMessage(HttpMethod.Post, "http://localhost:5255/api/decide-bets")
+            var decideBetsRequest = new HttpRequestMessage(System.Net.Http.HttpMethod.Post, "http://localhost:5255/api/decide-bets")
             {
                 Content = JsonContent.Create(decideBetsPayload)
             };
