@@ -868,6 +868,19 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
         </div>
     </div>
 
+    <!-- Themed replacement for the browser's native confirm() - same
+         reasoning as #appAlertOverlay, but with an Annuler/Lancer choice
+         instead of a single OK. See showAppConfirm(). -->
+    <div id="appConfirmOverlay" class="app-alert-overlay" hidden onclick="if (event.target === this) resolveAppConfirm(false)">
+        <div class="app-alert-box" role="alertdialog" aria-modal="true">
+            <div class="app-alert-message" id="appConfirmMessage"></div>
+            <div style="display:flex; gap:8px; justify-content:flex-end;">
+                <button type="button" onclick="resolveAppConfirm(false)">Annuler</button>
+                <button type="button" class="primary" onclick="resolveAppConfirm(true)">Lancer</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         // Guest mode: opening this page's own URL with ?owner=<TOKEN> once
         // (matching the OWNER_TOKEN environment variable the server was
@@ -1090,8 +1103,28 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
         function closeAppAlert() {
             document.getElementById('appAlertOverlay').hidden = true;
         }
+
+        // Themed replacement for the browser's native confirm() - same idea
+        // as showAppAlert, but resolves a promise with the user's choice
+        // instead of just being dismissed. Only one confirm is ever shown
+        // at a time (no queue) - good enough for this app's actual usage.
+        let _appConfirmResolve = null;
+        function showAppConfirm(message) {
+            document.getElementById('appConfirmMessage').textContent = message || '';
+            document.getElementById('appConfirmOverlay').hidden = false;
+            return new Promise(resolve => { _appConfirmResolve = resolve; });
+        }
+        function resolveAppConfirm(result) {
+            document.getElementById('appConfirmOverlay').hidden = true;
+            if (_appConfirmResolve) {
+                _appConfirmResolve(result);
+                _appConfirmResolve = null;
+            }
+        }
         document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') closeAppAlert();
+            if (e.key !== 'Escape') return;
+            closeAppAlert();
+            resolveAppConfirm(false);
         });
 
         // Referee whistle, drawn by hand (no matching emoji exists) for the
@@ -1144,6 +1177,18 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             const hasTz = /Z$|[+-]\d{2}:\d{2}$/.test(iso);
             const d = new Date(hasTz ? iso : iso + 'Z');
             return d.toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+        }
+
+        // Matches AutoDecideBetsEndpoint's own default window (no explicit
+        // WindowHours/MinHours in the request) - HoursUntilEndOfDayParis()
+        // means "from now until midnight, Paris time, TODAY" - so this is
+        // always today's own calendar date in Paris, never "tomorrow", no
+        // matter what time zone the browser itself is in. Intl's Europe/
+        // Paris handling accounts for DST on its own, no manual offset math.
+        function parisDateLabel() {
+            return new Date().toLocaleDateString('fr-FR', {
+                timeZone: 'Europe/Paris', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
+            });
         }
 
         // Same fallback formula as BetSettlementService.EstimateOddsFromConfidence -
@@ -1685,6 +1730,12 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
         }
 
         async function forceCycle() {
+            // Confirms the actual date being analyzed (see parisDateLabel)
+            // before firing - a cycle launched right before/after midnight
+            // Paris time is easy to mistake for "tomorrow" otherwise.
+            const confirmed = await showAppConfirm(`Le cycle va analyser les matchs restants de la journée du ${parisDateLabel()} (heure de Paris). Lancer ?`);
+            if (!confirmed) return;
+
             const btn = document.getElementById('forceBtn');
             btn.disabled = true;
             btn.textContent = '⏳ Cycle en cours…';
