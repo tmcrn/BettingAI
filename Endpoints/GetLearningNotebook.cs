@@ -174,6 +174,56 @@ public class GetLearningNotebookEndpoint : EndpointWithoutRequest<GetLearningNot
             }
         }
 
+        // CALIBRATION - the real test of whether "confidence" means anything
+        // at all: when the model says e.g. 55%, does it actually win ~55%
+        // of the time across many bets, not just once or twice? Bucketed in
+        // confidence bands (leg-level, same population as the patterns
+        // above), each only shown once it has MinSampleForPattern legs in
+        // it - same discipline as everything else here, a bucket with 2
+        // legs and a 100% win rate is not a real calibration point, it's
+        // luck. This is deliberately separate from the win/loss patterns
+        // above: those ask "does this bet TYPE tend to win", this asks
+        // "does this CONFIDENCE NUMBER mean what it claims to mean" - the
+        // actual prerequisite for ever sizing stakes with something like
+        // the Kelly criterion.
+        var calibrationLines = new List<string>();
+        if (settledBets.Count >= MinSampleForPattern)
+        {
+            var buckets = new List<(decimal Lower, decimal Upper)>
+            {
+                (0.0m, 0.5m), (0.5m, 0.6m), (0.6m, 0.7m), (0.7m, 0.8m), (0.8m, 0.9m), (0.9m, 1.01m)
+            };
+            var shownBuckets = 0;
+            var hiddenCount = 0;
+            foreach (var (lower, upper) in buckets)
+            {
+                var inBucket = settledBets.Where(b => b.Confidence >= lower && b.Confidence < upper).ToList();
+                if (inBucket.Count >= MinSampleForPattern)
+                {
+                    var actualWinRate = inBucket.Count(b => b.Result == "WIN") * 100m / inBucket.Count;
+                    var upperLabel = Math.Min(upper, 1.0m) * 100m;
+                    calibrationLines.Add($"- Confiance {lower * 100:0}-{upperLabel:0}%: {actualWinRate:0}% de réussite réelle (sur {inBucket.Count} paris)");
+                    shownBuckets++;
+                }
+                else
+                {
+                    hiddenCount += inBucket.Count;
+                }
+            }
+            if (shownBuckets == 0)
+            {
+                calibrationLines.Add($"Pas encore une seule tranche de confiance avec assez de paris réglés ({settledBets.Count} au total, {MinSampleForPattern} minimum par tranche) - revenir plus tard.");
+            }
+            else if (hiddenCount > 0)
+            {
+                calibrationLines.Add($"({hiddenCount} paris répartis dans des tranches encore trop petites pour être affichées séparément)");
+            }
+        }
+        else
+        {
+            calibrationLines.Add($"Pas encore assez de paris réglés pour évaluer la calibration ({settledBets.Count}/{MinSampleForPattern} minimum).");
+        }
+
         // MODÈLE STATISTIQUE APPRIS - the actual learned model (WinPredictionService),
         // distinct from the text-based patterns above. Reports its real internal
         // state honestly: all-zero weights and SampleCount 0 mean it hasn't learned
@@ -240,6 +290,9 @@ public class GetLearningNotebookEndpoint : EndpointWithoutRequest<GetLearningNot
 
 🎯 STRATÉGIE RECOMMANDÉE:
 {string.Join("\n", strategyLines.Select(l => $"- {l}"))}
+
+📏 CALIBRATION DE LA CONFIANCE (la confiance affichée reflète-t-elle une vraie probabilité ?):
+{string.Join("\n", calibrationLines)}
 
 🤖 MODÈLE STATISTIQUE APPRIS (WinPredictionService):
 {modelLine}
