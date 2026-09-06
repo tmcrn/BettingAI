@@ -6,7 +6,10 @@ namespace BettingAI.Endpoints;
 public class RefreshLiveScoresResponse
 {
     public bool Success { get; set; }
-    public int ScoresUpdated { get; set; }
+
+    // Tickets (single bets + combos), not rows - see the comment on
+    // BetSettlementService.RefreshLiveScoresAsync.
+    public int TicketsUpdated { get; set; }
     public string? Message { get; set; }
 }
 
@@ -39,9 +42,9 @@ public class RefreshLiveScoresEndpoint : EndpointWithoutRequest<RefreshLiveScore
         await Send.OkAsync(new RefreshLiveScoresResponse
         {
             Success = true,
-            ScoresUpdated = updated,
+            TicketsUpdated = updated,
             Message = updated > 0
-                ? $"🔴 {updated} score(s) en direct mis à jour"
+                ? $"🔴 {updated} ticket(s) en cours mis à jour"
                 : "Aucun match en cours parmi les paris en attente"
         });
     }

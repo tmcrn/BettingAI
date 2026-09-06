@@ -60,18 +60,23 @@ public class BetSettlementService
         await _winPrediction.UpdateAsync(features, won, ct);
     }
 
+    // Returns the number of TICKETS settled (single bets + combos whose
+    // overall Result just got determined) - not a leg count, which for a
+    // combo would overstate one ticket as 2-3. Training/notebook refresh
+    // still happen for every settled leg regardless of whether its combo
+    // is fully decided yet (see SettleComboLegsAsync) - only the number
+    // reported back to the caller changes.
     public async Task<int> SettlePendingBetsAsync(CancellationToken ct = default)
     {
-        var settledCount = 0;
-        settledCount += await SettleSingleBetsAsync(ct);
-        settledCount += await SettleComboLegsAsync(ct);
+        var singleBetsSettled = await SettleSingleBetsAsync(ct);
+        var (legsSettled, combosResolved) = await SettleComboLegsAsync(ct);
 
-        if (settledCount > 0)
+        if (singleBetsSettled > 0 || legsSettled > 0)
         {
             await RefreshLearningNotebookAsync(ct);
         }
 
-        return settledCount;
+        return singleBetsSettled + combosResolved;
     }
 
     // Purely cosmetic: refreshes HomeScore/AwayScore for PENDING bets/legs
@@ -81,9 +86,13 @@ public class BetSettlementService
     // over before Result/Winnings/training are touched) - this never sets
     // Result or Winnings, so there's no such risk here, only a live number
     // that keeps updating until the real settlement pass takes over.
+    // Returns the number of TICKETS refreshed (one per single Bet, one per
+    // BetCombo) - not the number of rows touched, which for a combo would
+    // count each leg separately and overstate a 1-ticket combo as 2-3.
     public async Task<int> RefreshLiveScoresAsync(CancellationToken ct = default)
     {
-        var updated = 0;
+        var updatedBetIds = new HashSet<int>();
+        var updatedComboIds = new HashSet<int>();
         var now = DateTime.UtcNow;
 
         var pendingBets = await _context.Bets.Where(b => b.Result == "PENDING").ToListAsync(ct);
@@ -101,7 +110,7 @@ public class BetSettlementService
             {
                 bet.HomeScore = status.HomeScore;
                 bet.AwayScore = status.AwayScore;
-                updated++;
+                updatedBetIds.Add(bet.Id);
             }
         }
 
@@ -120,12 +129,13 @@ public class BetSettlementService
             {
                 leg.HomeScore = status.HomeScore;
                 leg.AwayScore = status.AwayScore;
-                updated++;
+                updatedComboIds.Add(leg.BetComboId);
             }
         }
 
-        if (updated > 0) await _context.SaveChangesAsync(ct);
-        return updated;
+        var updatedTickets = updatedBetIds.Count + updatedComboIds.Count;
+        if (updatedTickets > 0) await _context.SaveChangesAsync(ct);
+        return updatedTickets;
     }
 
     private async Task<int> SettleSingleBetsAsync(CancellationToken ct)
@@ -182,7 +192,13 @@ public class BetSettlementService
         return settledCount;
     }
 
-    private async Task<int> SettleComboLegsAsync(CancellationToken ct)
+    // Returns (legsSettled, ticketsResolved) - legsSettled gates whether
+    // training/notebook-refresh happened at all (every leg trains
+    // regardless of whether its combo is fully decided yet), ticketsResolved
+    // is the number of COMBOS whose overall Result just got determined this
+    // pass - what the user-facing "N ticket(s)" count should mean, not a
+    // per-leg count that overstates a single combo as 2-3 tickets.
+    private async Task<(int legsSettled, int ticketsResolved)> SettleComboLegsAsync(CancellationToken ct)
     {
         var pendingLegs = await _context.ComboLegs
             .Include(l => l.BetCombo)
@@ -190,7 +206,7 @@ public class BetSettlementService
             .Where(l => l.Result == "PENDING")
             .ToListAsync(ct);
 
-        if (pendingLegs.Count == 0) return 0;
+        if (pendingLegs.Count == 0) return (0, 0);
 
         var now = DateTime.UtcNow;
         var settledLegCount = 0;
@@ -223,13 +239,14 @@ public class BetSettlementService
             }
         }
 
-        if (settledLegCount == 0) return 0;
+        if (settledLegCount == 0) return (0, 0);
 
         await _context.SaveChangesAsync(ct);
 
         // Now finalize any combo whose outcome is now determined: LOSS as
         // soon as any leg loses (no need to wait for the rest), WIN only
         // once every leg has won.
+        var ticketsResolved = 0;
         foreach (var comboId in affectedCombos)
         {
             var combo = await _context.BetCombos
@@ -237,10 +254,10 @@ public class BetSettlementService
                 .FirstOrDefaultAsync(c => c.Id == comboId, ct);
             if (combo == null) continue;
 
-            await FinalizeComboIfDeterminedAsync(combo, ct);
+            if (await FinalizeComboIfDeterminedAsync(combo, ct)) ticketsResolved++;
         }
 
-        return settledLegCount;
+        return (settledLegCount, ticketsResolved);
     }
 
     // LOSS as soon as any leg loses (no need to wait for the rest), WIN only

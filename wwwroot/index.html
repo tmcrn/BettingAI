@@ -326,6 +326,21 @@ button:disabled { opacity: 0.5; cursor: default; transform: none; }
     position: fixed; background: var(--text); color: var(--bg); padding: 4px 8px; border-radius: 6px;
     font-size: 0.72em; font-weight: 600; white-space: nowrap; pointer-events: none; z-index: 50;
 }
+/* Custom alert modal (see showAppAlert) - a themed replacement for the
+   browser's native alert(), which always renders in the OS's own look
+   regardless of this app's dark/light theme. */
+.app-alert-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.45);
+    display: flex; align-items: center; justify-content: center;
+    padding: 20px; z-index: 100;
+}
+.app-alert-box {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    box-shadow: var(--shadow); padding: 20px; max-width: 360px; width: 100%;
+    display: flex; flex-direction: column; gap: 14px;
+}
+.app-alert-message { color: var(--text); font-size: 0.92em; line-height: 1.4; white-space: pre-line; }
+.app-alert-box button { align-self: flex-end; min-width: 72px; }
 .vs-sep { color: var(--text-faint); font-size: 0.75em; font-weight: 600; display: flex; align-items: center; gap: 4px; justify-content: center; white-space: nowrap; }
 .ticket-score { font-weight: 800; font-size: 1.05em; }
 .ticket-score-live { color: var(--loss); opacity: 0.65; }
@@ -823,6 +838,16 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
          getBoundingClientRect() means it's never clipped by anything. -->
     <div id="teamNamePopover" class="team-name-popover" hidden></div>
 
+    <!-- Replaces the browser's native alert() (which ignores the app's own
+         dark/light theme entirely) for every status message the app shows
+         after an action - see showAppAlert(). -->
+    <div id="appAlertOverlay" class="app-alert-overlay" hidden onclick="if (event.target === this) closeAppAlert()">
+        <div class="app-alert-box" role="alertdialog" aria-modal="true">
+            <div class="app-alert-message" id="appAlertMessage"></div>
+            <button type="button" class="primary" onclick="closeAppAlert()">OK</button>
+        </div>
+    </div>
+
     <script>
         // Manual dark-mode override on top of the automatic
         // prefers-color-scheme media query in <style> - persisted per
@@ -1000,6 +1025,22 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             const popover = document.getElementById('teamNamePopover');
             if (popover) popover.hidden = true;
         }, true);
+
+        // Themed replacement for the browser's native alert() (see
+        // #appAlertOverlay) - every status message the app shows after an
+        // action goes through this instead, so it respects dark/light mode
+        // like the rest of the dashboard. Dismiss via the OK button, a tap
+        // on the backdrop (see the overlay's own onclick), or Escape.
+        function showAppAlert(message) {
+            document.getElementById('appAlertMessage').textContent = message || '';
+            document.getElementById('appAlertOverlay').hidden = false;
+        }
+        function closeAppAlert() {
+            document.getElementById('appAlertOverlay').hidden = true;
+        }
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeAppAlert();
+        });
 
         // Referee whistle, drawn by hand (no matching emoji exists) for the
         // kickoff time - same reasoning as resultIcon: no network dependency,
@@ -1465,7 +1506,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                 if (!data.success) throw new Error(data.message);
                 await refreshAll();
             } catch (e) {
-                alert('Erreur: ' + e.message);
+                showAppAlert('Erreur: ' + e.message);
                 submitBtn.disabled = false;
                 submitBtn.textContent = '✅ Valider ce résultat';
             }
@@ -1475,7 +1516,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             const input = document.getElementById(`odds-${kind}-${id}`);
             const odds = parseFloat(input.value);
             if (!odds || odds < 1) {
-                alert('Entre une cote valide (>= 1.0)');
+                showAppAlert('Entre une cote valide (>= 1.0)');
                 return;
             }
 
@@ -1490,7 +1531,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                 if (!data.success) throw new Error(data.message);
                 await refreshAll();
             } catch (e) {
-                alert('Erreur: ' + e.message);
+                showAppAlert('Erreur: ' + e.message);
                 btnEl.disabled = false;
             }
         }
@@ -1509,7 +1550,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             const homeScore = parseInt(homeInput.value, 10);
             const awayScore = parseInt(awayInput.value, 10);
             if (isNaN(homeScore) || isNaN(awayScore) || homeScore < 0 || awayScore < 0) {
-                alert('Entre un score valide (ex: 2 et 1)');
+                showAppAlert('Entre un score valide (ex: 2 et 1)');
                 return;
             }
 
@@ -1526,7 +1567,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                 }
                 await refreshAll();
             } catch (e) {
-                alert('Erreur: ' + e.message);
+                showAppAlert('Erreur: ' + e.message);
                 btnEl.disabled = false;
             }
         }
@@ -1592,9 +1633,9 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                 const res = await fetch('/api/auto-decide-bets', { method: 'POST' });
                 const data = await res.json();
                 await refreshAll();
-                alert(data.message || 'Cycle terminé.');
+                showAppAlert(data.message || 'Cycle terminé.');
             } catch (e) {
-                alert('Erreur pendant le cycle: ' + e.message);
+                showAppAlert('Erreur pendant le cycle: ' + e.message);
             } finally {
                 btn.disabled = false;
                 btn.textContent = '🤖 Lancer le cycle';
@@ -1624,9 +1665,9 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                 const liveRes = await fetch('/api/refresh-live-scores', { method: 'POST' });
                 const liveData = await liveRes.json();
                 await refreshAll();
-                alert([settleData.message, liveData.message].filter(Boolean).join('\n'));
+                showAppAlert([settleData.message, liveData.message].filter(Boolean).join('\n'));
             } catch (e) {
-                alert('Erreur pendant la vérification: ' + e.message);
+                showAppAlert('Erreur pendant la vérification: ' + e.message);
             } finally {
                 btn.disabled = false;
                 btn.classList.remove('spinning');
@@ -1640,9 +1681,9 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                 const res = await fetch('/api/reset-system', { method: 'DELETE' });
                 const data = await res.json();
                 await refreshAll();
-                alert(data.message || 'Système réinitialisé.');
+                showAppAlert(data.message || 'Système réinitialisé.');
             } catch (e) {
-                alert('Erreur pendant le reset: ' + e.message);
+                showAppAlert('Erreur pendant le reset: ' + e.message);
             }
         }
 
