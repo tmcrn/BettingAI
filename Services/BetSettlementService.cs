@@ -155,18 +155,40 @@ public class BetSettlementService
             if (string.IsNullOrEmpty(matchId)) continue;
 
             var referenceDate = group.First().MatchUtcDate ?? group.First().CreatedAt;
-            if (referenceDate + SettlementBuffer > now) continue;
+            // Early-certain bets (see DetermineEarlyOutcome) don't wait for
+            // the 2h buffer or a Finished match - a goal-line bet already
+            // mathematically locked in settles the moment this sees it,
+            // live score and all. Everything else still needs the match to
+            // have at least kicked off, for there to be any score at all.
+            if (referenceDate > now) continue;
 
             var status = await _footballDataService.GetMatchStatusAsync(matchId, referenceDate);
-            if (status == null || !status.Finished) continue;
+            if (status == null) continue;
 
-            var result = status.HomeScore > status.AwayScore ? "HOME_WIN"
-                : status.HomeScore < status.AwayScore ? "AWAY_WIN"
-                : "DRAW";
+            var afterBuffer = referenceDate + SettlementBuffer <= now;
+            // Only meaningful (and only used) once the match has actually
+            // finished AND the buffer's passed - an in-progress score
+            // can't tell you who's really going to win, only whether a
+            // goal-line bet is already locked in (the early-outcome
+            // fallback below).
+            string? result = (status.Finished && afterBuffer)
+                ? (status.HomeScore > status.AwayScore ? "HOME_WIN" : status.HomeScore < status.AwayScore ? "AWAY_WIN" : "DRAW")
+                : null;
 
             foreach (var bet in group)
             {
-                var won = DetermineOutcome(bet.BetType, bet.Selection, result, status.HomeScore, status.AwayScore);
+                bool won;
+                if (result != null)
+                {
+                    won = DetermineOutcome(bet.BetType, bet.Selection, result, status.HomeScore, status.AwayScore);
+                }
+                else
+                {
+                    var early = DetermineEarlyOutcome(bet.BetType, bet.Selection, status.HomeScore, status.AwayScore);
+                    if (early == null) continue; // still genuinely undecided - leave PENDING
+                    won = early.Value;
+                }
+
                 bet.Result = won ? "WIN" : "LOSS";
                 bet.HomeScore = status.HomeScore;
                 bet.AwayScore = status.AwayScore;
@@ -218,18 +240,33 @@ public class BetSettlementService
             if (string.IsNullOrEmpty(matchId)) continue;
 
             var referenceDate = group.First().MatchUtcDate ?? DateTime.UtcNow.AddHours(-3);
-            if (referenceDate + SettlementBuffer > now) continue;
+            // See the matching comment in SettleSingleBetsAsync - early-
+            // certain legs don't wait for the 2h buffer or a Finished
+            // match.
+            if (referenceDate > now) continue;
 
             var status = await _footballDataService.GetMatchStatusAsync(matchId, referenceDate);
-            if (status == null || !status.Finished) continue;
+            if (status == null) continue;
 
-            var result = status.HomeScore > status.AwayScore ? "HOME_WIN"
-                : status.HomeScore < status.AwayScore ? "AWAY_WIN"
-                : "DRAW";
+            var afterBuffer = referenceDate + SettlementBuffer <= now;
+            string? result = (status.Finished && afterBuffer)
+                ? (status.HomeScore > status.AwayScore ? "HOME_WIN" : status.HomeScore < status.AwayScore ? "AWAY_WIN" : "DRAW")
+                : null;
 
             foreach (var leg in group)
             {
-                var won = DetermineOutcome(leg.BetType, leg.Selection, result, status.HomeScore, status.AwayScore);
+                bool won;
+                if (result != null)
+                {
+                    won = DetermineOutcome(leg.BetType, leg.Selection, result, status.HomeScore, status.AwayScore);
+                }
+                else
+                {
+                    var early = DetermineEarlyOutcome(leg.BetType, leg.Selection, status.HomeScore, status.AwayScore);
+                    if (early == null) continue; // still genuinely undecided - leave PENDING
+                    won = early.Value;
+                }
+
                 leg.Result = won ? "WIN" : "LOSS";
                 leg.HomeScore = status.HomeScore;
                 leg.AwayScore = status.AwayScore;
@@ -420,6 +457,36 @@ public class BetSettlementService
             "HOME_OVER_GOALS" => homeScore > ParseLine(1.5m),
             "AWAY_OVER_GOALS" => awayScore > ParseLine(1.5m),
             _ => false
+        };
+    }
+
+    // True/false only when this bet's outcome is ALREADY mathematically
+    // locked in from the CURRENT score - which can be a still-live one,
+    // well before the match (or even the 2h settlement buffer) is over.
+    // Goals only ever increase, so once an "over" line is already
+    // cleared, nothing left in the match can undo that (permanent WIN);
+    // once an "under" line is already blown, it can never come back
+    // under (permanent LOSS). Null means "still genuinely undecided" -
+    // that includes the *other* side of every over/under check (an
+    // "over" not yet cleared could still clear before full time; an
+    // "under" not yet blown could still get blown), and every 1X2-family
+    // type (HOME_WIN, DRAW, ...) unconditionally, since who's ahead can
+    // flip right up to the final whistle.
+    public static bool? DetermineEarlyOutcome(string? betType, string? selection, int homeScore, int awayScore)
+    {
+        decimal ParseLine(decimal fallback) =>
+            decimal.TryParse(selection, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var line)
+                ? line
+                : fallback;
+
+        return betType switch
+        {
+            "OVER_GOALS" => (homeScore + awayScore) > ParseLine(2.5m) ? true : null,
+            "HOME_OVER_GOALS" => homeScore > ParseLine(1.5m) ? true : null,
+            "AWAY_OVER_GOALS" => awayScore > ParseLine(1.5m) ? true : null,
+            "BOTH_TEAMS_SCORE" => (homeScore > 0 && awayScore > 0) ? true : null,
+            "UNDER_GOALS" => (homeScore + awayScore) >= ParseLine(2.5m) ? false : null,
+            _ => null
         };
     }
 
