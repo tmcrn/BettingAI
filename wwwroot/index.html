@@ -968,6 +968,8 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                         <button class="league-filter-option" data-league="SA" onclick="setLeagueFilter('SA')"><img src="https://uxwing.com/wp-content/themes/uxwing/download/flags-landmarks/italy-flag-round-circle-icon.png" onerror="this.remove()">Serie A</button>
                         <button class="league-filter-option" data-league="BL1" onclick="setLeagueFilter('BL1')"><img src="https://uxwing.com/wp-content/themes/uxwing/download/flags-landmarks/germany-flag-round-circle-icon.png" onerror="this.remove()">Bundesliga</button>
                         <button class="league-filter-option" data-league="CL" onclick="setLeagueFilter('CL')"><svg width="18" height="18" viewBox="0 0 24 24"><circle cx="12" cy="12" r="12" fill="#0a1a4d"/><path d="M12 5.5l1.8 3.9 4.3.4-3.3 2.9 1 4.2-3.8-2.3-3.8 2.3 1-4.2-3.3-2.9 4.3-.4z" fill="#fff"/></svg>Ligue des Champions</button>
+                        <button class="league-filter-option" data-league="DED" onclick="setLeagueFilter('DED')"><img src="https://uxwing.com/wp-content/themes/uxwing/download/flags-landmarks/netherlands-flag-icon.png" onerror="this.remove()">Eredivisie</button>
+                        <button class="league-filter-option" data-league="PPL" onclick="setLeagueFilter('PPL')"><img src="https://uxwing.com/wp-content/themes/uxwing/download/flags-landmarks/portugal-flag-round-circle-icon.png" onerror="this.remove()">Primeira Liga</button>
                     </div>
                 </div>
             </div>
@@ -1198,7 +1200,9 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             PL: 'uk-flag-round-circle-icon.png', // Premier League
             PD: 'spain-country-flag-round-icon.png', // La Liga
             SA: 'italy-flag-round-circle-icon.png', // Serie A
-            BL1: 'germany-flag-round-circle-icon.png' // Bundesliga
+            BL1: 'germany-flag-round-circle-icon.png', // Bundesliga
+            DED: 'netherlands-flag-icon.png', // Eredivisie
+            PPL: 'portugal-flag-round-circle-icon.png' // Primeira Liga
         };
 
         function competitionFlag(code, size) {
