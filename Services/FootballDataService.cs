@@ -20,11 +20,23 @@ public class FootballDataService
     private static readonly HashSet<string> SupportedCompetitionCodes = new(StringComparer.OrdinalIgnoreCase)
     {
         "PL", "PD", "SA", "BL1", "FL1", // Premier League, La Liga, Serie A, Bundesliga, Ligue 1
-        "CL" // UEFA Champions League - no "competitions" filter is sent to
-             // football-data.org at all (see the /matches call below), so
-             // adding a code here is the entire change on this side; the
-             // request itself already returns every competition, this set
-             // just decides which ones we keep.
+        // UEFA Champions League - no "competitions" filter is sent to
+        // football-data.org at all (see the /matches call below), so
+        // adding a code here is the entire change on this side; the
+        // request itself already returns every competition, this set
+        // just decides which ones we keep.
+        "CL",
+        // Eredivisie and Primeira Liga - added for real TeamStats/
+        // TeamRecentResult history on CL opponents from these leagues
+        // (Feyenoord, Sporting CP, ...) instead of just their handful of
+        // CL matches this season. Most other CL opponents' own domestic
+        // leagues (Belgium, Austria, Norway, Turkey, Czechia, Ukraine,
+        // Azerbaijan, ...) simply aren't on football-data.org's plan at
+        // all, so this only closes the gap for these two specifically -
+        // and since this is the same set GetUpcomingMatchesAsync uses,
+        // it also means Robert now considers regular Eredivisie/Primeira
+        // Liga matches for betting, not just these clubs' CL history.
+        "DED", "PPL"
     };
 
     // Shared across instances (this service is registered per-request via
