@@ -19,7 +19,12 @@ public class FootballDataService
     // client-side, which the docs do confirm as string codes like "PL".
     private static readonly HashSet<string> SupportedCompetitionCodes = new(StringComparer.OrdinalIgnoreCase)
     {
-        "PL", "PD", "SA", "BL1", "FL1" // Premier League, La Liga, Serie A, Bundesliga, Ligue 1
+        "PL", "PD", "SA", "BL1", "FL1", // Premier League, La Liga, Serie A, Bundesliga, Ligue 1
+        "CL" // UEFA Champions League - no "competitions" filter is sent to
+             // football-data.org at all (see the /matches call below), so
+             // adding a code here is the entire change on this side; the
+             // request itself already returns every competition, this set
+             // just decides which ones we keep.
     };
 
     // Shared across instances (this service is registered per-request via

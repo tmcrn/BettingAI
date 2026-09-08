@@ -274,7 +274,8 @@ button:disabled { opacity: 0.5; cursor: default; transform: none; }
     cursor: pointer;
     white-space: nowrap;
 }
-.league-filter-option img { width: 16px; height: 16px; }
+.league-filter-option img,
+.league-filter-option svg { width: 16px; height: 16px; flex-shrink: 0; }
 .league-filter-option:hover { background: var(--surface-2); }
 .league-filter-option.active { background: var(--accent-dim); color: var(--accent); }
 
@@ -966,6 +967,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                         <button class="league-filter-option" data-league="PD" onclick="setLeagueFilter('PD')"><img src="https://uxwing.com/wp-content/themes/uxwing/download/flags-landmarks/spain-country-flag-round-icon.png" onerror="this.remove()">La Liga</button>
                         <button class="league-filter-option" data-league="SA" onclick="setLeagueFilter('SA')"><img src="https://uxwing.com/wp-content/themes/uxwing/download/flags-landmarks/italy-flag-round-circle-icon.png" onerror="this.remove()">Serie A</button>
                         <button class="league-filter-option" data-league="BL1" onclick="setLeagueFilter('BL1')"><img src="https://uxwing.com/wp-content/themes/uxwing/download/flags-landmarks/germany-flag-round-circle-icon.png" onerror="this.remove()">Bundesliga</button>
+                        <button class="league-filter-option" data-league="CL" onclick="setLeagueFilter('CL')"><svg width="18" height="18" viewBox="0 0 24 24"><circle cx="12" cy="12" r="12" fill="#0a1a4d"/><path d="M12 5.5l1.8 3.9 4.3.4-3.3 2.9 1 4.2-3.8-2.3-3.8 2.3 1-4.2-3.3-2.9 4.3-.4z" fill="#fff"/></svg>Ligue des Champions</button>
                     </div>
                 </div>
             </div>
@@ -1201,6 +1203,14 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
 
         function competitionFlag(code, size) {
             size = size || 18;
+            // No country flag makes sense for a European club competition -
+            // hand-drawn instead of hotlinked (same reasoning as
+            // resultIcon/whistleIcon: no network dependency, and there's no
+            // verified working badge URL to hotlink here the way the other
+            // 5 flags are).
+            if (code === 'CL') {
+                return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" style="vertical-align:middle; flex-shrink:0;"><circle cx="12" cy="12" r="12" fill="#0a1a4d"/><path d="M12 5.5l1.8 3.9 4.3.4-3.3 2.9 1 4.2-3.8-2.3-3.8 2.3 1-4.2-3.3-2.9 4.3-.4z" fill="#fff"/></svg>`;
+            }
             const file = COMPETITION_FLAG_FILES[code];
             if (!file) return '';
             return `<img src="${UXWING_FLAG_BASE}${file}" alt="${code}" style="width:${size}px; height:${size}px; vertical-align:middle; flex-shrink:0;" onerror="this.remove()">`;
