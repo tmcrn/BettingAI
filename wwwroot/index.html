@@ -521,6 +521,15 @@ button:disabled { opacity: 0.5; cursor: default; transform: none; }
     background: var(--surface);
     color: var(--text);
     font-size: 16px;
+    /* No little up/down spinner - odds are typed then confirmed with
+       Enter or the checkmark button, not nudged by 0.01 at a time. */
+    -moz-appearance: textfield;
+    appearance: textfield;
+}
+.leg-odds-edit input::-webkit-outer-spin-button,
+.leg-odds-edit input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
 }
 .leg-odds-edit button {
     padding: 2px 6px;
@@ -1518,6 +1527,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                         ${(l.result === 'PENDING' && !IS_GUEST) ? `
                         <span class="leg-odds-edit">
                             <input type="number" min="1" step="0.01" id="odds-${l.kind}-${l.id}" value="${l.odds ? l.odds.toFixed(2) : ''}"
+                                   onkeydown="if(event.key==='Enter'){event.preventDefault(); this.nextElementSibling.click();}"
                                    ${l.kind === 'bet' ? `placeholder="${(bet.confidence > 0 ? 1 / bet.confidence : 2).toFixed(2)}"` : ''}>
                             <button type="button" onclick="saveOdds('${l.kind}', ${l.id}, this)">✓</button>
                         </span>
