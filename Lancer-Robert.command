@@ -2,11 +2,11 @@
 # Double-clique ce fichier dans le Finder pour lancer Robert (BettingAI) :
 # ça ouvre un Terminal et fait `dotnet run` tout seul, sans taper de commande.
 #
-# Si jamais tu déplaces le projet ailleurs que ~/Desktop/BettingAI, change
-# le chemin ci-dessous en conséquence.
+# Si jamais tu déplaces le projet ailleurs, change le chemin ci-dessous
+# en conséquence.
 
-cd ~/Desktop/BettingAI || {
-    echo "❌ Dossier introuvable : ~/Desktop/BettingAI"
+cd /Users/timothecernon/BettingAI/BettingAI/BettingAI || {
+    echo "❌ Dossier introuvable : /Users/timothecernon/BettingAI/BettingAI/BettingAI"
     echo "   (le projet a peut-être été déplacé - édite ce fichier pour corriger le chemin)"
     read "?Appuie sur Entrée pour fermer..."
     exit 1
