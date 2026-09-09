@@ -26,17 +26,17 @@ public class FootballDataService
         // request itself already returns every competition, this set
         // just decides which ones we keep.
         "CL",
-        // Eredivisie and Primeira Liga - added for real TeamStats/
-        // TeamRecentResult history on CL opponents from these leagues
-        // (Feyenoord, Sporting CP, ...) instead of just their handful of
-        // CL matches this season. Most other CL opponents' own domestic
-        // leagues (Belgium, Austria, Norway, Turkey, Czechia, Ukraine,
-        // Azerbaijan, ...) simply aren't on football-data.org's plan at
-        // all, so this only closes the gap for these two specifically -
-        // and since this is the same set GetUpcomingMatchesAsync uses,
-        // it also means Robert now considers regular Eredivisie/Primeira
-        // Liga matches for betting, not just these clubs' CL history.
-        "DED", "PPL"
+        // Primeira Liga - added for real TeamStats/TeamRecentResult
+        // history on CL opponents from this league (Sporting CP, ...)
+        // instead of just their handful of CL matches this season. Most
+        // other CL opponents' own domestic leagues (Netherlands, Belgium,
+        // Austria, Norway, Turkey, Czechia, Ukraine, Azerbaijan, ...)
+        // simply aren't tracked here, so this only closes the gap for
+        // this one specifically - and since this is the same set
+        // GetUpcomingMatchesAsync uses, it also means Robert now
+        // considers regular Primeira Liga matches for betting, not just
+        // this club's CL history.
+        "PPL"
     };
 
     // Shared across instances (this service is registered per-request via
