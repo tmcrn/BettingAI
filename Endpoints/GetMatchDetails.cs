@@ -65,9 +65,9 @@ public class GetMatchDetailsEndpoint : Endpoint<GetMatchDetailsRequest, GetMatch
     {
         var response = new GetMatchDetailsResponse();
 
-        if (!string.IsNullOrEmpty(req.MatchId))
+        if (!string.IsNullOrEmpty(req.MatchId) && !string.IsNullOrEmpty(req.HomeTeam) && !string.IsNullOrEmpty(req.AwayTeam))
         {
-            response.HeadToHead = await _footballDataService.GetHeadToHeadAsync(req.MatchId);
+            response.HeadToHead = await _footballDataService.GetHeadToHeadAsync(req.MatchId, req.HomeTeam, req.AwayTeam);
         }
 
         if (!string.IsNullOrEmpty(req.HomeTeam))

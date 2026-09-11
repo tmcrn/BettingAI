@@ -360,27 +360,29 @@ public class FootballDataService
     // opponent) - MatchContext.HomeWinsH2H/AwayWinsH2H exist too but are
     // never populated with real data outside test seeding, so this is the
     // first real H2H source in the app.
-    public async Task<HeadToHead?> GetHeadToHeadAsync(string matchId, int limit = 10)
+    //
+    // homeTeamName/awayTeamName are the CURRENT fixture's two teams (not
+    // necessarily home/away in every past meeting - they swap sides across
+    // seasons). The aggregate (wins/draws) is deliberately computed HERE
+    // from the parsed match list below, not trusted from the API's own
+    // "aggregates" object - confirmed live those two disagreed (aggregates
+    // reported 0 wins / 1 draw / 0 wins for a set of 6 matches that had
+    // zero draws and a clear split, so either its wins/draws fields mean
+    // something other than what their names suggest, or this app was
+    // reading the wrong nested path - either way, deriving it ourselves
+    // from the match list is the only way to guarantee the summary numbers
+    // actually match the list shown right below them).
+    public async Task<HeadToHead?> GetHeadToHeadAsync(string matchId, string homeTeamName, string awayTeamName, int limit = 10)
     {
         try
         {
             var doc = await GetAsync($"{_baseUrl}/matches/{matchId}/head2head?limit={limit}");
             if (doc == null) return null;
 
-            var agg = doc.RootElement.GetProperty("aggregates");
-            var homeAgg = agg.GetProperty("homeTeam");
-            var awayAgg = agg.GetProperty("awayTeam");
-
             var result = new HeadToHead
             {
-                NumberOfMatches = agg.TryGetProperty("numberOfMatches", out var numEl) ? numEl.GetInt32() : 0,
-                HomeTeamName = homeAgg.TryGetProperty("name", out var hnEl) ? hnEl.GetString() : null,
-                AwayTeamName = awayAgg.TryGetProperty("name", out var anEl) ? anEl.GetString() : null,
-                HomeTeamWins = homeAgg.TryGetProperty("wins", out var hw) ? hw.GetInt32() : 0,
-                AwayTeamWins = awayAgg.TryGetProperty("wins", out var aw) ? aw.GetInt32() : 0,
-                // The API nests draws per-side (home.draws == away.draws,
-                // it's the same shared count) rather than at the top level.
-                Draws = homeAgg.TryGetProperty("draws", out var drEl) ? drEl.GetInt32() : 0
+                HomeTeamName = homeTeamName,
+                AwayTeamName = awayTeamName
             };
 
             if (doc.RootElement.TryGetProperty("matches", out var matchesArray))
@@ -388,17 +390,36 @@ public class FootballDataService
                 foreach (var m in matchesArray.EnumerateArray())
                 {
                     var fullTime = m.GetProperty("score").GetProperty("fullTime");
+                    var mHomeTeam = m.GetProperty("homeTeam").GetProperty("name").GetString();
+                    var mAwayTeam = m.GetProperty("awayTeam").GetProperty("name").GetString();
+                    var homeScore = GetScoreOrZero(fullTime, "home");
+                    var awayScore = GetScoreOrZero(fullTime, "away");
+
                     result.RecentMeetings.Add(new HeadToHeadMatch
                     {
                         UtcDate = ParseUtcDate(m.GetProperty("utcDate").GetString()!),
                         CompetitionName = m.GetProperty("competition").TryGetProperty("name", out var cnEl) ? cnEl.GetString() : null,
-                        HomeTeam = m.GetProperty("homeTeam").GetProperty("name").GetString(),
-                        AwayTeam = m.GetProperty("awayTeam").GetProperty("name").GetString(),
-                        HomeScore = GetScoreOrZero(fullTime, "home"),
-                        AwayScore = GetScoreOrZero(fullTime, "away")
+                        HomeTeam = mHomeTeam,
+                        AwayTeam = mAwayTeam,
+                        HomeScore = homeScore,
+                        AwayScore = awayScore
                     });
+
+                    // Attribute the winner by TEAM IDENTITY, not "home"/
+                    // "away" - the two teams swap sides between seasons, so
+                    // whoever was home in this specific past meeting isn't
+                    // necessarily this fixture's home team.
+                    string? winner = homeScore == awayScore ? null : homeScore > awayScore ? mHomeTeam : mAwayTeam;
+                    if (winner == null) result.Draws++;
+                    else if (string.Equals(winner, homeTeamName, StringComparison.OrdinalIgnoreCase)) result.HomeTeamWins++;
+                    else if (string.Equals(winner, awayTeamName, StringComparison.OrdinalIgnoreCase)) result.AwayTeamWins++;
+                    // else: neither name matched (shouldn't happen for a
+                    // real two-team H2H) - left uncounted rather than
+                    // guessed at.
                 }
             }
+
+            result.NumberOfMatches = result.RecentMeetings.Count;
 
             // Oldest-to-most-recent isn't useful here - the most recent
             // meeting is what a bettor actually wants to see first.
