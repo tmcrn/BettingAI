@@ -350,11 +350,94 @@ public class FootballDataService
             return null;
         }
     }
+
+    // Real head-to-head history between the two teams of a specific fixture,
+    // via football-data.org's own /matches/{id}/head2head endpoint - used by
+    // the manual "Fiche match" lookup (see GetMatchDetails) so a real bettor
+    // can check past meetings before placing a bet themselves, independent
+    // of the AI cycle. This is genuine per-pair history, unlike
+    // TeamRecentResults (each team's own last N results against ANY
+    // opponent) - MatchContext.HomeWinsH2H/AwayWinsH2H exist too but are
+    // never populated with real data outside test seeding, so this is the
+    // first real H2H source in the app.
+    public async Task<HeadToHead?> GetHeadToHeadAsync(string matchId, int limit = 10)
+    {
+        try
+        {
+            var doc = await GetAsync($"{_baseUrl}/matches/{matchId}/head2head?limit={limit}");
+            if (doc == null) return null;
+
+            var agg = doc.RootElement.GetProperty("aggregates");
+            var homeAgg = agg.GetProperty("homeTeam");
+            var awayAgg = agg.GetProperty("awayTeam");
+
+            var result = new HeadToHead
+            {
+                NumberOfMatches = agg.TryGetProperty("numberOfMatches", out var numEl) ? numEl.GetInt32() : 0,
+                HomeTeamName = homeAgg.TryGetProperty("name", out var hnEl) ? hnEl.GetString() : null,
+                AwayTeamName = awayAgg.TryGetProperty("name", out var anEl) ? anEl.GetString() : null,
+                HomeTeamWins = homeAgg.TryGetProperty("wins", out var hw) ? hw.GetInt32() : 0,
+                AwayTeamWins = awayAgg.TryGetProperty("wins", out var aw) ? aw.GetInt32() : 0,
+                // The API nests draws per-side (home.draws == away.draws,
+                // it's the same shared count) rather than at the top level.
+                Draws = homeAgg.TryGetProperty("draws", out var drEl) ? drEl.GetInt32() : 0
+            };
+
+            if (doc.RootElement.TryGetProperty("matches", out var matchesArray))
+            {
+                foreach (var m in matchesArray.EnumerateArray())
+                {
+                    var fullTime = m.GetProperty("score").GetProperty("fullTime");
+                    result.RecentMeetings.Add(new HeadToHeadMatch
+                    {
+                        UtcDate = ParseUtcDate(m.GetProperty("utcDate").GetString()!),
+                        CompetitionName = m.GetProperty("competition").TryGetProperty("name", out var cnEl) ? cnEl.GetString() : null,
+                        HomeTeam = m.GetProperty("homeTeam").GetProperty("name").GetString(),
+                        AwayTeam = m.GetProperty("awayTeam").GetProperty("name").GetString(),
+                        HomeScore = GetScoreOrZero(fullTime, "home"),
+                        AwayScore = GetScoreOrZero(fullTime, "away")
+                    });
+                }
+            }
+
+            // Oldest-to-most-recent isn't useful here - the most recent
+            // meeting is what a bettor actually wants to see first.
+            result.RecentMeetings = result.RecentMeetings.OrderByDescending(m => m.UtcDate).ToList();
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error fetching head-to-head for match {matchId}: {ex.Message}");
+            return null;
+        }
+    }
 }
 
 public class MatchStatus
 {
     public bool Finished { get; set; }
+    public int HomeScore { get; set; }
+    public int AwayScore { get; set; }
+}
+
+public class HeadToHead
+{
+    public int NumberOfMatches { get; set; }
+    public string? HomeTeamName { get; set; }
+    public string? AwayTeamName { get; set; }
+    public int HomeTeamWins { get; set; }
+    public int AwayTeamWins { get; set; }
+    public int Draws { get; set; }
+    public List<HeadToHeadMatch> RecentMeetings { get; set; } = new();
+}
+
+public class HeadToHeadMatch
+{
+    public DateTime UtcDate { get; set; }
+    public string? CompetitionName { get; set; }
+    public string? HomeTeam { get; set; }
+    public string? AwayTeam { get; set; }
     public int HomeScore { get; set; }
     public int AwayScore { get; set; }
 }

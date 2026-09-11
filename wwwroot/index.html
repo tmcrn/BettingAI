@@ -549,6 +549,8 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
    .readme-close-btn styling) positions against this card, not the
    full-viewport backdrop behind it. */
 .learning-modal-card { position: relative; }
+/* Same role again, for the "Rechercher un match" modal. */
+.search-modal-card { position: relative; }
 /* See the comment on the readme-close-btn markup - hidden by default,
    only shown while body.readme-open or body.learning-open is set (the
    wide-desktop modals). */
@@ -599,6 +601,69 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
     margin-top: 6px;
 }
 
+/* ---- "Rechercher un match" (search tab) ---- */
+.match-search-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    text-align: left;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    margin-bottom: 8px;
+    font-size: 0.88em;
+    font-weight: 600;
+}
+.match-search-row:hover { border-color: var(--accent); }
+.match-search-row .msr-teams { flex: 1; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.match-search-row .msr-date { color: var(--text-faint); font-weight: 600; font-size: 0.85em; white-space: nowrap; }
+.match-search-empty { color: var(--text-faint); font-size: 0.88em; padding: 8px 2px; }
+
+.match-details-card {
+    margin-top: 20px;
+    padding-top: 18px;
+    border-top: 1px solid var(--border);
+}
+.match-details-card h2 { font-size: 1em; margin: 18px 0 8px; padding-bottom: 0; border-bottom: none; }
+.match-details-card h2:first-child { margin-top: 0; }
+.h2h-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-around;
+    text-align: center;
+    gap: 10px;
+    background: var(--surface-2);
+    border-radius: 10px;
+    padding: 14px;
+    margin-bottom: 10px;
+}
+.h2h-summary .h2h-stat .value { font-size: 1.3em; font-weight: 800; }
+.h2h-summary .h2h-stat .label { font-size: 0.72em; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.05em; }
+.h2h-match-row, .form-match-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.85em;
+    color: var(--text-dim);
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border);
+}
+.h2h-match-row:last-child, .form-match-row:last-child { border-bottom: none; }
+.form-result-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 20px; height: 20px; border-radius: 5px;
+    font-size: 0.72em; font-weight: 800; color: #fff; flex-shrink: 0;
+}
+.form-result-badge.w { background: var(--win); }
+.form-result-badge.d { background: var(--pending); }
+.form-result-badge.l { background: var(--loss); }
+.team-stats-mini { display: flex; flex-wrap: wrap; gap: 8px; }
+.team-stats-mini .tsm-block { flex: 1; min-width: 140px; background: var(--surface-2); border-radius: 10px; padding: 10px 12px; }
+.team-stats-mini .tsm-block h4 { font-size: 0.8em; margin-bottom: 6px; }
+.team-stats-mini .tsm-block div { font-size: 0.82em; color: var(--text-dim); line-height: 1.5; }
+
 /* Only one tab-panel shows at a time - true on both desktop (driven by
    .desktop-sidebar's nav) and mobile (driven by .mobile-tabbar), unlike
    the very first version of this redesign where desktop still showed
@@ -631,7 +696,8 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
         align-items: start;
     }
     .tab-panel[data-tab="home"],
-    .tab-panel[data-tab="learning"] { display: none; }
+    .tab-panel[data-tab="learning"],
+    .tab-panel[data-tab="search"] { display: none; }
     .tab-panel[data-tab="tickets"] { display: block; }
 
     /* .stats is itself never a grid item here - "display: contents"
@@ -722,8 +788,26 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
         padding: 32px;
     }
 
+    body.search-open .tab-panel[data-tab="search"] {
+        display: block;
+        position: fixed; inset: 0; z-index: 200;
+        background: rgba(0,0,0,0.5);
+        padding: 48px 20px;
+        overflow-y: auto;
+    }
+    body.search-open .tab-panel[data-tab="search"] .search-modal-card {
+        max-width: 760px;
+        margin: 0 auto;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        padding: 32px;
+    }
+
     body.readme-open .readme-close-btn,
-    body.learning-open .readme-close-btn { display: block; }
+    body.learning-open .readme-close-btn,
+    body.search-open .readme-close-btn { display: block; }
 }
 
 /* ---- Mobile-only chrome (fixed top bar, floating bottom tab bar) ----
@@ -826,6 +910,10 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             <button class="tab-btn side-nav-item" data-tab="learning" onclick="activateLearningTab()">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M12 6.5c-1.8-1.4-4.2-2-6.5-2-1 0-1.5.3-1.5 1v11c0 .6.5 1 1.5 1 2.3 0 4.7.6 6.5 2 1.8-1.4 4.2-2 6.5-2 1 0 1.5-.4 1.5-1v-11c0-.7-.5-1-1.5-1-2.3 0-4.7.6-6.5 2z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><line x1="12" y1="6.5" x2="12" y2="19.5" stroke="currentColor" stroke-width="1.8"/></svg>
                 <span>Learning Book</span>
+            </button>
+            <button class="tab-btn side-nav-item" data-tab="search" onclick="activateSearchTab()">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><circle cx="10.5" cy="10.5" r="6.5" stroke="currentColor" stroke-width="2"/><line x1="15.3" y1="15.3" x2="20" y2="20" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                <span>Rechercher un match</span>
             </button>
         </div>
         <div class="sidebar-footer">
@@ -1005,6 +1093,26 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             </div>
         </div>
 
+        <div class="tab-panel" data-tab="search" onclick="if (event.target === this) closeSearchModal()">
+            <!-- Same modal-card recipe as .readme/.learning-modal-card - see
+                 activateSearchTab/closeSearchModal. Manual lookup: pick an
+                 upcoming match and see the same kind of data Robert reasons
+                 from (real head-to-head, recent form, stats) before placing
+                 a bet yourself, independent of the AI cycle. -->
+            <div class="search-modal-card readme">
+                <button type="button" class="readme-close-btn" onclick="closeSearchModal()" title="Fermer">✕</button>
+                <h1>🔍 Rechercher un match</h1>
+                <p class="tagline">Consulte les confrontations passées et les stats avant de parier toi-même.</p>
+
+                <input type="search" id="matchSearchInput" placeholder="Tape une équipe (ex: Marseille, Real Madrid...)"
+                       oninput="renderMatchSearchResults()"
+                       style="width:100%; padding:11px 14px; border-radius:10px; border:1px solid var(--border); background:var(--surface-2); color:var(--text); margin-bottom:16px;">
+
+                <div id="matchSearchList"></div>
+                <div id="matchDetailsPanel"></div>
+            </div>
+        </div>
+
         <footer>Robert · clique "🔄 Rafraîchir" pour mettre à jour</footer>
     </div>
 
@@ -1020,6 +1128,9 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
         </button>
         <button class="tab-btn" data-tab="learning" onclick="activateLearningTab()" title="Learning Book">
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M12 6.5c-1.8-1.4-4.2-2-6.5-2-1 0-1.5.3-1.5 1v11c0 .6.5 1 1.5 1 2.3 0 4.7.6 6.5 2 1.8-1.4 4.2-2 6.5-2 1 0 1.5-.4 1.5-1v-11c0-.7-.5-1-1.5-1-2.3 0-4.7.6-6.5 2z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><line x1="12" y1="6.5" x2="12" y2="19.5" stroke="currentColor" stroke-width="1.8"/></svg>
+        </button>
+        <button class="tab-btn" data-tab="search" onclick="activateSearchTab()" title="Rechercher un match">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none"><circle cx="10.5" cy="10.5" r="6.5" stroke="currentColor" stroke-width="2"/><line x1="15.3" y1="15.3" x2="20" y2="20" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
         </button>
     </nav>
 
@@ -1172,6 +1283,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             if (e.key !== 'Escape') return;
             closeReadmeModal();
             closeLearningModal();
+            closeSearchModal();
         });
 
         (function initActiveTab() {
@@ -1268,6 +1380,155 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             span.className = 'team-crest team-monogram';
             span.textContent = monogram(img.dataset.fallback);
             img.replaceWith(span);
+        }
+
+        // ---- "Rechercher un match" (manual pre-bet lookup) ----
+        // Fetched once when the tab opens (search box then just filters the
+        // cached list client-side - no reason to re-hit the API on every
+        // keystroke), covers the next 9 days (football-data.org's own max
+        // span for an unfiltered /matches call - see FootballDataService).
+        let searchUpcomingMatches = null;
+        let searchSelectedMatch = null;
+
+        async function activateSearchTab() {
+            if (window.matchMedia('(min-width: 1150px)').matches) {
+                document.body.classList.add('search-open');
+            } else {
+                setActiveTab('search');
+            }
+            if (searchUpcomingMatches === null) {
+                searchUpcomingMatches = [];
+                document.getElementById('matchSearchList').innerHTML = '<div class="match-search-empty">Chargement des matchs à venir…</div>';
+                try {
+                    const res = await fetch('/api/matches/upcoming?WindowHours=216');
+                    searchUpcomingMatches = await res.json();
+                } catch (e) {
+                    document.getElementById('matchSearchList').innerHTML = '<div class="match-search-empty">Erreur de chargement des matchs.</div>';
+                    searchUpcomingMatches = [];
+                    return;
+                }
+            }
+            renderMatchSearchResults();
+        }
+        function closeSearchModal() {
+            document.body.classList.remove('search-open');
+        }
+
+        function escapeHtml(s) {
+            return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
+        function renderMatchSearchResults() {
+            const list = document.getElementById('matchSearchList');
+            const query = (document.getElementById('matchSearchInput').value || '').trim().toLowerCase();
+            const matches = searchUpcomingMatches || [];
+
+            const filtered = query
+                ? matches.filter(m => [m.homeTeam, m.awayTeam, m.homeTeamShort, m.awayTeamShort]
+                    .some(n => (n || '').toLowerCase().includes(query)))
+                : matches;
+
+            if (filtered.length === 0) {
+                list.innerHTML = `<div class="match-search-empty">${query ? 'Aucun match trouvé pour "' + escapeHtml(query) + '".' : 'Aucun match à venir dans les 9 prochains jours.'}</div>`;
+                return;
+            }
+
+            list.innerHTML = filtered.slice(0, 40).map((m, i) => {
+                const realIndex = matches.indexOf(m);
+                const date = new Date(m.utcDate).toLocaleString('fr-FR', { timeZone: 'Europe/Paris', weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+                return `
+                <button type="button" class="match-search-row" onclick="showMatchDetails(${realIndex})">
+                    ${competitionFlag(m.competitionCode, 16)}
+                    <span class="msr-teams">
+                        ${crestOrName(m.homeTeamCrest, m.homeTeamShort || m.homeTeam)}
+                        ${escapeHtml(m.homeTeamShort || m.homeTeam)} - ${escapeHtml(m.awayTeamShort || m.awayTeam)}
+                        ${crestOrName(m.awayTeamCrest, m.awayTeamShort || m.awayTeam)}
+                    </span>
+                    <span class="msr-date">${date}</span>
+                </button>`;
+            }).join('');
+        }
+
+        function formResultBadge(r) {
+            const cls = r.goalsFor > r.goalsAgainst ? 'w' : r.goalsFor < r.goalsAgainst ? 'l' : 'd';
+            const letter = cls === 'w' ? 'V' : cls === 'l' ? 'D' : 'N';
+            return `<span class="form-result-badge ${cls}">${letter}</span>`;
+        }
+
+        async function showMatchDetails(matchIndex) {
+            const match = searchUpcomingMatches[matchIndex];
+            if (!match) return;
+            searchSelectedMatch = match;
+
+            const panel = document.getElementById('matchDetailsPanel');
+            panel.innerHTML = '<div class="match-details-card"><p>Chargement des stats…</p></div>';
+
+            let data;
+            try {
+                const params = new URLSearchParams({ matchId: match.id || '', homeTeam: match.homeTeam || '', awayTeam: match.awayTeam || '' });
+                const res = await fetch('/api/match-details?' + params.toString());
+                data = await res.json();
+            } catch (e) {
+                panel.innerHTML = '<div class="match-details-card"><p>Erreur de chargement.</p></div>';
+                return;
+            }
+
+            const homeName = escapeHtml(match.homeTeamShort || match.homeTeam);
+            const awayName = escapeHtml(match.awayTeamShort || match.awayTeam);
+
+            let html = `<div class="match-details-card">`;
+            html += `<h1 style="font-size:1.15em; margin-bottom:2px;">${homeName} vs ${awayName}</h1>`;
+
+            const h2h = data.headToHead;
+            html += `<h2>⚔️ Confrontations directes</h2>`;
+            if (h2h && h2h.numberOfMatches > 0) {
+                html += `
+                <div class="h2h-summary">
+                    <div class="h2h-stat"><div class="value">${h2h.homeTeamWins}</div><div class="label">${homeName}</div></div>
+                    <div class="h2h-stat"><div class="value">${h2h.draws}</div><div class="label">Nuls</div></div>
+                    <div class="h2h-stat"><div class="value">${h2h.awayTeamWins}</div><div class="label">${awayName}</div></div>
+                </div>`;
+                html += h2h.recentMeetings.slice(0, 6).map(rm => {
+                    const d = new Date(rm.utcDate).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris', day: 'numeric', month: 'short', year: 'numeric' });
+                    return `<div class="h2h-match-row"><span style="flex:1">${escapeHtml(rm.homeTeam)} ${rm.homeScore}-${rm.awayScore} ${escapeHtml(rm.awayTeam)}</span><span>${d}</span></div>`;
+                }).join('');
+            } else {
+                html += `<p style="color:var(--text-faint); font-size:0.88em;">Aucune confrontation directe récente trouvée.</p>`;
+            }
+
+            html += `<h2>📈 Forme récente</h2>`;
+            html += `<div class="team-stats-mini">`;
+            [{ label: homeName, results: data.homeRecentResults }, { label: awayName, results: data.awayRecentResults }].forEach(side => {
+                html += `<div class="tsm-block"><h4>${side.label}</h4>`;
+                if (side.results && side.results.length > 0) {
+                    html += side.results.slice(0, 8).map(r =>
+                        `<div class="form-match-row">${formResultBadge(r)}<span>${r.isHome ? 'vs' : '@'} ${escapeHtml(r.opponentName)} (${r.goalsFor}-${r.goalsAgainst})</span></div>`
+                    ).join('');
+                } else {
+                    html += `<div style="color:var(--text-faint);">Pas encore de données.</div>`;
+                }
+                html += `</div>`;
+            });
+            html += `</div>`;
+
+            if (data.homeStats || data.awayStats) {
+                html += `<h2>📊 Stats (xG)</h2><div class="team-stats-mini">`;
+                [{ label: homeName, s: data.homeStats }, { label: awayName, s: data.awayStats }].forEach(side => {
+                    html += `<div class="tsm-block"><h4>${side.label}</h4>`;
+                    if (side.s) {
+                        html += `<div>xG: ${side.s.xG?.toFixed?.(2) ?? side.s.xG} | xGA: ${side.s.xGA?.toFixed?.(2) ?? side.s.xGA}</div>`;
+                        html += `<div>Forme (5 derniers): ${side.s.formLast5?.toFixed?.(2) ?? side.s.formLast5}</div>`;
+                    } else {
+                        html += `<div style="color:var(--text-faint);">Pas encore de données.</div>`;
+                    }
+                    html += `</div>`;
+                });
+                html += `</div>`;
+            }
+
+            html += `</div>`;
+            panel.innerHTML = html;
+            panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
 
         // Tap/click a crest (or monogram) to show its team name in a small
