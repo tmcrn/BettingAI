@@ -68,14 +68,16 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
     private readonly DiscordNotificationService _discord;
     private readonly WinPredictionService _winPrediction;
     private readonly OddsLearningService _oddsLearning;
+    private readonly FootballDataService _footballDataService;
 
-    public DecideBetsEndpoint(BettingContext context, HttpClient httpClient, DiscordNotificationService discord, WinPredictionService winPrediction, OddsLearningService oddsLearning)
+    public DecideBetsEndpoint(BettingContext context, HttpClient httpClient, DiscordNotificationService discord, WinPredictionService winPrediction, OddsLearningService oddsLearning, FootballDataService footballDataService)
     {
         _context = context;
         _httpClient = httpClient;
         _discord = discord;
         _winPrediction = winPrediction;
         _oddsLearning = oddsLearning;
+        _footballDataService = footballDataService;
     }
 
     public override void Configure()
@@ -162,6 +164,35 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
                         .ToListAsync(ct);
                     var momentum = FormMomentumAnalyzer.Compute(match.HomeTeam ?? "", match.AwayTeam ?? "", homeResults, awayResults);
 
+                    // Real head-to-head via football-data.org (see
+                    // FootballDataService.GetHeadToHeadAsync) - replaces the
+                    // old MatchContext.HomeWinsH2H/AwayWinsH2H, which was
+                    // never populated with real data outside test seeding
+                    // (always 0/0 for a real match, so AnalyzeMatch's "H2H
+                    // wins" line never actually meant anything). Needs the
+                    // real football-data match id (RealMatchId), not the
+                    // local per-request index AutoDecideBets assigns to
+                    // match.Id - null for anything seeded outside that flow
+                    // (e.g. SeedTestData), in which case this is just
+                    // skipped rather than guessed at.
+                    var h2h = !string.IsNullOrEmpty(match.RealMatchId)
+                        ? await _footballDataService.GetHeadToHeadAsync(match.RealMatchId, match.HomeTeam ?? "", match.AwayTeam ?? "")
+                        : null;
+                    string h2hLine;
+                    if (h2h != null && h2h.NumberOfMatches > 0)
+                    {
+                        // Same 2-goal-gap-equivalent threshold style as the other
+                        // edges above - a 1-win gap over a handful of meetings
+                        // isn't a real signal, 2+ is worth naming.
+                        var h2hEdge = h2h.HomeTeamWins - h2h.AwayTeamWins >= 2 ? "HOME"
+                            : h2h.AwayTeamWins - h2h.HomeTeamWins >= 2 ? "AWAY" : "EVEN";
+                        h2hLine = $"H2H (real, last {h2h.NumberOfMatches} meetings) - {match.HomeTeam} wins: {h2h.HomeTeamWins} | Draws: {h2h.Draws} | {match.AwayTeam} wins: {h2h.AwayTeamWins} => H2H EDGE: {h2hEdge}\n";
+                    }
+                    else
+                    {
+                        h2hLine = "H2H: no real meeting history available for this pair\n";
+                    }
+
                     var xgEdgeValue = homeExpected - awayExpected;
                     var formEdgeValue = analysis.HomeFormLast5 - analysis.AwayFormLast5;
                     var momentumEdgeValue = momentum.HomeMomentum - momentum.AwayMomentum;
@@ -193,7 +224,7 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
                         $"Home momentum (recent results, weighted by margin and recency): {momentum.HomeMomentum:0.00} | Away momentum: {momentum.AwayMomentum:0.00} => MOMENTUM EDGE: {momentum.Edge}\n" +
                         (momentum.CommonOpponentNote != null ? $"{momentum.CommonOpponentNote}\n" : "") +
                         modelLine +
-                        $"H2H wins - Home: {analysis.HomeWinsH2H} | Away: {analysis.AwayWinsH2H}\n" +
+                        h2hLine +
                         $"Key factors: {analysis.AnalysisSummary}";
                 }
 
@@ -850,7 +881,9 @@ REAL 1X2 ODDS FROM BOOKMAKERS (for context only - these affect payout size on a 
 
 The analysis above already tells you the ATTACKING EDGE and FORM EDGE (HOME, AWAY, or EVEN) - the result of comparing both teams' numbers for you. ATTACKING EDGE weighs each team's own attack against the OTHER team's defense (""expected scoring vs this defense""), not just raw xG head-to-head - use it directly instead of re-deriving your own from the raw xG/xGA lines above. If ATTACKING EDGE says AWAY, the away team is the one expected to do more damage against this specific opponent, full stop. This applies to ANY bet type that leans on one team's attack, not just who-wins markets: never say a team has the attacking edge, or bet on that team's own goals (HOME_OVER_GOALS/AWAY_OVER_GOALS), when ATTACKING EDGE names the OTHER side - if you want to go against the edges, you need a specific stated reason (H2H, missing key players, fatigue) in your reasoning, not a restated version of the number that contradicts your own pick.
 
-MOMENTUM EDGE is a third, complementary signal: unlike FORM EDGE (a flat win/draw/loss average), it weighs recent results by how BIG the win/loss was and how recent it was - a team that just crushed someone 4-0 has more momentum than one that scraped a 1-0. When an ""Adversaire commun récent"" line is present, both teams have recently played the same third team - read it like you would by hand (e.g. ""Monaco a battu Marseille 2-0, Strasbourg a perdu contre Marseille 4-0"" => Monaco is the side showing more strength against a common measuring stick). Treat MOMENTUM EDGE and the common-opponent note as supporting context that can reinforce ATTACKING EDGE or add real weight to a DRAW/upset pick when it clearly disagrees with it - it's a real signal, not just decoration, but it's noisier than ATTACKING EDGE, so it doesn't override the hard rule above.";
+MOMENTUM EDGE is a third, complementary signal: unlike FORM EDGE (a flat win/draw/loss average), it weighs recent results by how BIG the win/loss was and how recent it was - a team that just crushed someone 4-0 has more momentum than one that scraped a 1-0. When an ""Adversaire commun récent"" line is present, both teams have recently played the same third team - read it like you would by hand (e.g. ""Monaco a battu Marseille 2-0, Strasbourg a perdu contre Marseille 4-0"" => Monaco is the side showing more strength against a common measuring stick). Treat MOMENTUM EDGE and the common-opponent note as supporting context that can reinforce ATTACKING EDGE or add real weight to a DRAW/upset pick when it clearly disagrees with it - it's a real signal, not just decoration, but it's noisier than ATTACKING EDGE, so it doesn't override the hard rule above.
+
+H2H EDGE (when present) is real head-to-head history between these exact two teams (not each team's form against anyone else) - genuine past meetings, not a guess. Treat it the same way as MOMENTUM EDGE: supporting context that can reinforce ATTACKING EDGE or justify going against it for a DRAW/upset pick, never a hard override on its own - a handful of past meetings is a small sample, and squads change season to season. ""No real meeting history available"" just means these two haven't played enough recently for the API to have it - not a signal either way, ignore it.";
     }
 
     // OUTCOME-only prompt: who-wins / draw / double-chance markets. Kept
