@@ -34,6 +34,20 @@ public class AnalyzeMatchResponse
     public int HomeWinsH2H { get; set; }
     public int AwayWinsH2H { get; set; }
 
+    // Défensif (solidité) - real data from TeamStatsSeedingService, unlike
+    // most of TeamStats' other defensive fields (ShotsConceded,
+    // DefenseRating, ...) which stay at their default since there's no
+    // real source for them yet.
+    public int HomeCleanSheets { get; set; }
+    public int AwayCleanSheets { get; set; }
+
+    // Repos - also real, distinct from FatigueIndex/ConsecutiveMatches
+    // (which flag a packed recent schedule): this is plain days since the
+    // last match, so a 3-day gap shows up here even when neither team is
+    // otherwise "fatigued" by those two.
+    public int HomeDaysSinceLastMatch { get; set; }
+    public int AwayDaysSinceLastMatch { get; set; }
+
     // Contexte
     public string? KeyFactors { get; set; }  // Injuries, fatigue, etc
     public decimal PredictedWinProbHome { get; set; }
@@ -85,6 +99,10 @@ public class AnalyzeMatchEndpoint : Endpoint<AnalyzeMatchRequest, AnalyzeMatchRe
             AwayFormLast5 = awayStats?.FormLast5 ?? 0,
             HomeWinsH2H = matchContext?.HomeWinsH2H ?? 0,
             AwayWinsH2H = matchContext?.AwayWinsH2H ?? 0,
+            HomeCleanSheets = homeStats?.CleanSheets ?? 0,
+            AwayCleanSheets = awayStats?.CleanSheets ?? 0,
+            HomeDaysSinceLastMatch = homeStats?.DaysSinceLastMatch ?? 0,
+            AwayDaysSinceLastMatch = awayStats?.DaysSinceLastMatch ?? 0,
             KeyFactors = matchContext?.HomeMissingPlayers ?? "Aucune info",
             PredictedWinProbHome = CalculateWinProbability(homeStats, awayStats),
             AnalysisSummary = GenerateAnalysis(homeStats, awayStats, matchContext)
@@ -143,9 +161,23 @@ public class AnalyzeMatchEndpoint : Endpoint<AnalyzeMatchRequest, AnalyzeMatchRe
             else if (context.AwayWinsH2H > context.HomeWinsH2H + 1) factors.Add("✓ Visiteur dominant en H2H");
         }
 
+        // Clean sheets récents - solidité défensive, complémentaire à xGA
+        // (xGA est une moyenne, un clean sheet est un résultat concret)
+        var cleanSheetsDiff = home.CleanSheets - away.CleanSheets;
+        if (cleanSheetsDiff >= 2) factors.Add($"✓ Domicile plus solide défensivement ({home.CleanSheets} clean sheets vs {away.CleanSheets})");
+        else if (cleanSheetsDiff <= -2) factors.Add($"✓ Visiteur plus solide défensivement ({away.CleanSheets} clean sheets vs {home.CleanSheets})");
+
         // Fatigue
         if (home.FatigueIndex > 0.6m) factors.Add("⚠ Fatigue domicile élevée");
         if (away.ConsecutiveMatches > 2) factors.Add("⚠ Visiteur fatigué (3+ matchs)");
+
+        // Repos - écart de jours depuis le dernier match, distinct de
+        // FatigueIndex/ConsecutiveMatches (calendrier chargé) : une équipe
+        // peut avoir un calendrier calme mais quand même moins de repos
+        // que l'autre juste avant CE match précis.
+        var restDiff = home.DaysSinceLastMatch - away.DaysSinceLastMatch;
+        if (restDiff >= 3) factors.Add($"✓ Domicile plus reposé ({home.DaysSinceLastMatch}j vs {away.DaysSinceLastMatch}j)");
+        else if (restDiff <= -3) factors.Add($"✓ Visiteur plus reposé ({away.DaysSinceLastMatch}j vs {home.DaysSinceLastMatch}j)");
 
         return factors.Count > 0 ? string.Join(" | ", factors) : "Contexte équilibré";
     }

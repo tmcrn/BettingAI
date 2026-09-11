@@ -225,6 +225,8 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
                         (momentum.CommonOpponentNote != null ? $"{momentum.CommonOpponentNote}\n" : "") +
                         modelLine +
                         h2hLine +
+                        $"Clean sheets (recent) - Home: {analysis.HomeCleanSheets} | Away: {analysis.AwayCleanSheets}\n" +
+                        $"Days since last match - Home: {analysis.HomeDaysSinceLastMatch}d | Away: {analysis.AwayDaysSinceLastMatch}d\n" +
                         $"Key factors: {analysis.AnalysisSummary}";
                 }
 
@@ -883,7 +885,9 @@ The analysis above already tells you the ATTACKING EDGE and FORM EDGE (HOME, AWA
 
 MOMENTUM EDGE is a third, complementary signal: unlike FORM EDGE (a flat win/draw/loss average), it weighs recent results by how BIG the win/loss was and how recent it was - a team that just crushed someone 4-0 has more momentum than one that scraped a 1-0. When an ""Adversaire commun récent"" line is present, both teams have recently played the same third team - read it like you would by hand (e.g. ""Monaco a battu Marseille 2-0, Strasbourg a perdu contre Marseille 4-0"" => Monaco is the side showing more strength against a common measuring stick). Treat MOMENTUM EDGE and the common-opponent note as supporting context that can reinforce ATTACKING EDGE or add real weight to a DRAW/upset pick when it clearly disagrees with it - it's a real signal, not just decoration, but it's noisier than ATTACKING EDGE, so it doesn't override the hard rule above.
 
-H2H EDGE (when present) is real head-to-head history between these exact two teams (not each team's form against anyone else) - genuine past meetings, not a guess. Treat it the same way as MOMENTUM EDGE: supporting context that can reinforce ATTACKING EDGE or justify going against it for a DRAW/upset pick, never a hard override on its own - a handful of past meetings is a small sample, and squads change season to season. ""No real meeting history available"" just means these two haven't played enough recently for the API to have it - not a signal either way, ignore it.";
+H2H EDGE (when present) is real head-to-head history between these exact two teams (not each team's form against anyone else) - genuine past meetings, not a guess. Treat it the same way as MOMENTUM EDGE: supporting context that can reinforce ATTACKING EDGE or justify going against it for a DRAW/upset pick, never a hard override on its own - a handful of past meetings is a small sample, and squads change season to season. ""No real meeting history available"" just means these two haven't played enough recently for the API to have it - not a signal either way, ignore it.
+
+Clean sheets and days since last match are two more real (not estimated) signals. Clean sheets is a concrete recent result, not an average like xGA - a team with several recent clean sheets backs up a low xGA with actual outcomes, relevant to UNDER_GOALS/BOTH_TEAMS_SCORE calls specifically. Days since last match is a plain rest gap, distinct from FatigueIndex/ConsecutiveMatches (which flag a packed schedule over several matches) - a team on 3+ more days of rest than its opponent right before THIS match is a real but minor edge, same weight class as MOMENTUM EDGE/H2H EDGE, not a hard rule like ATTACKING EDGE.";
     }
 
     // OUTCOME-only prompt: who-wins / draw / double-chance markets. Kept
