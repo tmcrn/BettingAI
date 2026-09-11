@@ -113,6 +113,11 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
         // the AI ends up proposing, and to persist those exact features on
         // the saved Bet/ComboLeg for training once the result is known.
         var rawEdgesPerMatch = new Dictionary<string, (decimal xg, decimal form, decimal momentum)>();
+        // Standings fetched once per COMPETITION, not once per match - most
+        // cycles have several matches from the same league, and GetAsync's
+        // own cache would dedupe the HTTP call anyway, but this also skips
+        // the re-parse/re-scan of the JSON for every match sharing a league.
+        var standingsByCompetition = new Dictionary<string, List<StandingEntry>>();
         foreach (var match in req.Matches)
         {
             try
@@ -193,6 +198,41 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
                         h2hLine = "H2H: no real meeting history available for this pair\n";
                     }
 
+                    // Home team's form specifically AT HOME vs away team's
+                    // form specifically AWAY - the actual venue-relevant
+                    // comparison, not the blended FormLast5 above.
+                    var homeAtHome = ComputeSplitForm(homeResults, wantHome: true);
+                    var awayAtAway = ComputeSplitForm(awayResults, wantHome: false);
+                    string splitFormLine;
+                    if (homeAtHome != null && awayAtAway != null)
+                    {
+                        var splitEdge = homeAtHome.Value.points - awayAtAway.Value.points > 0.4m ? "HOME"
+                            : awayAtAway.Value.points - homeAtHome.Value.points > 0.4m ? "AWAY" : "EVEN";
+                        splitFormLine = $"Home form AT HOME (last {homeAtHome.Value.sampleSize}): {homeAtHome.Value.points} | Away form AWAY (last {awayAtAway.Value.sampleSize}): {awayAtAway.Value.points} => SPLIT FORM EDGE: {splitEdge}\n";
+                    }
+                    else
+                    {
+                        splitFormLine = "Split home/away form: not enough venue-specific history for one or both teams\n";
+                    }
+
+                    // League standing (stakes context) - fetched once per
+                    // competition and reused for every match in it this cycle.
+                    string standingsLine = "";
+                    if (!string.IsNullOrEmpty(match.CompetitionCode))
+                    {
+                        if (!standingsByCompetition.TryGetValue(match.CompetitionCode, out var standings))
+                        {
+                            standings = await _footballDataService.GetStandingsAsync(match.CompetitionCode);
+                            standingsByCompetition[match.CompetitionCode] = standings;
+                        }
+                        var homeStanding = standings.FirstOrDefault(s => s.TeamName == match.HomeTeam);
+                        var awayStanding = standings.FirstOrDefault(s => s.TeamName == match.AwayTeam);
+                        if (homeStanding != null && awayStanding != null)
+                        {
+                            standingsLine = $"League standing - Home: {homeStanding.Position}/{homeStanding.TotalInGroup} ({homeStanding.Points} pts, {homeStanding.PlayedGames} played) | Away: {awayStanding.Position}/{awayStanding.TotalInGroup} ({awayStanding.Points} pts, {awayStanding.PlayedGames} played)\n";
+                        }
+                    }
+
                     var xgEdgeValue = homeExpected - awayExpected;
                     var formEdgeValue = analysis.HomeFormLast5 - analysis.AwayFormLast5;
                     var momentumEdgeValue = momentum.HomeMomentum - momentum.AwayMomentum;
@@ -225,6 +265,8 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
                         (momentum.CommonOpponentNote != null ? $"{momentum.CommonOpponentNote}\n" : "") +
                         modelLine +
                         h2hLine +
+                        splitFormLine +
+                        standingsLine +
                         $"Clean sheets (recent) - Home: {analysis.HomeCleanSheets} | Away: {analysis.AwayCleanSheets}\n" +
                         $"Days since last match - Home: {analysis.HomeDaysSinceLastMatch}d | Away: {analysis.AwayDaysSinceLastMatch}d\n" +
                         $"Key factors: {analysis.AnalysisSummary}";
@@ -758,6 +800,25 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
     private static decimal CombineConfidence(decimal a, decimal b) =>
         a > 0 && b > 0 ? a * b : Math.Max(a, b);
 
+    // Form specifically AT HOME (wantHome=true) or specifically AWAY
+    // (wantHome=false), from the same TeamRecentResults rows already
+    // fetched for momentum - no extra DB call needed. FormLast5 (from
+    // TeamStats) mixes home and away results together, which can hide a
+    // team that's genuinely strong at home but weak away (or the
+    // opposite) - exactly the split that matters for a match where one of
+    // them IS at home. Same 2/1/0 win/draw/loss scale as FormLast5 for a
+    // like-for-like comparison. Null when there's nothing to compute from
+    // (TeamRecentResults only keeps the last ~10 results per team total,
+    // so the home-only or away-only slice of that can be empty for a team
+    // that's mostly played the other way round recently).
+    private static (decimal points, int sampleSize)? ComputeSplitForm(List<TeamRecentResult> results, bool wantHome, int window = 5)
+    {
+        var filtered = results.Where(r => r.IsHome == wantHome).OrderByDescending(r => r.MatchDate).Take(window).ToList();
+        if (filtered.Count == 0) return null;
+        var points = filtered.Sum(r => r.GoalsFor > r.GoalsAgainst ? 2 : r.GoalsFor == r.GoalsAgainst ? 1 : 0);
+        return (Math.Round((decimal)points / filtered.Count, 2), filtered.Count);
+    }
+
     // Stake sizing is tied to the real portfolio balance (already net of
     // every other PENDING bet's stake, including ones just placed earlier in
     // this very cycle) rather than fixed euro amounts, so it naturally
@@ -887,7 +948,11 @@ MOMENTUM EDGE is a third, complementary signal: unlike FORM EDGE (a flat win/dra
 
 H2H EDGE (when present) is real head-to-head history between these exact two teams (not each team's form against anyone else) - genuine past meetings, not a guess. Treat it the same way as MOMENTUM EDGE: supporting context that can reinforce ATTACKING EDGE or justify going against it for a DRAW/upset pick, never a hard override on its own - a handful of past meetings is a small sample, and squads change season to season. ""No real meeting history available"" just means these two haven't played enough recently for the API to have it - not a signal either way, ignore it.
 
-Clean sheets and days since last match are two more real (not estimated) signals. Clean sheets is a concrete recent result, not an average like xGA - a team with several recent clean sheets backs up a low xGA with actual outcomes, relevant to UNDER_GOALS/BOTH_TEAMS_SCORE calls specifically. Days since last match is a plain rest gap, distinct from FatigueIndex/ConsecutiveMatches (which flag a packed schedule over several matches) - a team on 3+ more days of rest than its opponent right before THIS match is a real but minor edge, same weight class as MOMENTUM EDGE/H2H EDGE, not a hard rule like ATTACKING EDGE.";
+Clean sheets and days since last match are two more real (not estimated) signals. Clean sheets is a concrete recent result, not an average like xGA - a team with several recent clean sheets backs up a low xGA with actual outcomes, relevant to UNDER_GOALS/BOTH_TEAMS_SCORE calls specifically. Days since last match is a plain rest gap, distinct from FatigueIndex/ConsecutiveMatches (which flag a packed schedule over several matches) - a team on 3+ more days of rest than its opponent right before THIS match is a real but minor edge, same weight class as MOMENTUM EDGE/H2H EDGE, not a hard rule like ATTACKING EDGE.
+
+SPLIT FORM EDGE compares the home team's form specifically IN HOME MATCHES against the away team's form specifically IN AWAY MATCHES - the actual venue-relevant comparison, since FORM EDGE above blends each team's home and away results together and can hide a team that's strong at home but weak on the road (or the reverse). Weight it like MOMENTUM EDGE/H2H EDGE: real supporting context, not a hard override - and note it's a small sample (a handful of matches), so don't treat a single split-form data point as decisive.
+
+League standing (when present) is each team's current position/points/games played - context on what's at stake, not a market signal to bet on directly. A team near the top fighting for a European spot, or near the bottom fighting relegation, often plays with more urgency than its raw stats alone suggest - especially late in the season. Early in a season (few games played) this is noisy and worth little; read it qualitatively (""fighting for something"" vs ""mid-table, nothing at stake""), not as an exact rule about which positions matter - promotion/relegation cutoffs differ by competition and this data doesn't say what they are.";
     }
 
     // OUTCOME-only prompt: who-wins / draw / double-chance markets. Kept

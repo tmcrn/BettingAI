@@ -433,6 +433,71 @@ public class FootballDataService
             return null;
         }
     }
+
+    // League standing for every team in one competition, via football-data.
+    // org's own /competitions/{code}/standings - used by DecideBets to give
+    // the AI real "stakes" context (fighting for the top vs fighting
+    // relegation vs mid-table with nothing at stake), not to enforce any
+    // specific promotion/relegation rule (those differ per competition and
+    // per season, not worth hardcoding wrong). Cached one call per
+    // competition per cycle by the caller (GetAsync's own 5-minute cache
+    // also covers repeat calls within that window regardless).
+    //
+    // Only "TOTAL" tables are kept (each team's overall record) - a
+    // competition can also expose "HOME"/"AWAY" sub-tables, not needed
+    // here. Grouped competitions (e.g. Champions League's old group stage)
+    // return multiple separate TOTAL tables, one per group - TotalInGroup
+    // is each row's OWN group size, not a grand total across groups,
+    // otherwise a group winner would misleadingly read as "top of 36"
+    // instead of "top of 4".
+    public async Task<List<StandingEntry>> GetStandingsAsync(string competitionCode)
+    {
+        try
+        {
+            var doc = await GetAsync($"{_baseUrl}/competitions/{competitionCode}/standings");
+            if (doc == null) return new List<StandingEntry>();
+
+            var result = new List<StandingEntry>();
+            if (!doc.RootElement.TryGetProperty("standings", out var standingsArray)) return result;
+
+            foreach (var group in standingsArray.EnumerateArray())
+            {
+                var type = group.TryGetProperty("type", out var typeEl) ? typeEl.GetString() : null;
+                if (type != "TOTAL") continue;
+                if (!group.TryGetProperty("table", out var table)) continue;
+
+                var rows = table.EnumerateArray().ToList();
+                var groupSize = rows.Count;
+                foreach (var row in rows)
+                {
+                    result.Add(new StandingEntry
+                    {
+                        Position = row.GetProperty("position").GetInt32(),
+                        TeamName = row.GetProperty("team").GetProperty("name").GetString(),
+                        PlayedGames = row.GetProperty("playedGames").GetInt32(),
+                        Points = row.GetProperty("points").GetInt32(),
+                        TotalInGroup = groupSize
+                    });
+                }
+            }
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error fetching standings for {competitionCode}: {ex.Message}");
+            return new List<StandingEntry>();
+        }
+    }
+}
+
+public class StandingEntry
+{
+    public int Position { get; set; }
+    public string? TeamName { get; set; }
+    public int PlayedGames { get; set; }
+    public int Points { get; set; }
+    public int TotalInGroup { get; set; }
 }
 
 public class MatchStatus
