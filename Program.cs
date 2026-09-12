@@ -74,5 +74,10 @@ Console.WriteLine("🤖 Auto-bets managed by CRON script");
 // console right away, instead of only discoverable by digging through a
 // cycle's raw JSON response afterwards.
 Console.WriteLine($"🧠 Ollama model: {Environment.GetEnvironmentVariable("OLLAMA_MODEL") ?? "mistral"}");
+// Same reasoning, for the separate multimodal model the screenshot-odds-
+// import feature calls (OllamaVisionService) - a text-only model like the
+// one above can't see images at all, so this one needs its own tag pulled
+// locally ("ollama pull qwen2.5vl") before that feature works.
+Console.WriteLine($"👁️ Ollama vision model: {Environment.GetEnvironmentVariable("OLLAMA_VISION_MODEL") ?? "qwen2.5vl"}");
 
 app.Run();

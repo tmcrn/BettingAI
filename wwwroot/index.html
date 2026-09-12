@@ -1960,12 +1960,12 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
 
             // Lets you import a screenshot of the bookmaker's own bet slip
             // (Winamax or otherwise) instead of retyping the cote by hand:
-            // OCR'd client-side (Tesseract.js, loaded lazily - see
-            // runOddsShotOcr), a "cote totale"/"cote" number is located in
-            // the recognized text, shown for a quick human check/correction,
-            // then submitted through the same /api/set-odds a manual entry
-            // would use ('combo' kind for a combo, 'bet' for a single). Only
-            // offered while the ticket is still PENDING.
+            // read server-side by a local Ollama vision model (see
+            // runOddsShotOcr/OcrOddsEndpoint), a "cote totale"/"cote" number
+            // is located in the image, shown for a quick human check/
+            // correction, then submitted through the same /api/set-odds a
+            // manual entry would use ('combo' kind for a combo, 'bet' for a
+            // single). Only offered while the ticket is still PENDING.
             const hasEditableLeg = legs.some(l => l.result === 'PENDING') && !IS_GUEST;
             const oddsShotHtml = hasEditableLeg ? `
             <div class="odds-shot-wrap">
@@ -2336,26 +2336,6 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             panel.hidden = !panel.hidden;
         }
 
-        // Tesseract.js (a real WASM OCR engine) is fairly heavy - loaded
-        // lazily, only the first time a screenshot import is actually used,
-        // rather than on every page load for the vast majority of visits
-        // that never touch this feature. Cached in a module-level promise
-        // so a second import on the same page doesn't re-fetch/re-init it.
-        let tesseractLoadPromise = null;
-        function loadTesseract() {
-            if (window.Tesseract) return Promise.resolve();
-            if (!tesseractLoadPromise) {
-                tesseractLoadPromise = new Promise((resolve, reject) => {
-                    const script = document.createElement('script');
-                    script.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
-                    script.onload = resolve;
-                    script.onerror = () => reject(new Error("Impossible de charger le moteur OCR (vérifie ta connexion)"));
-                    document.head.appendChild(script);
-                });
-            }
-            return tesseractLoadPromise;
-        }
-
         function handleOddsShotFile(uid, file) {
             if (file) runOddsShotOcr(uid, file);
         }
@@ -2370,64 +2350,52 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             runOddsShotOcr(uid, item.getAsFile());
         }
 
-        // Runs OCR on the given bet-slip screenshot and tries to locate its
-        // "cote totale" (combo) / "cote" (single bet) number - shown in an
-        // editable input alongside the raw recognized text rather than
-        // auto-submitted straight away, since OCR digit misreads (2.29 read
-        // as 2.28, say) are common enough that a quick human glance at the
-        // actual number before it's saved is worth the one extra click. One
-        // number per ticket, same as the footer's own manual "Cote totale"/
-        // "Cote" input - no per-leg recognition, since a bookmaker slip
-        // itself usually only shows that one total, not one figure per
-        // selection.
+        // Reads the given bet-slip screenshot server-side (see
+        // OllamaVisionService/OcrOddsEndpoint - a local Ollama vision model,
+        // not the old client-side Tesseract.js OCR, which turned out
+        // unreliable in practice: heavy WASM bundle, its worker script AND
+        // language pack both fetched from a CDN the browser sometimes
+        // blocks or fails to load, and fragile line-position heuristics
+        // even when it did load) and tries to locate its "cote totale"
+        // (combo) / "cote" (single bet) number - shown in an editable input
+        // alongside the model's raw reply rather than auto-submitted
+        // straight away, since a misread digit (2.29 read as 2.28, say) is
+        // common enough that a quick human glance before it's saved is
+        // worth the one extra click. One number per ticket, same as the
+        // footer's own manual "Cote totale"/"Cote" input - no per-leg
+        // recognition, since a bookmaker slip itself usually only shows
+        // that one total, not one figure per selection.
         async function runOddsShotOcr(uid, file) {
             const body = document.getElementById(`odds-shot-body-${uid}`);
             const imgUrl = URL.createObjectURL(file);
-            body.innerHTML = `<img class="odds-shot-preview" src="${imgUrl}"><div class="odds-shot-result">⏳ Lecture de l'image…</div>`;
+            const isCombo = uid.startsWith('combo-');
+            body.innerHTML = `<img class="odds-shot-preview" src="${imgUrl}"><div class="odds-shot-result">⏳ Lecture de l'image (IA vision)…</div>`;
 
             try {
-                await loadTesseract();
-                const { data: { text } } = await Tesseract.recognize(file, 'fra');
-                const isCombo = uid.startsWith('combo-');
-                const parsed = parseOddsFromOcrText(text, isCombo);
+                const formData = new FormData();
+                formData.append('image', file);
+                formData.append('isCombo', isCombo ? 'true' : 'false');
+                const res = await mutatingFetch('/api/ocr-odds', { method: 'POST', body: formData });
+                const data = await res.json();
+                if (!data.success) throw new Error(data.message || "Échec de la lecture");
+                const parsed = data.odds;
 
                 body.innerHTML = `
                     <img class="odds-shot-preview" src="${imgUrl}">
                     <div class="odds-shot-result">
-                        <span>${isCombo ? 'Cote totale reconnue\u00a0:' : 'Cote reconnue\u00a0:'}</span>
+                        <span>${isCombo ? 'Cote totale reconnue :' : 'Cote reconnue :'}</span>
                         <input type="number" min="1" step="0.01" id="odds-shot-value-${uid}" value="${parsed != null ? parsed.toFixed(2) : ''}" placeholder="ex: 2.29">
                         <button type="button" onclick="confirmOddsShot('${uid}', this)">✓ Valider</button>
                     </div>
                     ${parsed == null ? `<div class="odds-shot-result" style="color:var(--loss);">Rien reconnu automatiquement - vérifie le texte lu ci-dessous et tape la cote à la main.</div>` : ''}
                     <details>
                         <summary style="cursor:pointer; font-size:0.75em; color:var(--text-faint);">Texte lu (si le nombre semble faux)</summary>
-                        <div class="odds-shot-rawtext">${escapeHtml(text.trim())}</div>
+                        <div class="odds-shot-rawtext">${escapeHtml((data.rawText || '').trim())}</div>
                     </details>
                 `;
             } catch (e) {
                 body.innerHTML = `<div class="odds-shot-result" style="color:var(--loss);">❌ ${e.message}</div>`;
             }
-        }
-
-        // Looks for "cote totale" (combo ticket) or a bare "cote" (single
-        // bet, explicitly NOT followed by "totale") and, on that line or
-        // one of the next couple of lines - OCR commonly breaks a stacked
-        // mobile UI's label and value onto separate lines - the first
-        // plausible odds-shaped number. Returns null rather than guessing
-        // at some other number on the screenshot (the stake, a percentage).
-        function parseOddsFromOcrText(text, isCombo) {
-            const lines = text.replace(/\r/g, '').split('\n');
-            const label = isCombo ? /cote\s*totale/i : /\bcote\b(?!\s*totale)/i;
-            const numberRe = /(\d{1,3}[.,]\d{1,2})\b/;
-
-            for (let i = 0; i < lines.length; i++) {
-                if (!label.test(lines[i])) continue;
-                for (let j = i; j < Math.min(i + 3, lines.length); j++) {
-                    const m = lines[j].match(numberRe);
-                    if (m) return parseFloat(m[1].replace(',', '.'));
-                }
-            }
-            return null;
         }
 
         // Submits the one recognized/typed-in total through the same
@@ -2478,8 +2446,9 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
         }
 
         // pdf.js, loaded lazily only the first time a PDF is actually
-        // imported here - same reasoning as Tesseract.js, kept out of the
-        // normal page load otherwise.
+        // imported here - rendering pages to images is all it's used for
+        // now (the OCR itself moved server-side, see OcrBatchOddsEndpoint),
+        // kept out of the normal page load otherwise.
         let pdfjsLoadPromise = null;
         function loadPdfJs() {
             if (window.pdfjsLib) return Promise.resolve();
@@ -2491,61 +2460,46 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.worker.min.js';
                         resolve();
                     };
-                    script.onerror = () => reject(new Error("Impossible de charger le moteur PDF (v\u00e9rifie ta connexion)"));
+                    script.onerror = () => reject(new Error("Impossible de charger le moteur PDF (vérifie ta connexion)"));
                     document.head.appendChild(script);
                 });
             }
             return pdfjsLoadPromise;
         }
 
-        // Renders every page of a PDF to a canvas and OCRs each one in
-        // turn, concatenating their recognized text (page order preserved,
-        // a blank line between pages) - lets the match-block parsing below
-        // treat a multi-page PDF of a whole day's slips exactly like one
-        // long screenshot. Tesseract itself must already be loaded by the
-        // caller (runBatchOddsImport) before this runs.
-        async function ocrPdf(file) {
+        // Renders every page of a PDF to a PNG blob (page order preserved) -
+        // each one is later sent to /api/ocr-batch-odds separately, exactly
+        // like a plain screenshot would be, so a multi-page PDF of a whole
+        // day's slips is just "one page = one image import" repeated.
+        async function renderPdfPages(file) {
             await loadPdfJs();
             const buf = await file.arrayBuffer();
             const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
-            let fullText = '';
+            const blobs = [];
             for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
                 const page = await pdf.getPage(pageNum);
-                const viewport = page.getViewport({ scale: 2 }); // upscaled - sharper OCR than the PDF's own point size
+                const viewport = page.getViewport({ scale: 2 }); // upscaled - sharper reading than the PDF's own point size
                 const canvas = document.createElement('canvas');
                 canvas.width = viewport.width;
                 canvas.height = viewport.height;
                 await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
-                const { data: { text } } = await Tesseract.recognize(canvas, 'fra');
-                fullText += text + '\n';
+                const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+                if (blob) blobs.push(blob);
             }
-            return fullText;
+            return blobs;
         }
 
-        // Strips accents/punctuation and lowercases so a fuzzy match
-        // survives OCR's usual mangling (missed accents, merged spacing)
-        // without needing an exact string match.
-        function normalizeForMatch(s) {
-            return (s || '')
-                .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // strip accents (\u00e9 -> e, \u00e8 -> e, ...)
-                .toLowerCase()
-                .replace(/[^a-z0-9]+/g, ' ')
-                .trim();
-        }
-
-        // How well one OCR'd line matches a ticket's own "X vs Y" match
-        // name - the fraction of the match name's meaningful (3+ letter)
-        // words found in that line. Winamax's own separator is "X - Y",
-        // ours is "X vs Y" - doesn't matter once both are reduced to a bag
-        // of words (the literal "vs" is dropped so it never counts as a
-        // spurious hit).
-        function matchNameScore(ourMatchName, ocrLine) {
-            const targetWords = normalizeForMatch(ourMatchName).split(' ').filter(w => w.length > 2 && w !== 'vs');
-            if (targetWords.length === 0) return 0;
-            const lineWords = normalizeForMatch(ocrLine);
-            if (!lineWords) return 0;
-            const hits = targetWords.filter(w => lineWords.includes(w)).length;
-            return hits / targetWords.length;
+        // Sends one image (a plain screenshot, or one rendered PDF page) to
+        // OcrBatchOddsEndpoint along with the list of candidate match names
+        // and returns its parsed response (throws on a hard failure).
+        async function ocrBatchOddsRequest(imageBlob, matchNamesJson) {
+            const formData = new FormData();
+            formData.append('image', imageBlob, 'page.png');
+            formData.append('matchNamesJson', matchNamesJson);
+            const res = await mutatingFetch('/api/ocr-batch-odds', { method: 'POST', body: formData });
+            const data = await res.json();
+            if (!data.success) throw new Error(data.message || "Échec de la lecture");
+            return data;
         }
 
         // Imports odds for MANY tickets at once from one capture or PDF
@@ -2556,73 +2510,56 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
         // itself shows (that number belongs to a bet this app never models
         // as one ticket) and only reads each individual match's own price,
         // which is exactly this app's own per-ticket CombinedOdds/Odds.
+        // Reading happens server-side (OcrBatchOddsEndpoint, a local Ollama
+        // vision model) - see runOddsShotOcr's comment for why that
+        // replaced the old client-side Tesseract.js approach.
         async function runBatchOddsImport(file) {
             const body = document.getElementById('batchOddsBody');
-            body.innerHTML = `<div class="odds-shot-result">\u23f3 Lecture du fichier\u2026</div>`;
+            body.innerHTML = `<div class="odds-shot-result">⏳ Lecture du fichier (IA vision)…</div>`;
 
             try {
-                await loadTesseract();
-                const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '');
-                const text = isPdf ? await ocrPdf(file) : (await Tesseract.recognize(file, 'fra')).data.text;
-                const lines = text.replace(/\r/g, '').split('\n');
-
                 // Every currently PENDING ticket, regardless of the
                 // dashboard's own filter/sort/pagination - resultFilter
                 // with a high Limit gets every one of them in one call
-                // (see GetPortfolioEndpoint.MaxRecentBets).
+                // (see GetPortfolioEndpoint.MaxRecentBets). Fetched BEFORE
+                // any image reading so an empty portfolio short-circuits
+                // without wasting a vision-model call.
                 const res = await fetch('/api/portfolio?resultFilter=PENDING&limit=500');
                 const portfolio = await res.json();
                 const pendingTickets = portfolio.recentBets || [];
 
                 if (pendingTickets.length === 0) {
-                    body.innerHTML = `<div class="odds-shot-result">Aucun ticket en cours \u00e0 mettre \u00e0 jour.</div>`;
+                    body.innerHTML = `<div class="odds-shot-result">Aucun ticket en cours à mettre à jour.</div>`;
                     return;
                 }
 
-                // First pass: for each PENDING ticket, find the single OCR
-                // line that best names its match (majority of the match
-                // name's own words present) - its EARLIEST such line, so a
-                // repeated mention later (a summary section, say) doesn't
-                // retrigger it.
-                let bestPerTicket = [];
-                for (const ticket of pendingTickets) {
-                    let bestLine = -1, bestScore = 0;
-                    for (let i = 0; i < lines.length; i++) {
-                        const score = matchNameScore(ticket.match, lines[i]);
-                        if (score > bestScore) { bestScore = score; bestLine = i; }
-                    }
-                    if (bestLine !== -1 && bestScore >= 0.5) {
-                        bestPerTicket.push({ ticket, lineIndex: bestLine });
+                const matchNamesJson = JSON.stringify(pendingTickets.map(t => t.match));
+                const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '');
+                const images = isPdf ? await renderPdfPages(file) : [file];
+
+                // One call per image/page - merges into oddsByIndex, first
+                // page to report a given ticket wins (a repeated mention on
+                // a later page, e.g. a summary section, shouldn't override
+                // an already-found value). rawTexts collects every page's
+                // raw model reply for the collapsible debug section below.
+                const oddsByIndex = new Map();
+                const rawTexts = [];
+                for (const image of images) {
+                    const data = await ocrBatchOddsRequest(image, matchNamesJson);
+                    if (data.rawText) rawTexts.push(data.rawText);
+                    for (const r of data.results || []) {
+                        if (!oddsByIndex.has(r.index)) oddsByIndex.set(r.index, r.odds);
                     }
                 }
-                bestPerTicket.sort((a, b) => a.lineIndex - b.lineIndex);
 
-                // Second pass: within each match's own block (from just
-                // after its name to whichever comes first among the next
-                // matched block, a "cote totale"/"mise" boundary line - the
-                // slip's own OVERALL total across every match, not this
-                // one's - or the end of the text), grab the first
-                // odds-shaped number.
-                const boundaryRe = /cote\s*totale|^\s*mise\b/i;
-                const numberRe = /(\d{1,3}[.,]\d{1,2})\b/;
-                const results = bestPerTicket.map((f, idx) => {
-                    const nextStart = idx + 1 < bestPerTicket.length ? bestPerTicket[idx + 1].lineIndex : lines.length;
-                    let odds = null;
-                    for (let j = f.lineIndex + 1; j < nextStart; j++) {
-                        if (boundaryRe.test(lines[j])) break;
-                        const m = lines[j].match(numberRe);
-                        if (m) { odds = parseFloat(m[1].replace(',', '.')); break; }
-                    }
-                    return { ticket: f.ticket, odds };
-                });
-
-                const matchedIds = new Set(bestPerTicket.map(f => `${f.ticket.isCombo}-${f.ticket.id}`));
-                const unmatchedTickets = pendingTickets.filter(t => !matchedIds.has(`${t.isCombo}-${t.id}`));
-
-                if (results.length === 0) {
+                if (oddsByIndex.size === 0) {
                     body.innerHTML = `<div class="odds-shot-result">Aucun match reconnu dans ce fichier parmi tes ${pendingTickets.length} ticket(s) en cours.</div>`;
                     return;
                 }
+
+                const results = [...oddsByIndex.entries()].map(([index, odds]) => ({ ticket: pendingTickets[index], odds }));
+                const matchedIndices = new Set(oddsByIndex.keys());
+                const unmatchedTickets = pendingTickets.filter((_, i) => !matchedIndices.has(i));
 
                 const rowsHtml = results.map(r => `
                     <div class="odds-shot-result">
@@ -2633,15 +2570,15 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
 
                 body.innerHTML = `
                     ${rowsHtml}
-                    <button type="button" onclick="confirmBatchOddsImport(this)">\u2713 Valider tout</button>
-                    ${unmatchedTickets.length ? `<div class="odds-shot-result" style="color:var(--loss);">Non trouv\u00e9(s) dans le fichier\u00a0: ${unmatchedTickets.map(t => escapeHtml(t.match)).join(', ')}</div>` : ''}
+                    <button type="button" onclick="confirmBatchOddsImport(this)">✓ Valider tout</button>
+                    ${unmatchedTickets.length ? `<div class="odds-shot-result" style="color:var(--loss);">Non trouvé(s) dans le fichier : ${unmatchedTickets.map(t => escapeHtml(t.match)).join(', ')}</div>` : ''}
                     <details>
                         <summary style="cursor:pointer; font-size:0.75em; color:var(--text-faint);">Texte lu (si un nombre semble faux)</summary>
-                        <div class="odds-shot-rawtext">${escapeHtml(text.trim())}</div>
+                        <div class="odds-shot-rawtext">${escapeHtml(rawTexts.join('\n\n'))}</div>
                     </details>
                 `;
             } catch (e) {
-                body.innerHTML = `<div class="odds-shot-result" style="color:var(--loss);">\u274c ${e.message}</div>`;
+                body.innerHTML = `<div class="odds-shot-result" style="color:var(--loss);">❌ ${e.message}</div>`;
             }
         }
 
