@@ -473,7 +473,6 @@ button:disabled { opacity: 0.5; cursor: default; transform: none; }
 }
 .leg-icon { flex-shrink: 0; display: flex; align-items: center; }
 .leg-label { flex: 1; min-width: 0; font-weight: 600; }
-.leg-odds-val { font-weight: 800; font-size: 1.05em; flex-shrink: 0; }
 .leg-match-line {
     color: var(--text-faint);
     font-size: 0.82em;
@@ -1883,19 +1882,18 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                     headerScores.push({ score: `${knownScore.homeScore}-${knownScore.awayScore}`, live: allStillPending });
                 }
 
-                // No per-leg odds editing any more - one ticket, one cote
-                // to enter (the footer "Cote totale"/"Cote" input below,
-                // same for a single bet or a combo), matching how a
+                // No per-leg odds shown any more, editable or not - one
+                // ticket, one cote (the footer "Cote totale"/"Cote" input
+                // below, same for a single bet or a combo), matching how a
                 // bookmaker slip actually shows it: one total, not one
                 // number per selection. A leg's own Odds still exists
                 // internally (the AI's estimate, feeding
                 // ComboOddsCalculator's starting guess before the user
-                // overrides the total) but is display-only here now.
+                // overrides the total) but never surfaces here any more.
                 const rowsHtml = groupLegs.map(l => `
                     <div class="leg-row">
                         <span class="leg-icon">${resultIcon(l.result, 16)}</span>
                         <span class="leg-label">${betTypeLabel(l.betType, l.selection)}</span>
-                        <span class="leg-odds-val">${l.odds ? l.odds.toFixed(2) : '-'}</span>
                     </div>
                 `).join('');
 
