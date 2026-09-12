@@ -35,6 +35,15 @@ public class AutoDecideBetsRequest
     // without re-touching matches an earlier cycle already bet on.
     [QueryParam]
     public int? MinHours { get; set; }
+
+    // Run this cycle on TOMORROW's Paris calendar day instead of "the rest
+    // of today" - lets you launch it the evening before (e.g. the "Lancer
+    // le cycle pour demain" dashboard button) instead of waiting for the
+    // 8:00 auto-run, useful for an early tomorrow kickoff you'd otherwise
+    // only catch once it's already "today". Takes priority over
+    // WindowHours/MinHours when true - combining both makes no sense.
+    [QueryParam]
+    public bool? ForTomorrow { get; set; }
 }
 
 public class AutoDecideBetsEndpoint : Endpoint<AutoDecideBetsRequest, AutoDecideResponse>
@@ -108,8 +117,22 @@ public class AutoDecideBetsEndpoint : Endpoint<AutoDecideBetsRequest, AutoDecide
             // ce cycle tourne une fois par jour et doit couvrir toute la journée en un
             // seul passage, pas juste une fenêtre glissante étroite. windowHours reste
             // surchargeable manuellement (bouton "Forcer un cycle" du dashboard, tests).
-            var windowHours = req.WindowHours ?? HoursUntilEndOfDayParis();
-            var minHours = req.MinHours ?? 0;
+            int windowHours;
+            int minHours;
+            if (req.ForTomorrow == true)
+            {
+                // "Hours until end of today" IS "hours until tomorrow starts"
+                // (both are just "hours until next midnight, Paris time") -
+                // so that's the start of the window, and +24h from there
+                // covers the full next calendar day.
+                minHours = HoursUntilEndOfDayParis();
+                windowHours = minHours + 24;
+            }
+            else
+            {
+                windowHours = req.WindowHours ?? HoursUntilEndOfDayParis();
+                minHours = req.MinHours ?? 0;
+            }
             var upcomingMatches = await GetUpcomingMatches(windowHours, minHours);
             if (upcomingMatches == null || upcomingMatches.Count == 0)
             {

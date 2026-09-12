@@ -1070,7 +1070,8 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             <div class="stats-commands">
             <div class="button-row">
                 <button class="primary" onclick="refreshAll()">🔄 Rafraîchir</button>
-                <button onclick="forceCycle()" id="forceBtn">🤖 Lancer le cycle</button>
+                <button onclick="forceCycle(false)" id="forceBtn">🤖 Lancer le cycle</button>
+                <button onclick="forceCycle(true)" id="forceTomorrowBtn">🌙 Lancer le cycle pour demain</button>
                 <button onclick="predictScores()" id="pronosBtn">🎯 Prono MPP</button>
                 <button onclick="resetSystem()" id="resetBtn" class="danger">🗑️ Reset historique</button>
             </div>
@@ -1802,6 +1803,17 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
         // Paris handling accounts for DST on its own, no manual offset math.
         function parisDateLabel() {
             return new Date().toLocaleDateString('fr-FR', {
+                timeZone: 'Europe/Paris', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
+            });
+        }
+
+        // Same as parisDateLabel but one calendar day ahead - what
+        // "ForTomorrow" on /api/auto-decide-bets actually analyzes when
+        // launched the evening before (see forceCycle).
+        function parisTomorrowDateLabel() {
+            const d = new Date();
+            d.setUTCDate(d.getUTCDate() + 1);
+            return d.toLocaleDateString('fr-FR', {
                 timeZone: 'Europe/Paris', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
             });
         }
@@ -2754,18 +2766,29 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             navigator.clipboard?.writeText(textarea.value).catch(() => document.execCommand('copy'));
         }
 
-        async function forceCycle() {
+        // forTomorrow=true is the "launch it the evening before" case (see
+        // the 🌙 button) - it makes the cycle analyze TOMORROW's Paris
+        // calendar day (ForTomorrow query param) instead of the rest of
+        // today, so you don't have to wait for the 8:00 auto-run to catch
+        // an early tomorrow kickoff.
+        async function forceCycle(forTomorrow) {
             // Confirms the actual date being analyzed (see parisDateLabel)
             // before firing - a cycle launched right before/after midnight
             // Paris time is easy to mistake for "tomorrow" otherwise.
-            const confirmed = await showAppConfirm(`Le cycle va analyser les matchs restants de la journée du ${parisDateLabel()} (heure de Paris). Lancer ?`);
+            const dateLabel = forTomorrow ? parisTomorrowDateLabel() : parisDateLabel();
+            const dayPhrase = forTomorrow ? `la journée du ${dateLabel} (le lendemain)` : `les matchs restants de la journée du ${dateLabel}`;
+            const confirmed = await showAppConfirm(`Le cycle va analyser ${dayPhrase} (heure de Paris). Lancer ?`);
             if (!confirmed) return;
 
-            const btn = document.getElementById('forceBtn');
+            const btn = document.getElementById(forTomorrow ? 'forceTomorrowBtn' : 'forceBtn');
+            const otherBtn = document.getElementById(forTomorrow ? 'forceBtn' : 'forceTomorrowBtn');
+            const originalText = btn.textContent;
             btn.disabled = true;
             btn.textContent = '⏳ Cycle en cours…';
+            otherBtn.disabled = true; // one cycle at a time - SQLite is single-writer
             try {
-                const res = await mutatingFetch('/api/auto-decide-bets', { method: 'POST' });
+                const url = '/api/auto-decide-bets' + (forTomorrow ? '?ForTomorrow=true' : '');
+                const res = await mutatingFetch(url, { method: 'POST' });
                 const data = await res.json();
                 await refreshAll();
                 showAppAlert(data.message || 'Cycle terminé.');
@@ -2773,7 +2796,8 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                 showAppAlert('Erreur pendant le cycle: ' + e.message);
             } finally {
                 btn.disabled = false;
-                btn.textContent = '🤖 Lancer le cycle';
+                btn.textContent = originalText;
+                otherBtn.disabled = false;
             }
         }
 
@@ -2842,7 +2866,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             if (guestPillDesktop) guestPillDesktop.hidden = false;
             // checkResultsBtn stays enabled - see the comment on
             // checkResults() for why a guest can still use it.
-            for (const id of ['forceBtn', 'pronosBtn', 'resetBtn']) {
+            for (const id of ['forceBtn', 'forceTomorrowBtn', 'pronosBtn', 'resetBtn']) {
                 const btn = document.getElementById(id);
                 if (!btn) continue;
                 btn.disabled = true;
