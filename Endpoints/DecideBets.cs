@@ -65,6 +65,14 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
     // Defaults to "mistral" (unset = current behavior, unchanged).
     private static readonly string OllamaModel = Environment.GetEnvironmentVariable("OLLAMA_MODEL") ?? "mistral";
 
+    // Same idea, for WHERE Ollama itself runs - defaults to this same
+    // machine, but can point at another one on the network (e.g. a
+    // Tailscale address) so the heavy inference work runs somewhere else
+    // while this app + its SQLite DB stay on a lighter always-on box. Set
+    // OLLAMA_HOST=0.0.0.0 on the machine actually running Ollama first, or
+    // it only listens on its own localhost regardless of this setting.
+    private static readonly string OllamaBaseUrl = Environment.GetEnvironmentVariable("OLLAMA_BASE_URL") ?? "http://localhost:11434";
+
     private readonly BettingContext _context;
     private readonly HttpClient _httpClient;
     private readonly DiscordNotificationService _discord;
@@ -868,7 +876,7 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
                 try
                 {
                     response = await client.PostAsJsonAsync(
-                        "http://localhost:11434/api/generate",
+                        $"{OllamaBaseUrl}/api/generate",
                         new { model = OllamaModel, prompt = prompt, stream = false },
                         cancellationToken: ct
                     );

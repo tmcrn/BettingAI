@@ -32,6 +32,9 @@ public static class OllamaVisionService
 {
     private static readonly string VisionModel = Environment.GetEnvironmentVariable("OLLAMA_VISION_MODEL") ?? "qwen2.5vl";
 
+    // Same OLLAMA_BASE_URL override as DecideBetsEndpoint - see its comment.
+    private static readonly string BaseUrl = Environment.GetEnvironmentVariable("OLLAMA_BASE_URL") ?? "http://localhost:11434";
+
     public static async Task<string> ImageToBase64Async(IFormFile file, CancellationToken ct)
     {
         using var ms = new MemoryStream();
@@ -51,7 +54,7 @@ public static class OllamaVisionService
         try
         {
             response = await client.PostAsJsonAsync(
-                "http://localhost:11434/api/generate",
+                $"{BaseUrl}/api/generate",
                 new { model = VisionModel, prompt, images = new[] { imageBase64 }, stream = false },
                 cancellationToken: ct);
         }

@@ -54,6 +54,9 @@ public class PredictExactScoresEndpoint : Endpoint<PredictExactScoresRequest, Pr
 
     private static readonly string OllamaModel = Environment.GetEnvironmentVariable("OLLAMA_MODEL") ?? "mistral";
 
+    // Same OLLAMA_BASE_URL override as DecideBetsEndpoint - see its comment.
+    private static readonly string OllamaBaseUrl = Environment.GetEnvironmentVariable("OLLAMA_BASE_URL") ?? "http://localhost:11434";
+
     private readonly FootballDataService _footballData;
     private readonly BettingContext _context;
 
@@ -209,7 +212,7 @@ Matchs:
                 try
                 {
                     response = await client.PostAsJsonAsync(
-                        "http://localhost:11434/api/generate",
+                        $"{OllamaBaseUrl}/api/generate",
                         new { model = OllamaModel, prompt, stream = false },
                         cancellationToken: ct
                     );

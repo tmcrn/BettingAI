@@ -79,5 +79,11 @@ Console.WriteLine($"🧠 Ollama model: {Environment.GetEnvironmentVariable("OLLA
 // one above can't see images at all, so this one needs its own tag pulled
 // locally ("ollama pull qwen2.5vl") before that feature works.
 Console.WriteLine($"👁️ Ollama vision model: {Environment.GetEnvironmentVariable("OLLAMA_VISION_MODEL") ?? "qwen2.5vl"}");
+// Where Ollama itself is actually called - defaults to this same machine,
+// but can point at another one on the network (e.g. over Tailscale) so
+// this app + its SQLite DB stay on a light always-on box while the heavy
+// inference runs elsewhere. Printed so a misconfigured/unreachable address
+// shows up here first, not as a mysterious connection error mid-cycle.
+Console.WriteLine($"🌐 Ollama base URL: {Environment.GetEnvironmentVariable("OLLAMA_BASE_URL") ?? "http://localhost:11434"}");
 
 app.Run();
