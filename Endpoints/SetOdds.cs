@@ -7,7 +7,7 @@ namespace BettingAI.Endpoints;
 
 public class SetOddsRequest
 {
-    public string Kind { get; set; } = ""; // "bet" | "leg"
+    public string Kind { get; set; } = ""; // "bet" | "leg" | "combo"
     public int Id { get; set; }
     public decimal Odds { get; set; }
 }
@@ -106,8 +106,11 @@ public class SetOddsEndpoint : Endpoint<SetOddsRequest, SetOddsResponse>
             // value (real, manually entered, or still the flat estimate for
             // whichever legs haven't been corrected yet) - see
             // ComboOddsCalculator for why this isn't a plain product once
-            // two legs share the same match.
-            if (leg.BetCombo.Result == "PENDING")
+            // two legs share the same match. Skipped once the user has
+            // typed in the combo's own real "cote totale" directly (see the
+            // "combo" kind below) - that real number is trusted over the
+            // formula from then on, so a later leg edit must not clobber it.
+            if (leg.BetCombo.Result == "PENDING" && !leg.BetCombo.CombinedOddsIsManual)
             {
                 leg.BetCombo.CombinedOdds = ComboOddsCalculator.Calculate(
                     leg.BetCombo.Legs.Select(l => (l.MatchId, l.BetType, l.Odds)));
@@ -119,6 +122,34 @@ public class SetOddsEndpoint : Endpoint<SetOddsRequest, SetOddsResponse>
             return;
         }
 
-        await Send.OkAsync(new SetOddsResponse { Success = false, Message = $"❌ Type inconnu: '{req.Kind}' (attendu 'bet' ou 'leg')" });
+        if (req.Kind == "combo")
+        {
+            // Bypasses ComboOddsCalculator's formula entirely - for when the
+            // user already has the exact "cote totale" as displayed on
+            // their own bookmaker (e.g. Winamax) and would rather trust
+            // that real number than any same-match correlation estimate,
+            // however well calibrated. Marks CombinedOddsIsManual so a
+            // later per-leg odds edit (see the "leg" branch above) doesn't
+            // silently overwrite it again.
+            var combo = await _context.BetCombos.FirstOrDefaultAsync(c => c.Id == req.Id, ct);
+            if (combo == null)
+            {
+                await Send.OkAsync(new SetOddsResponse { Success = false, Message = "❌ Combiné introuvable" });
+                return;
+            }
+            if (combo.Result != "PENDING")
+            {
+                await Send.OkAsync(new SetOddsResponse { Success = false, Message = "❌ Ce combiné est déjà réglé" });
+                return;
+            }
+
+            combo.CombinedOdds = req.Odds;
+            combo.CombinedOddsIsManual = true;
+            await _context.SaveChangesAsync(ct);
+            await Send.OkAsync(new SetOddsResponse { Success = true, Message = $"✅ Cote totale mise à jour: {req.Odds}" });
+            return;
+        }
+
+        await Send.OkAsync(new SetOddsResponse { Success = false, Message = $"❌ Type inconnu: '{req.Kind}' (attendu 'bet', 'leg' ou 'combo')" });
     }
 }

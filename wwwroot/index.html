@@ -580,6 +580,35 @@ button:disabled { opacity: 0.5; cursor: default; transform: none; }
     box-shadow: none;
 }
 
+/* Paste-Winamax-JSON widget (see applyWinamaxJson) - a plain collapsible
+   panel under the legs box, same idea as the other icon-toggle popovers. */
+.winamax-paste-wrap { margin-top: 8px; }
+.winamax-paste-toggle {
+    background: none;
+    border: none;
+    box-shadow: none;
+    padding: 4px 0;
+    font-size: 0.78em;
+    font-weight: 600;
+    color: var(--text-dim);
+    cursor: pointer;
+}
+.winamax-paste-toggle:hover { color: var(--accent); }
+.winamax-paste-panel { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.winamax-paste-panel textarea {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 8px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--text);
+    font-family: ui-monospace, monospace;
+    font-size: 0.75em;
+    resize: vertical;
+}
+.winamax-paste-panel button { align-self: flex-start; font-size: 0.82em; }
+
 footer { text-align: center; color: var(--text-faint); font-size: 0.78em; padding-top: 12px; }
 
 /* ---- README (Home tab) ---- */
@@ -1840,6 +1869,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                         ${(l.result === 'PENDING' && !IS_GUEST) ? `
                         <span class="leg-odds-edit">
                             <input type="number" min="1" step="0.01" id="odds-${l.kind}-${l.id}" value="${l.odds ? l.odds.toFixed(2) : ''}"
+                                   data-kind="${l.kind}" data-id="${l.id}" data-bettype="${l.betType || ''}" data-selection="${l.selection || ''}"
                                    onkeydown="if(event.key==='Enter'){event.preventDefault(); this.nextElementSibling.click();}"
                                    ${l.kind === 'bet' ? `placeholder="${(bet.confidence > 0 ? 1 / bet.confidence : 2).toFixed(2)}"` : ''}>
                             <button type="button" onclick="saveOdds('${l.kind}', ${l.id}, this)">✓</button>
@@ -1865,10 +1895,35 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                 return rowsHtml + matchLineHtml;
             }).join('');
 
+            // Distinguishes a Bet from a BetCombo for this DOM id - their ids
+            // come from two separate tables/sequences, so a plain bet.id
+            // alone can collide (a Bet #5 and a BetCombo #5 both existing).
+            // Declared here (rather than further down where it used to
+            // live) since winamaxPasteHtml right below already needs it.
+            const uid = `${bet.isCombo ? 'combo' : 'single'}-${bet.id}`;
+
+            // Lets you paste Winamax's own raw "match_markets" JSON (grabbed
+            // via the browser's network inspector - see the app's README)
+            // instead of retyping each leg's odds by hand: parsed client-side
+            // by findWinamaxOdds/applyWinamaxJson, matched against each
+            // leg's own BetType(+Selection), and submitted through the same
+            // /api/set-odds calls a manual entry would use. Only offered
+            // when there's at least one PENDING, editable leg to fill.
+            const hasEditableLeg = legs.some(l => l.result === 'PENDING') && !IS_GUEST;
+            const winamaxPasteHtml = hasEditableLeg ? `
+            <div class="winamax-paste-wrap">
+                <button type="button" class="winamax-paste-toggle" onclick="toggleWinamaxPaste('${uid}', this)">📋 Coller les cotes Winamax (JSON)</button>
+                <div class="winamax-paste-panel" id="winamax-paste-${uid}" hidden>
+                    <textarea id="winamax-json-${uid}" rows="3" placeholder="Colle ici le JSON match_markets copié depuis Winamax..."></textarea>
+                    <button type="button" onclick="applyWinamaxJson('${uid}', this)">Remplir les cotes reconnues</button>
+                </div>
+            </div>` : '';
+
             const legsHtml = `
             <div class="legs-box">
                 <div class="lt">${bet.isCombo ? `Jambes du combiné (${legs.length})` : 'Détail du pari'}</div>
                 ${groupsHtml}
+                ${winamaxPasteHtml}
             </div>`;
 
             // Kickoff time(s), shown in the ticket title next to when the AI
@@ -1882,11 +1937,6 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             ` : '';
 
             const resultClass = bet.result === 'WIN' ? 'ticket-win' : bet.result === 'LOSS' ? 'ticket-loss' : '';
-
-            // Distinguishes a Bet from a BetCombo for this DOM id - their ids
-            // come from two separate tables/sequences, so a plain bet.id
-            // alone can collide (a Bet #5 and a BetCombo #5 both existing).
-            const uid = `${bet.isCombo ? 'combo' : 'single'}-${bet.id}`;
 
             // Outside the collapsible body - a live score (or a final one)
             // stays visible even with the ticket folded, instead of needing
@@ -1957,7 +2007,17 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                         ${legsHtml}
                     </div>
                     <div class="ticket-footer">
-                        <div class="footer-row cote"><span class="label">Cote totale</span><span class="val">${displayOdds(bet.odds, bet.confidence)}</span></div>
+                        <div class="footer-row cote">
+                            <span class="label">Cote totale</span>
+                            ${(bet.isCombo && bet.result === 'PENDING' && !IS_GUEST) ? `
+                            <span class="leg-odds-edit">
+                                <input type="number" min="1" step="0.01" id="odds-combo-${bet.id}" value="${bet.odds ? bet.odds.toFixed(2) : ''}"
+                                       title="Cote totale réelle (ex: vue sur Winamax) - remplace le calcul automatique"
+                                       onkeydown="if(event.key==='Enter'){event.preventDefault(); this.nextElementSibling.click();}">
+                                <button type="button" onclick="saveOdds('combo', ${bet.id}, this)">✓</button>
+                            </span>
+                            ` : `<span class="val">${displayOdds(bet.odds, bet.confidence)}</span>`}
+                        </div>
                         <div class="footer-row"><span class="label">Mise</span><span class="val">${fmtEuro(bet.stake)}</span></div>
                         <div class="footer-row"><span class="label">Gains</span><span class="val ${bet.result === 'WIN' ? 'win' : ''}">${bet.winnings != null ? fmtEuro(bet.winnings) : '-'}</span></div>
                         <div class="ticket-ref"><span>Ticket #${bet.id}${bet.isCombo ? ' · combiné' : ''}</span><span>${fmtDate(bet.createdAt)}${kickoffHtml}</span></div>
@@ -2207,6 +2267,133 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                 showAppAlert('Erreur: ' + e.message);
                 btnEl.disabled = false;
             }
+        }
+
+        function toggleWinamaxPaste(uid, btnEl) {
+            const panel = document.getElementById(`winamax-paste-${uid}`);
+            panel.hidden = !panel.hidden;
+        }
+
+        // Accepts a few JSON shapes so a paste works whatever got copied:
+        // the whole websocket envelope Winamax's own site receives
+        // ({doc:[{data:{markets:[...]}}]}) , just its "data" object, just
+        // the "markets" array itself, or an object whose only array-valued
+        // property looks like a markets list (a cheap fallback for whatever
+        // wrapper shape the network tab happened to show).
+        function extractWinamaxMarkets(jsonText) {
+            const parsed = JSON.parse(jsonText);
+            const candidates = [
+                parsed?.doc?.[0]?.data?.markets,
+                parsed?.data?.markets,
+                parsed?.markets,
+                Array.isArray(parsed) ? parsed : null
+            ];
+            for (const c of candidates) {
+                if (Array.isArray(c) && c.length && c[0] && typeof c[0] === 'object' && 'outcomes' in c[0]) return c;
+            }
+            throw new Error("aucun tableau de marchés reconnu (attendu une clé 'markets' avec des objets {outcomes:[...]})");
+        }
+
+        // Best-effort mapping from this app's own BetType(+Selection, for
+        // goal-line types) to the matching Winamax market outcome - only
+        // for the market shapes we've actually confirmed (1X2, Double
+        // chance, Total buts). Anything else (BOTH_TEAMS_SCORE,
+        // HOME_OVER_GOALS, AWAY_OVER_GOALS, PLAYER_SCORER, PLAYER_ASSIST)
+        // comes back unsupported:true until we see a real example of its
+        // own market JSON to map against.
+        function findWinamaxOdds(markets, betType, selection) {
+            const m1x2 = markets.find(m => m._marketId === 1 || m.name === '1x2');
+            const mDoubleChance = markets.find(m => m._marketId === 10 || m.name === 'Double chance');
+            // Full-match "Total" only - marketId 18. Excludes the half-time
+            // equivalent (marketId 68, "1ère mi-temps - total") which
+            // shares the same nameShort family but isn't this bet's line.
+            const mTotal = markets.find(m => m._marketId === 18 || m.name === 'Total');
+
+            switch (betType) {
+                case 'HOME_WIN': return { odds: m1x2?.outcomes?.[0]?.odds ?? null };
+                case 'DRAW': return { odds: m1x2?.outcomes?.[1]?.odds ?? null };
+                case 'AWAY_WIN': return { odds: m1x2?.outcomes?.[2]?.odds ?? null };
+                case 'HOME_WIN_OR_DRAW': return { odds: mDoubleChance?.outcomes?.[0]?.odds ?? null };
+                case 'AWAY_WIN_OR_DRAW': return { odds: mDoubleChance?.outcomes?.[2]?.odds ?? null };
+                case 'OVER_GOALS':
+                case 'UNDER_GOALS': {
+                    if (!mTotal) return { odds: null };
+                    const jsonLine = parseFloat(mTotal.specifiers?.total);
+                    const ourLine = parseFloat(selection);
+                    // A mismatched line (e.g. Winamax only offers 3.25 here,
+                    // but this bet is "plus de 2.5") would silently price
+                    // the wrong market - skip rather than misuse it.
+                    if (!isNaN(jsonLine) && !isNaN(ourLine) && Math.abs(jsonLine - ourLine) > 0.01) {
+                        return { odds: null, mismatch: `ligne Winamax ${jsonLine} ≠ ligne du pari ${ourLine}` };
+                    }
+                    return { odds: (betType === 'OVER_GOALS' ? mTotal.outcomes?.[0]?.odds : mTotal.outcomes?.[1]?.odds) ?? null };
+                }
+                default:
+                    return { odds: null, unsupported: true };
+            }
+        }
+
+        async function applyWinamaxJson(uid, btnEl) {
+            const textarea = document.getElementById(`winamax-json-${uid}`);
+            let markets;
+            try {
+                markets = extractWinamaxMarkets(textarea.value);
+            } catch (e) {
+                showAppAlert('JSON invalide : ' + e.message);
+                return;
+            }
+
+            const inputs = [...document.querySelectorAll(`#detail-${uid} .leg-odds-edit input[data-bettype]`)];
+            if (inputs.length === 0) {
+                showAppAlert('Aucune jambe éditable trouvée sur ce ticket.');
+                return;
+            }
+
+            // Resolve every leg BEFORE submitting anything: each successful
+            // /api/set-odds call below ultimately triggers a full ticket
+            // list re-render (refreshAll, called once at the very end),
+            // which would detach these exact DOM nodes if read lazily
+            // mid-loop instead.
+            const toSubmit = [];
+            const skipped = [];
+            for (const input of inputs) {
+                const { odds, mismatch, unsupported } = findWinamaxOdds(markets, input.dataset.bettype, input.dataset.selection);
+                if (odds == null) {
+                    const label = betTypeLabel(input.dataset.bettype, input.dataset.selection);
+                    skipped.push(`${label}${mismatch ? ` (${mismatch})` : unsupported ? ' (type pas encore géré)' : ' (marché introuvable)'}`);
+                    continue;
+                }
+                toSubmit.push({ kind: input.dataset.kind, id: parseInt(input.dataset.id, 10), odds });
+            }
+
+            if (toSubmit.length === 0) {
+                showAppAlert(`Aucune cote reconnue dans ce JSON pour ce ticket. ${skipped.join(', ')}`);
+                return;
+            }
+
+            btnEl.disabled = true;
+            const failed = [];
+            for (const { kind, id, odds } of toSubmit) {
+                try {
+                    const res = await mutatingFetch('/api/set-odds', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ kind, id, odds })
+                    });
+                    const data = await res.json();
+                    if (!data.success) failed.push(data.message || kind);
+                } catch (e) {
+                    failed.push(e.message);
+                }
+            }
+            await refreshAll();
+
+            const parts = [];
+            const okCount = toSubmit.length - failed.length;
+            if (okCount > 0) parts.push(`${okCount} cote(s) remplie(s)`);
+            if (skipped.length) parts.push(`non trouvée(s) : ${skipped.join(', ')}`);
+            if (failed.length) parts.push(`échec(s) : ${failed.join(', ')}`);
+            if (parts.length) showAppAlert(parts.join(' — '));
         }
 
         // Backfills the real score on a ticket settled before scores were
