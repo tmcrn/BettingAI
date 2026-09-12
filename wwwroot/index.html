@@ -579,22 +579,9 @@ button:disabled { opacity: 0.5; cursor: default; transform: none; }
     box-shadow: none;
 }
 
-/* Import-a-bookmaker-screenshot widget (see applyOddsScreenshot) - a plain
-   collapsible panel under the legs box, same idea as the other
-   icon-toggle popovers. */
-.odds-shot-wrap { margin-top: 8px; }
-.odds-shot-toggle {
-    background: none;
-    border: none;
-    box-shadow: none;
-    padding: 4px 0;
-    font-size: 0.78em;
-    font-weight: 600;
-    color: var(--text-dim);
-    cursor: pointer;
-}
-.odds-shot-toggle:hover { color: var(--accent); }
-.odds-shot-panel { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+/* Bookmaker-screenshot import widgets (single-ticket version dropped - see
+   runBatchOddsImport, the batch import above the ticket list is now the
+   only way in) - dropzone/result/rawtext are shared by the batch panel. */
 .odds-shot-dropzone {
     padding: 12px;
     border-radius: 8px;
@@ -606,7 +593,6 @@ button:disabled { opacity: 0.5; cursor: default; transform: none; }
     cursor: pointer;
 }
 .odds-shot-dropzone:hover { border-color: var(--accent); color: var(--accent); }
-.odds-shot-preview { max-width: 100%; max-height: 160px; border-radius: 8px; display: block; }
 .odds-shot-result { display: flex; align-items: center; gap: 6px; font-size: 0.82em; }
 .odds-shot-result input {
     width: 70px;
@@ -1958,38 +1944,19 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             // Distinguishes a Bet from a BetCombo for this DOM id - their ids
             // come from two separate tables/sequences, so a plain bet.id
             // alone can collide (a Bet #5 and a BetCombo #5 both existing).
-            // Declared here (rather than further down where it used to
-            // live) since oddsShotHtml right below already needs it.
             const uid = `${bet.isCombo ? 'combo' : 'single'}-${bet.id}`;
 
-            // Lets you import a screenshot of the bookmaker's own bet slip
-            // (Winamax or otherwise) instead of retyping the cote by hand:
-            // read server-side by a local Ollama vision model (see
-            // runOddsShotOcr/OcrOddsEndpoint), a "cote totale"/"cote" number
-            // is located in the image, shown for a quick human check/
-            // correction, then submitted through the same /api/set-odds a
-            // manual entry would use ('combo' kind for a combo, 'bet' for a
-            // single). Only offered while the ticket is still PENDING.
-            const hasEditableLeg = legs.some(l => l.result === 'PENDING') && !IS_GUEST;
-            const oddsShotHtml = hasEditableLeg ? `
-            <div class="odds-shot-wrap">
-                <button type="button" class="odds-shot-toggle" onclick="toggleOddsShot('${uid}', this)">📷 Importer une capture d'écran (cote)</button>
-                <div class="odds-shot-panel" id="odds-shot-${uid}" hidden>
-                    <div class="odds-shot-dropzone" tabindex="0"
-                         onclick="document.getElementById('odds-shot-file-${uid}').click()"
-                         onpaste="handleOddsShotPaste('${uid}', event)">
-                        📋 Colle une capture (⌘V) ou clique pour choisir un fichier
-                    </div>
-                    <input type="file" accept="image/*" id="odds-shot-file-${uid}" style="display:none" onchange="handleOddsShotFile('${uid}', this.files[0])">
-                    <div id="odds-shot-body-${uid}"></div>
-                </div>
-            </div>` : '';
-
+            // Per-ticket screenshot import (single "cote"/"cote totale" per
+            // ticket) was dropped in favor of the batch import (📷 button
+            // above the ticket list, see runBatchOddsImport) - reading many
+            // tickets from one or several screenshots/PDFs at once made the
+            // one-at-a-time version redundant. The manual "Cote"/"Cote
+            // totale" text input (see the ticket footer) still works as
+            // before for a one-off correction.
             const legsHtml = `
             <div class="legs-box">
                 <div class="lt">${bet.isCombo ? `Jambes du combiné (${legs.length})` : 'Détail du pari'}</div>
                 ${groupsHtml}
-                ${oddsShotHtml}
             </div>`;
 
             // Kickoff time(s), shown in the ticket title next to when the AI
@@ -2335,104 +2302,6 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             }
         }
 
-        function toggleOddsShot(uid, btnEl) {
-            const panel = document.getElementById(`odds-shot-${uid}`);
-            panel.hidden = !panel.hidden;
-        }
-
-        function handleOddsShotFile(uid, file) {
-            if (file) runOddsShotOcr(uid, file);
-        }
-
-        // Attached to the dropzone's onpaste - lets a screenshot go straight
-        // from the clipboard (⌘⇧4 then ⌘V) without ever being saved as a
-        // file first.
-        function handleOddsShotPaste(uid, event) {
-            const item = [...(event.clipboardData?.items || [])].find(i => i.type.startsWith('image/'));
-            if (!item) return;
-            event.preventDefault();
-            runOddsShotOcr(uid, item.getAsFile());
-        }
-
-        // Reads the given bet-slip screenshot server-side (see
-        // OllamaVisionService/OcrOddsEndpoint - a local Ollama vision model,
-        // not the old client-side Tesseract.js OCR, which turned out
-        // unreliable in practice: heavy WASM bundle, its worker script AND
-        // language pack both fetched from a CDN the browser sometimes
-        // blocks or fails to load, and fragile line-position heuristics
-        // even when it did load) and tries to locate its "cote totale"
-        // (combo) / "cote" (single bet) number - shown in an editable input
-        // alongside the model's raw reply rather than auto-submitted
-        // straight away, since a misread digit (2.29 read as 2.28, say) is
-        // common enough that a quick human glance before it's saved is
-        // worth the one extra click. One number per ticket, same as the
-        // footer's own manual "Cote totale"/"Cote" input - no per-leg
-        // recognition, since a bookmaker slip itself usually only shows
-        // that one total, not one figure per selection.
-        async function runOddsShotOcr(uid, file) {
-            const body = document.getElementById(`odds-shot-body-${uid}`);
-            const imgUrl = URL.createObjectURL(file);
-            const isCombo = uid.startsWith('combo-');
-            body.innerHTML = `<img class="odds-shot-preview" src="${imgUrl}"><div class="odds-shot-result">⏳ Lecture de l'image (IA vision)…</div>`;
-
-            try {
-                const formData = new FormData();
-                formData.append('image', file);
-                formData.append('isCombo', isCombo ? 'true' : 'false');
-                const res = await mutatingFetch('/api/ocr-odds', { method: 'POST', body: formData });
-                const data = await res.json();
-                if (!data.success) throw new Error(data.message || "Échec de la lecture");
-                const parsed = data.odds;
-
-                body.innerHTML = `
-                    <img class="odds-shot-preview" src="${imgUrl}">
-                    <div class="odds-shot-result">
-                        <span>${isCombo ? 'Cote totale reconnue :' : 'Cote reconnue :'}</span>
-                        <input type="number" min="1" step="0.01" id="odds-shot-value-${uid}" value="${parsed != null ? parsed.toFixed(2) : ''}" placeholder="ex: 2.29">
-                        <button type="button" onclick="confirmOddsShot('${uid}', this)">✓ Valider</button>
-                    </div>
-                    ${parsed == null ? `<div class="odds-shot-result" style="color:var(--loss);">Rien reconnu automatiquement - vérifie le texte lu ci-dessous et tape la cote à la main.</div>` : ''}
-                    <details>
-                        <summary style="cursor:pointer; font-size:0.75em; color:var(--text-faint);">Texte lu (si le nombre semble faux)</summary>
-                        <div class="odds-shot-rawtext">${escapeHtml((data.rawText || '').trim())}</div>
-                    </details>
-                `;
-            } catch (e) {
-                body.innerHTML = `<div class="odds-shot-result" style="color:var(--loss);">❌ ${e.message}</div>`;
-            }
-        }
-
-        // Submits the one recognized/typed-in total through the same
-        // /api/set-odds a manual entry (the footer input) would use -
-        // 'combo' overrides ComboOddsCalculator's estimate outright and
-        // sticks (CombinedOddsIsManual), 'bet' just sets the single bet's
-        // own Odds directly.
-        async function confirmOddsShot(uid, btnEl) {
-            const input = document.getElementById(`odds-shot-value-${uid}`);
-            const odds = parseFloat(input.value);
-            if (!odds || odds < 1) {
-                showAppAlert('Entre une cote valide (>= 1.0)');
-                return;
-            }
-            const isCombo = uid.startsWith('combo-');
-            const id = parseInt(uid.slice(uid.indexOf('-') + 1), 10);
-
-            btnEl.disabled = true;
-            try {
-                const res = await mutatingFetch('/api/set-odds', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ kind: isCombo ? 'combo' : 'bet', id, odds })
-                });
-                const data = await res.json();
-                if (!data.success) throw new Error(data.message);
-                await refreshAll();
-            } catch (e) {
-                showAppAlert('Erreur: ' + e.message);
-                btnEl.disabled = false;
-            }
-        }
-
         function toggleBatchOddsPanel() {
             const panel = document.getElementById('batchOddsPanel');
             panel.hidden = !panel.hidden;
@@ -2525,9 +2394,9 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
         // bet this app never models as one ticket) and only reads each
         // individual match's own price, which is exactly this app's own
         // per-ticket CombinedOdds/Odds. Reading happens server-side
-        // (OcrBatchOddsEndpoint, a local Ollama vision model) - see
-        // runOddsShotOcr's comment for why that replaced the old
-        // client-side Tesseract.js approach.
+        // (OcrBatchOddsEndpoint, a local Ollama vision model - see
+        // OllamaVisionService for why that replaced the old client-side
+        // Tesseract.js approach).
         async function runBatchOddsImport(files) {
             const body = document.getElementById('batchOddsBody');
             body.innerHTML = `<div class="odds-shot-result">⏳ Lecture du/des fichier(s) (IA vision)…</div>`;

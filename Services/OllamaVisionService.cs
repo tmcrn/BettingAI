@@ -1,14 +1,13 @@
-using System.Globalization;
 using System.Net.Http.Json;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 
 namespace BettingAI.Services;
 
-// Shared plumbing for OcrOddsEndpoint (single ticket) and
-// OcrBatchOddsEndpoint (many tickets from one capture/PDF page) - calls a
-// local Ollama VISION model to read a bet-slip screenshot directly, server
-// side, instead of the old client-side Tesseract.js OCR.
+// Plumbing for OcrBatchOddsEndpoint (many tickets from one capture/PDF
+// page - the only screenshot-import path left; a single-ticket version
+// existed briefly but the batch one made it redundant) - calls a local
+// Ollama VISION model to read a bet-slip screenshot directly, server side,
+// instead of the old client-side Tesseract.js OCR.
 //
 // That Tesseract.js approach turned out unreliable in practice: a heavy WASM
 // bundle whose worker script AND language pack are both fetched from a CDN
@@ -73,18 +72,5 @@ public static class OllamaVisionService
 
         var doc = JsonDocument.Parse(body);
         return (doc.RootElement.GetProperty("response").GetString() ?? "").Trim();
-    }
-
-    // Pulls the first decimal-looking number (1-3 digits, 1-2 decimals) out
-    // of the model's reply - it's asked to answer with ONLY the number, but
-    // this trims around it defensively rather than trusting that literally
-    // (a model can still wrap it in a stray word or punctuation).
-    public static decimal? ExtractOdds(string raw)
-    {
-        var m = Regex.Match(raw, @"(\d{1,3}[.,]\d{1,2})");
-        if (!m.Success) return null;
-        return decimal.TryParse(m.Groups[1].Value.Replace(',', '.'), NumberStyles.Any, CultureInfo.InvariantCulture, out var v)
-            ? v
-            : null;
     }
 }
