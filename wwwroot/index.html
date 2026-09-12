@@ -1883,18 +1883,19 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                     headerScores.push({ score: `${knownScore.homeScore}-${knownScore.awayScore}`, live: allStillPending });
                 }
 
+                // No per-leg odds editing any more - one ticket, one cote
+                // to enter (the footer "Cote totale"/"Cote" input below,
+                // same for a single bet or a combo), matching how a
+                // bookmaker slip actually shows it: one total, not one
+                // number per selection. A leg's own Odds still exists
+                // internally (the AI's estimate, feeding
+                // ComboOddsCalculator's starting guess before the user
+                // overrides the total) but is display-only here now.
                 const rowsHtml = groupLegs.map(l => `
                     <div class="leg-row">
                         <span class="leg-icon">${resultIcon(l.result, 16)}</span>
                         <span class="leg-label">${betTypeLabel(l.betType, l.selection)}</span>
-                        ${(l.result === 'PENDING' && !IS_GUEST) ? `
-                        <span class="leg-odds-edit">
-                            <input type="number" min="1" step="0.01" id="odds-${l.kind}-${l.id}" value="${l.odds ? l.odds.toFixed(2) : ''}"
-                                   onkeydown="if(event.key==='Enter'){event.preventDefault(); this.nextElementSibling.click();}"
-                                   ${l.kind === 'bet' ? `placeholder="${(bet.confidence > 0 ? 1 / bet.confidence : 2).toFixed(2)}"` : ''}>
-                            <button type="button" onclick="saveOdds('${l.kind}', ${l.id}, this)">✓</button>
-                        </span>
-                        ` : `<span class="leg-odds-val">${l.odds ? l.odds.toFixed(2) : '-'}</span>`}
+                        <span class="leg-odds-val">${l.odds ? l.odds.toFixed(2) : '-'}</span>
                     </div>
                 `).join('');
 
@@ -2034,13 +2035,13 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                     </div>
                     <div class="ticket-footer">
                         <div class="footer-row cote">
-                            <span class="label">Cote totale</span>
-                            ${(bet.isCombo && bet.result === 'PENDING' && !IS_GUEST) ? `
+                            <span class="label">${bet.isCombo ? 'Cote totale' : 'Cote'}</span>
+                            ${(bet.result === 'PENDING' && !IS_GUEST) ? `
                             <span class="leg-odds-edit">
-                                <input type="number" min="1" step="0.01" id="odds-combo-${bet.id}" value="${bet.odds ? bet.odds.toFixed(2) : ''}"
-                                       title="Cote totale réelle (ex: vue sur Winamax) - remplace le calcul automatique"
+                                <input type="number" min="1" step="0.01" id="odds-${bet.isCombo ? 'combo' : 'bet'}-${bet.id}" value="${bet.odds ? bet.odds.toFixed(2) : ''}"
+                                       title="${bet.isCombo ? 'Cote totale réelle (ex: vue sur Winamax) - remplace le calcul automatique' : 'Cote réelle (ex: vue sur Winamax)'}"
                                        onkeydown="if(event.key==='Enter'){event.preventDefault(); this.nextElementSibling.click();}">
-                                <button type="button" onclick="saveOdds('combo', ${bet.id}, this)">✓</button>
+                                <button type="button" onclick="saveOdds('${bet.isCombo ? 'combo' : 'bet'}', ${bet.id}, this)">✓</button>
                             </span>
                             ` : `<span class="val">${displayOdds(bet.odds, bet.confidence)}</span>`}
                         </div>
@@ -2339,89 +2340,11 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
         // editable input alongside the raw recognized text rather than
         // auto-submitted straight away, since OCR digit misreads (2.29 read
         // as 2.28, say) are common enough that a quick human glance at the
-        // actual number before it's saved is worth the one extra click.
-        // Every currently-editable leg row on this ticket (PENDING, so it
-        // still has its own odds input) - {label, kind, id} per row, read
-        // straight off the already-rendered DOM rather than re-fetched,
-        // since ticketCard already has all of it. kind/id come from the
-        // input's own id ("odds-leg-123" -> kind "leg", id 123 - see
-        // ticketCard's leg-odds-edit markup), not a separate data
-        // attribute, so there's exactly one source of truth for it.
-        function collectEditableLegs(uid) {
-            return [...document.querySelectorAll(`#detail-${uid} .leg-row`)]
-                .map(row => {
-                    const input = row.querySelector('.leg-odds-edit input');
-                    if (!input) return null;
-                    const [, kind, id] = input.id.split('-');
-                    return { label: row.querySelector('.leg-label')?.textContent || '', kind, id: parseInt(id, 10) };
-                })
-                .filter(Boolean);
-        }
-
-        // Strips accents/punctuation and lowercases, so a fuzzy label match
-        // survives OCR's usual mangling (missed accents, merged spacing)
-        // without needing an exact string match.
-        function normalizeForMatch(s) {
-            return (s || '')
-                .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // strip accents (é -> e, è -> e, ...)
-                .toLowerCase()
-                .replace(/[^a-z0-9]+/g, ' ')
-                .trim();
-        }
-
-        // Finds this leg's own odds by fuzzy-matching its label (as shown
-        // in the ticket, e.g. "Victoire domicile") against every OCR'd
-        // line, then taking the nearest odds-shaped number to whichever
-        // line matched best. Requires at least half of the label's
-        // meaningful (3+ letter) words to appear on that line - a looser
-        // match risks grabbing some unrelated number. Returns null (leaving
-        // that leg blank for manual entry) rather than a low-confidence
-        // guess.
-        function findLegOddsInText(lines, legLabel) {
-            const targetWords = normalizeForMatch(legLabel).split(' ').filter(w => w.length > 2);
-            if (targetWords.length === 0) return null;
-
-            let bestIndex = -1, bestScore = 0;
-            for (let i = 0; i < lines.length; i++) {
-                const lineWords = normalizeForMatch(lines[i]);
-                if (!lineWords) continue;
-                const score = targetWords.filter(w => lineWords.includes(w)).length;
-                if (score > bestScore) { bestScore = score; bestIndex = i; }
-            }
-            if (bestIndex === -1 || bestScore < Math.ceil(targetWords.length / 2)) return null;
-
-            // A goal-line label ("Plus de 2.5 buts") carries its own
-            // threshold digit, so the label's own line needs care: with no
-            // digit in the label (e.g. "Victoire domicile"), any number on
-            // that same line is presumably odds printed right after it. With
-            // a digit in the label, only trust that same line when there
-            // are 2+ separate numbers on it - take the last one, on the
-            // assumption the threshold comes first and the odds are
-            // appended after - since a single number there is too
-            // ambiguous (the threshold, or the odds?) to guess between.
-            const numberRe = /(\d{1,3}[.,]\d{1,2})\b/;
-            const sameLine = lines[bestIndex];
-            if (!/\d/.test(legLabel)) {
-                const m = sameLine.match(numberRe);
-                if (m) return parseFloat(m[1].replace(',', '.'));
-            } else {
-                const all = [...sameLine.matchAll(new RegExp(numberRe, 'g'))];
-                if (all.length >= 2) return parseFloat(all[all.length - 1][1].replace(',', '.'));
-            }
-
-            // Stop at the "cote totale"/"mise" section rather than reading
-            // past it - otherwise an ambiguous same-line case just above
-            // (a single number, skipped) can end up grabbing the combo's
-            // own total a few lines down as if it were THIS leg's odds.
-            const boundaryRe = /cote\s*totale|^\s*mise\b/i;
-            for (let j = bestIndex + 1; j < Math.min(bestIndex + 4, lines.length); j++) {
-                if (boundaryRe.test(lines[j])) break;
-                const m = lines[j].match(numberRe);
-                if (m) return parseFloat(m[1].replace(',', '.'));
-            }
-            return null;
-        }
-
+        // actual number before it's saved is worth the one extra click. One
+        // number per ticket, same as the footer's own manual "Cote totale"/
+        // "Cote" input - no per-leg recognition, since a bookmaker slip
+        // itself usually only shows that one total, not one figure per
+        // selection.
         async function runOddsShotOcr(uid, file) {
             const body = document.getElementById(`odds-shot-body-${uid}`);
             const imgUrl = URL.createObjectURL(file);
@@ -2430,37 +2353,19 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             try {
                 await loadTesseract();
                 const { data: { text } } = await Tesseract.recognize(file, 'fra');
-                const lines = text.replace(/\r/g, '').split('\n');
                 const isCombo = uid.startsWith('combo-');
-
-                // The combo's own total (or the single bet's own odds) -
-                // same "cote totale"/"cote" search as before.
-                const totalOdds = parseOddsFromOcrText(text, isCombo);
-
-                // Per-leg odds only make sense for a real combo (2+ legs);
-                // a single bet's one "leg" is already the totalOdds above.
-                const legs = isCombo ? collectEditableLegs(uid) : [];
-                const legOddsResults = legs.map(leg => findLegOddsInText(lines, leg.label));
-                const legRowsHtml = legs.map((leg, i) => `
-                    <div class="odds-shot-result">
-                        <span style="flex:1;">${escapeHtml(leg.label)}</span>
-                        <input type="number" min="1" step="0.01" class="odds-shot-leg-input" data-kind="${leg.kind}" data-id="${leg.id}"
-                               value="${legOddsResults[i] != null ? legOddsResults[i].toFixed(2) : ''}" placeholder="?">
-                    </div>`).join('');
-
-                const nothingFound = totalOdds == null && legOddsResults.every(o => o == null);
+                const parsed = parseOddsFromOcrText(text, isCombo);
 
                 body.innerHTML = `
                     <img class="odds-shot-preview" src="${imgUrl}">
-                    ${legRowsHtml}
                     <div class="odds-shot-result">
-                        <span style="flex:1;">${isCombo ? 'Cote totale' : 'Cote'}</span>
-                        <input type="number" min="1" step="0.01" id="odds-shot-value-${uid}" value="${totalOdds != null ? totalOdds.toFixed(2) : ''}" placeholder="ex: 2.29">
+                        <span>${isCombo ? 'Cote totale reconnue\u00a0:' : 'Cote reconnue\u00a0:'}</span>
+                        <input type="number" min="1" step="0.01" id="odds-shot-value-${uid}" value="${parsed != null ? parsed.toFixed(2) : ''}" placeholder="ex: 2.29">
+                        <button type="button" onclick="confirmOddsShot('${uid}', this)">✓ Valider</button>
                     </div>
-                    <button type="button" onclick="confirmOddsShot('${uid}', this)">✓ Valider${legs.length ? ' tout' : ''}</button>
-                    ${nothingFound ? `<div class="odds-shot-result" style="color:var(--loss);">Rien reconnu automatiquement - vérifie le texte lu ci-dessous et tape les cotes à la main.</div>` : ''}
+                    ${parsed == null ? `<div class="odds-shot-result" style="color:var(--loss);">Rien reconnu automatiquement - vérifie le texte lu ci-dessous et tape la cote à la main.</div>` : ''}
                     <details>
-                        <summary style="cursor:pointer; font-size:0.75em; color:var(--text-faint);">Texte lu (si un nombre semble faux)</summary>
+                        <summary style="cursor:pointer; font-size:0.75em; color:var(--text-faint);">Texte lu (si le nombre semble faux)</summary>
                         <div class="odds-shot-rawtext">${escapeHtml(text.trim())}</div>
                     </details>
                 `;
@@ -2490,50 +2395,30 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             return null;
         }
 
-        // Submits every leg's own odds first, THEN the combo/bet total last
-        // - a leg edit alone would recompute CombinedOdds from
-        // ComboOddsCalculator's formula (see /api/set-odds's 'leg' kind),
-        // so submitting the manually-confirmed total afterward guarantees
-        // it's the one that actually sticks, while the per-leg values
-        // still get recorded for OddsLearningService. Blank inputs (OCR
-        // found nothing there) are just skipped, not submitted as 0/invalid.
+        // Submits the one recognized/typed-in total through the same
+        // /api/set-odds a manual entry (the footer input) would use -
+        // 'combo' overrides ComboOddsCalculator's estimate outright and
+        // sticks (CombinedOddsIsManual), 'bet' just sets the single bet's
+        // own Odds directly.
         async function confirmOddsShot(uid, btnEl) {
-            const isCombo = uid.startsWith('combo-');
-            const legInputs = [...document.querySelectorAll(`#odds-shot-body-${uid} .odds-shot-leg-input`)];
-            const totalInput = document.getElementById(`odds-shot-value-${uid}`);
-
-            const toSubmit = [];
-            for (const li of legInputs) {
-                const v = parseFloat(li.value);
-                if (v && v >= 1) toSubmit.push({ kind: li.dataset.kind, id: parseInt(li.dataset.id, 10), odds: v });
-            }
-            const totalOdds = parseFloat(totalInput.value);
-            if (totalOdds && totalOdds >= 1) {
-                toSubmit.push({ kind: isCombo ? 'combo' : 'bet', id: parseInt(uid.slice(uid.indexOf('-') + 1), 10), odds: totalOdds });
-            }
-
-            if (toSubmit.length === 0) {
-                showAppAlert('Entre au moins une cote valide (>= 1.0)');
+            const input = document.getElementById(`odds-shot-value-${uid}`);
+            const odds = parseFloat(input.value);
+            if (!odds || odds < 1) {
+                showAppAlert('Entre une cote valide (>= 1.0)');
                 return;
             }
+            const isCombo = uid.startsWith('combo-');
+            const id = parseInt(uid.slice(uid.indexOf('-') + 1), 10);
 
             btnEl.disabled = true;
-            const failed = [];
-            for (const { kind, id, odds } of toSubmit) {
-                try {
-                    const res = await mutatingFetch('/api/set-odds', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ kind, id, odds })
-                    });
-                    const data = await res.json();
-                    if (!data.success) failed.push(data.message || kind);
-                } catch (e) {
-                    failed.push(e.message);
-                }
-            }
-            if (failed.length) showAppAlert(`Échec(s) : ${failed.join(', ')}`);
             try {
+                const res = await mutatingFetch('/api/set-odds', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ kind: isCombo ? 'combo' : 'bet', id, odds })
+                });
+                const data = await res.json();
+                if (!data.success) throw new Error(data.message);
                 await refreshAll();
             } catch (e) {
                 showAppAlert('Erreur: ' + e.message);
