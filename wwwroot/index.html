@@ -629,6 +629,12 @@ button:disabled { opacity: 0.5; cursor: default; transform: none; }
     white-space: pre-wrap;
 }
 
+/* Batch odds import (see runBatchOddsImport) - reuses .odds-shot-dropzone/
+   -result/-rawtext (identical look, not scoped to a single ticket) for its
+   own dropzone and per-match review rows. */
+.batch-odds-panel { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 14px; }
+.batch-odds-panel[hidden] { display: none; }
+
 footer { text-align: center; color: var(--text-faint); font-size: 0.78em; padding-top: 12px; }
 
 /* ---- README (Home tab) ---- */
@@ -1135,6 +1141,9 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                 <button type="button" id="expandAllBtn" class="icon-toggle-btn" onclick="toggleExpandAll()" title="Tout déplier">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M8 10l4-4 4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 14l4 4 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
                 </button>
+                <button type="button" id="batchOddsBtn" class="icon-toggle-btn" onclick="toggleBatchOddsPanel()" title="Importer plusieurs cotes en une fois (capture ou PDF)">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M4 5h11l5 5v9a1 1 0 01-1 1H4a1 1 0 01-1-1V6a1 1 0 011-1z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M15 5v5h5" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M8 14h8M8 17h5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                </button>
             </div>
             <div class="button-row" style="margin-bottom: 14px;">
                 <button class="filter-btn active" data-filter="" onclick="setTicketFilter('')">Tous (<span id="filterCountAll">0</span>)</button>
@@ -1175,6 +1184,22 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                     </div>
                 </div>
             </div>
+
+            <!-- One capture (or a whole PDF, one match per page/section) with
+                 several matches at once - see runBatchOddsImport. Matches
+                 each recognized match name against EVERY currently PENDING
+                 ticket (not just what's on screen right now), regardless of
+                 the filters/pagination above. -->
+            <div class="batch-odds-panel" id="batchOddsPanel" hidden>
+                <div class="odds-shot-dropzone" tabindex="0"
+                     onclick="document.getElementById('batchOddsFile').click()"
+                     onpaste="handleBatchOddsPaste(event)">
+                    📋 Colle une capture (⌘V), ou clique pour choisir une image/PDF avec plusieurs matchs
+                </div>
+                <input type="file" accept="image/*,application/pdf" id="batchOddsFile" style="display:none" onchange="handleBatchOddsFile(this.files[0])">
+                <div id="batchOddsBody"></div>
+            </div>
+
             <div class="tickets-container" id="ticketsContainer">
                 <div class="empty-state">Chargement…</div>
             </div>
@@ -2422,6 +2447,222 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                 showAppAlert('Erreur: ' + e.message);
                 btnEl.disabled = false;
             }
+        }
+
+        function toggleBatchOddsPanel() {
+            const panel = document.getElementById('batchOddsPanel');
+            panel.hidden = !panel.hidden;
+        }
+
+        function handleBatchOddsFile(file) {
+            if (file) runBatchOddsImport(file);
+        }
+
+        function handleBatchOddsPaste(event) {
+            const item = [...(event.clipboardData?.items || [])].find(i => i.type.startsWith('image/'));
+            if (!item) return;
+            event.preventDefault();
+            runBatchOddsImport(item.getAsFile());
+        }
+
+        // pdf.js, loaded lazily only the first time a PDF is actually
+        // imported here - same reasoning as Tesseract.js, kept out of the
+        // normal page load otherwise.
+        let pdfjsLoadPromise = null;
+        function loadPdfJs() {
+            if (window.pdfjsLib) return Promise.resolve();
+            if (!pdfjsLoadPromise) {
+                pdfjsLoadPromise = new Promise((resolve, reject) => {
+                    const script = document.createElement('script');
+                    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.js';
+                    script.onload = () => {
+                        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.worker.min.js';
+                        resolve();
+                    };
+                    script.onerror = () => reject(new Error("Impossible de charger le moteur PDF (v\u00e9rifie ta connexion)"));
+                    document.head.appendChild(script);
+                });
+            }
+            return pdfjsLoadPromise;
+        }
+
+        // Renders every page of a PDF to a canvas and OCRs each one in
+        // turn, concatenating their recognized text (page order preserved,
+        // a blank line between pages) - lets the match-block parsing below
+        // treat a multi-page PDF of a whole day's slips exactly like one
+        // long screenshot. Tesseract itself must already be loaded by the
+        // caller (runBatchOddsImport) before this runs.
+        async function ocrPdf(file) {
+            await loadPdfJs();
+            const buf = await file.arrayBuffer();
+            const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+            let fullText = '';
+            for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+                const page = await pdf.getPage(pageNum);
+                const viewport = page.getViewport({ scale: 2 }); // upscaled - sharper OCR than the PDF's own point size
+                const canvas = document.createElement('canvas');
+                canvas.width = viewport.width;
+                canvas.height = viewport.height;
+                await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+                const { data: { text } } = await Tesseract.recognize(canvas, 'fra');
+                fullText += text + '\n';
+            }
+            return fullText;
+        }
+
+        // Strips accents/punctuation and lowercases so a fuzzy match
+        // survives OCR's usual mangling (missed accents, merged spacing)
+        // without needing an exact string match.
+        function normalizeForMatch(s) {
+            return (s || '')
+                .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // strip accents (\u00e9 -> e, \u00e8 -> e, ...)
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, ' ')
+                .trim();
+        }
+
+        // How well one OCR'd line matches a ticket's own "X vs Y" match
+        // name - the fraction of the match name's meaningful (3+ letter)
+        // words found in that line. Winamax's own separator is "X - Y",
+        // ours is "X vs Y" - doesn't matter once both are reduced to a bag
+        // of words (the literal "vs" is dropped so it never counts as a
+        // spurious hit).
+        function matchNameScore(ourMatchName, ocrLine) {
+            const targetWords = normalizeForMatch(ourMatchName).split(' ').filter(w => w.length > 2 && w !== 'vs');
+            if (targetWords.length === 0) return 0;
+            const lineWords = normalizeForMatch(ocrLine);
+            if (!lineWords) return 0;
+            const hits = targetWords.filter(w => lineWords.includes(w)).length;
+            return hits / targetWords.length;
+        }
+
+        // Imports odds for MANY tickets at once from one capture or PDF
+        // (one match block per section, e.g. a personal multi built by
+        // combining several of this app's own single-match tickets into
+        // one bigger bet on the bookmaker's side - see the app's README).
+        // Ignores whatever overall "cote totale" such a cross-match slip
+        // itself shows (that number belongs to a bet this app never models
+        // as one ticket) and only reads each individual match's own price,
+        // which is exactly this app's own per-ticket CombinedOdds/Odds.
+        async function runBatchOddsImport(file) {
+            const body = document.getElementById('batchOddsBody');
+            body.innerHTML = `<div class="odds-shot-result">\u23f3 Lecture du fichier\u2026</div>`;
+
+            try {
+                await loadTesseract();
+                const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '');
+                const text = isPdf ? await ocrPdf(file) : (await Tesseract.recognize(file, 'fra')).data.text;
+                const lines = text.replace(/\r/g, '').split('\n');
+
+                // Every currently PENDING ticket, regardless of the
+                // dashboard's own filter/sort/pagination - resultFilter
+                // with a high Limit gets every one of them in one call
+                // (see GetPortfolioEndpoint.MaxRecentBets).
+                const res = await fetch('/api/portfolio?resultFilter=PENDING&limit=500');
+                const portfolio = await res.json();
+                const pendingTickets = portfolio.recentBets || [];
+
+                if (pendingTickets.length === 0) {
+                    body.innerHTML = `<div class="odds-shot-result">Aucun ticket en cours \u00e0 mettre \u00e0 jour.</div>`;
+                    return;
+                }
+
+                // First pass: for each PENDING ticket, find the single OCR
+                // line that best names its match (majority of the match
+                // name's own words present) - its EARLIEST such line, so a
+                // repeated mention later (a summary section, say) doesn't
+                // retrigger it.
+                let bestPerTicket = [];
+                for (const ticket of pendingTickets) {
+                    let bestLine = -1, bestScore = 0;
+                    for (let i = 0; i < lines.length; i++) {
+                        const score = matchNameScore(ticket.match, lines[i]);
+                        if (score > bestScore) { bestScore = score; bestLine = i; }
+                    }
+                    if (bestLine !== -1 && bestScore >= 0.5) {
+                        bestPerTicket.push({ ticket, lineIndex: bestLine });
+                    }
+                }
+                bestPerTicket.sort((a, b) => a.lineIndex - b.lineIndex);
+
+                // Second pass: within each match's own block (from just
+                // after its name to whichever comes first among the next
+                // matched block, a "cote totale"/"mise" boundary line - the
+                // slip's own OVERALL total across every match, not this
+                // one's - or the end of the text), grab the first
+                // odds-shaped number.
+                const boundaryRe = /cote\s*totale|^\s*mise\b/i;
+                const numberRe = /(\d{1,3}[.,]\d{1,2})\b/;
+                const results = bestPerTicket.map((f, idx) => {
+                    const nextStart = idx + 1 < bestPerTicket.length ? bestPerTicket[idx + 1].lineIndex : lines.length;
+                    let odds = null;
+                    for (let j = f.lineIndex + 1; j < nextStart; j++) {
+                        if (boundaryRe.test(lines[j])) break;
+                        const m = lines[j].match(numberRe);
+                        if (m) { odds = parseFloat(m[1].replace(',', '.')); break; }
+                    }
+                    return { ticket: f.ticket, odds };
+                });
+
+                const matchedIds = new Set(bestPerTicket.map(f => `${f.ticket.isCombo}-${f.ticket.id}`));
+                const unmatchedTickets = pendingTickets.filter(t => !matchedIds.has(`${t.isCombo}-${t.id}`));
+
+                if (results.length === 0) {
+                    body.innerHTML = `<div class="odds-shot-result">Aucun match reconnu dans ce fichier parmi tes ${pendingTickets.length} ticket(s) en cours.</div>`;
+                    return;
+                }
+
+                const rowsHtml = results.map(r => `
+                    <div class="odds-shot-result">
+                        <span style="flex:1;">${escapeHtml(r.ticket.match)}</span>
+                        <input type="number" min="1" step="0.01" class="batch-odds-input" data-kind="${r.ticket.isCombo ? 'combo' : 'bet'}" data-id="${r.ticket.id}"
+                               value="${r.odds != null ? r.odds.toFixed(2) : ''}" placeholder="?">
+                    </div>`).join('');
+
+                body.innerHTML = `
+                    ${rowsHtml}
+                    <button type="button" onclick="confirmBatchOddsImport(this)">\u2713 Valider tout</button>
+                    ${unmatchedTickets.length ? `<div class="odds-shot-result" style="color:var(--loss);">Non trouv\u00e9(s) dans le fichier\u00a0: ${unmatchedTickets.map(t => escapeHtml(t.match)).join(', ')}</div>` : ''}
+                    <details>
+                        <summary style="cursor:pointer; font-size:0.75em; color:var(--text-faint);">Texte lu (si un nombre semble faux)</summary>
+                        <div class="odds-shot-rawtext">${escapeHtml(text.trim())}</div>
+                    </details>
+                `;
+            } catch (e) {
+                body.innerHTML = `<div class="odds-shot-result" style="color:var(--loss);">\u274c ${e.message}</div>`;
+            }
+        }
+
+        async function confirmBatchOddsImport(btnEl) {
+            const inputs = [...document.querySelectorAll('#batchOddsBody .batch-odds-input')];
+            const toSubmit = [];
+            for (const input of inputs) {
+                const v = parseFloat(input.value);
+                if (v && v >= 1) toSubmit.push({ kind: input.dataset.kind, id: parseInt(input.dataset.id, 10), odds: v });
+            }
+            if (toSubmit.length === 0) {
+                showAppAlert('Entre au moins une cote valide (>= 1.0)');
+                return;
+            }
+
+            btnEl.disabled = true;
+            const failed = [];
+            for (const { kind, id, odds } of toSubmit) {
+                try {
+                    const res = await mutatingFetch('/api/set-odds', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ kind, id, odds })
+                    });
+                    const data = await res.json();
+                    if (!data.success) failed.push(data.message || kind);
+                } catch (e) {
+                    failed.push(e.message);
+                }
+            }
+            if (failed.length) showAppAlert(`\u00c9chec(s)\u00a0: ${failed.join(', ')}`);
+            await refreshAll();
+            document.getElementById('batchOddsPanel').hidden = true;
         }
 
         // Backfills the real score on a ticket settled before scores were
