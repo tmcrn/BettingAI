@@ -279,6 +279,46 @@ button:disabled { opacity: 0.5; cursor: default; transform: none; }
 .league-filter-option:hover { background: var(--surface-2); }
 .league-filter-option.active { background: var(--accent-dim); color: var(--accent); }
 
+/* Sort-order popover (tri Confiance/Heure de match) - same recipe as the
+   league filter popover just above, kept as its own class pair since the
+   two panels toggle/close independently. */
+.sort-filter-wrap { position: relative; display: inline-flex; align-items: center; }
+.sort-filter-panel {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 6px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: var(--shadow);
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 170px;
+    z-index: 40;
+}
+.sort-filter-panel[hidden] { display: none; }
+.sort-filter-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 7px;
+    background: none;
+    border: none;
+    box-shadow: none;
+    font-size: 0.85em;
+    font-weight: 600;
+    color: var(--text-dim);
+    text-align: left;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.sort-filter-option:hover { background: var(--surface-2); }
+.sort-filter-option.active { background: var(--accent-dim); color: var(--accent); }
+
 /* ---- Tickets ---- */
 .tickets-container {
     display: grid;
@@ -1068,6 +1108,21 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                         <button class="league-filter-option" data-league="BL1" onclick="setLeagueFilter('BL1')"><img src="https://uxwing.com/wp-content/themes/uxwing/download/flags-landmarks/germany-flag-round-circle-icon.png" onerror="this.remove()">Bundesliga</button>
                         <button class="league-filter-option" data-league="CL" onclick="setLeagueFilter('CL')"><img src="https://assets.football-logos.cc/logos/tournaments/700x700/uefa-champions-league--no-text.f646687c.png" onerror="this.remove()">Ligue des Champions</button>
                         <button class="league-filter-option" data-league="PPL" onclick="setLeagueFilter('PPL')"><img src="https://uxwing.com/wp-content/themes/uxwing/download/flags-landmarks/portugal-flag-round-circle-icon.png" onerror="this.remove()">Primeira Liga</button>
+                    </div>
+                </div>
+
+                <!-- Tri: par défaut les tickets les plus récents en premier -
+                     ce menu permet de basculer sur un tri par confiance IA ou
+                     par heure de coup d'envoi, sans perdre les filtres
+                     ci-dessus (résultat/ligue), toujours appliqués à côté. -->
+                <div class="sort-filter-wrap" id="sortFilterWrap">
+                    <button type="button" id="sortFilterBtn" class="icon-toggle-btn" onclick="toggleSortFilterPanel(event)" title="Trier les tickets">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M6 4v16M6 4l-3 3M6 4l3 3M18 20V4M18 20l3-3M18 20l-3-3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    </button>
+                    <div class="sort-filter-panel" id="sortFilterPanel" hidden>
+                        <button class="sort-filter-option active" data-sort="" onclick="setSortBy('')">🕐 Plus récents</button>
+                        <button class="sort-filter-option" data-sort="confidence" onclick="setSortBy('confidence')">🎯 Confiance IA</button>
+                        <button class="sort-filter-option" data-sort="matchtime" onclick="setSortBy('matchtime')">⚽ Heure de match</button>
                     </div>
                 </div>
             </div>
@@ -1937,6 +1992,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
 
         function toggleLeagueFilterPanel(event) {
             event.stopPropagation();
+            document.getElementById('sortFilterPanel').hidden = true;
             document.getElementById('leagueFilterPanel').hidden = !document.getElementById('leagueFilterPanel').hidden;
         }
 
@@ -1956,7 +2012,32 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
         // instant it's opened.
         document.addEventListener('click', () => {
             document.getElementById('leagueFilterPanel').hidden = true;
+            document.getElementById('sortFilterPanel').hidden = true;
         });
+
+        // Sort order for RecentBets - '' (default) is CreatedAt (most recent
+        // first, server-side), 'confidence' re-sorts by Confidence (highest
+        // first), 'matchtime' by the match's own kickoff time (latest/soonest
+        // first). Combines with ticketFilter/leagueFilter rather than
+        // replacing them - see GetPortfolio.cs's SortBy.
+        let sortBy = '';
+
+        function toggleSortFilterPanel(event) {
+            event.stopPropagation();
+            document.getElementById('leagueFilterPanel').hidden = true;
+            document.getElementById('sortFilterPanel').hidden = !document.getElementById('sortFilterPanel').hidden;
+        }
+
+        function setSortBy(value) {
+            sortBy = value;
+            ticketsLimit = 15;
+            document.querySelectorAll('.sort-filter-option').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.sort === value);
+            });
+            document.getElementById('sortFilterBtn').classList.toggle('active', value !== '');
+            document.getElementById('sortFilterPanel').hidden = true;
+            refreshPortfolio();
+        }
 
         function loadMoreTickets() {
             ticketsLimit += 15;
@@ -1967,6 +2048,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             const params = new URLSearchParams({ limit: ticketsLimit });
             if (ticketFilter) params.set('resultFilter', ticketFilter);
             if (leagueFilter) params.set('league', leagueFilter);
+            if (sortBy) params.set('sortBy', sortBy);
             const res = await fetch(`/api/portfolio?${params}`);
             const p = await res.json();
 

@@ -143,6 +143,18 @@ public class GetPortfolioRequest
     // rather than assuming it).
     [QueryParam]
     public string? League { get; set; }
+
+    // Optional: "confidence" | "matchtime" - changes RecentBets' order away
+    // from the default (CreatedAt, i.e. when the AI placed the bet, most
+    // recent first). "confidence" sorts by Confidence, highest first.
+    // "matchtime" sorts by the match's own kickoff time, most recent/latest
+    // first - same direction as the default so switching sort feels like a
+    // re-sort of the same list rather than a reversal. For a combo (no
+    // single kickoff of its own) this uses its earliest leg's MatchUtcDate,
+    // matching the "first kickoff" already shown in the ticket's header.
+    // Anything else (null, unrecognized) keeps the CreatedAt default.
+    [QueryParam]
+    public string? SortBy { get; set; }
 }
 
 public class GetPortfolioEndpoint : Endpoint<GetPortfolioRequest, GetPortfolioResponse>
@@ -209,8 +221,8 @@ public class GetPortfolioEndpoint : Endpoint<GetPortfolioRequest, GetPortfolioRe
         var streakResult = settledChronological.Count > 0 ? settledChronological[0].Result : null;
         var streakCount = settledChronological.TakeWhile(x => x.Result == streakResult).Count();
 
-        var recentBets = bets
-            .Select(b => (CreatedAt: b.CreatedAt, Item: new BetHistoryItem
+        var betsAndCombos = bets
+            .Select(b => (CreatedAt: b.CreatedAt, MatchTime: b.MatchUtcDate ?? DateTime.MinValue, Item: new BetHistoryItem
             {
                 Id = b.Id,
                 MatchId = b.MatchId,
@@ -232,7 +244,11 @@ public class GetPortfolioEndpoint : Endpoint<GetPortfolioRequest, GetPortfolioRe
                 HomeTeamCrest = b.HomeTeamCrest,
                 AwayTeamCrest = b.AwayTeamCrest
             }))
-            .Concat(combos.Select(c => (CreatedAt: c.CreatedAt, Item: new BetHistoryItem
+            .Concat(combos.Select(c => (
+                CreatedAt: c.CreatedAt,
+                MatchTime: c.Legs.Select(l => l.MatchUtcDate).Where(d => d.HasValue).Select(d => d!.Value)
+                    .DefaultIfEmpty(DateTime.MinValue).Min(),
+                Item: new BetHistoryItem
             {
                 Id = c.Id,
                 MatchId = null,
@@ -270,8 +286,21 @@ public class GetPortfolioEndpoint : Endpoint<GetPortfolioRequest, GetPortfolioRe
                     HomeTeamCrest = l.HomeTeamCrest,
                     AwayTeamCrest = l.AwayTeamCrest
                 }).ToList()
-            })))
-            .OrderByDescending(x => x.CreatedAt)
+            })));
+
+        // Default keeps the historical order (CreatedAt, most recent first);
+        // "confidence"/"matchtime" let the dashboard re-sort the same
+        // filtered list around a different question ("what does the AI
+        // trust most?" / "what's the latest/soonest match?") without losing
+        // ResultFilter/League, which are applied after this either way.
+        IEnumerable<(DateTime CreatedAt, DateTime MatchTime, BetHistoryItem Item)> orderedBets = req.SortBy switch
+        {
+            "confidence" => betsAndCombos.OrderByDescending(x => x.Item.Confidence),
+            "matchtime" => betsAndCombos.OrderByDescending(x => x.MatchTime),
+            _ => betsAndCombos.OrderByDescending(x => x.CreatedAt)
+        };
+
+        var recentBets = orderedBets
             .Select(x => x.Item)
             .Where(item => req.ResultFilter == null || item.Result == req.ResultFilter)
             .Where(item => req.League == null
