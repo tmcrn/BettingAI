@@ -1,7 +1,7 @@
 namespace BettingAI.Models;
 
-// Learned average of REAL odds (Sofascore scrape or hand-entered by the
-// user) seen for each bet type - one row per BetType. Used as the fallback
+// Learned average of REAL odds (hand-entered by the user) seen for each bet
+// type - one row per BetType. Used as the fallback
 // estimate for a combo leg/bet with no real odds resolved at decision time,
 // instead of a flat guess that was wildly off for some types (a heavy
 // favorite at 1.07 shown/paid as 2.00). Never fabricated: SampleCount is

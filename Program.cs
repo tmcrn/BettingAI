@@ -9,7 +9,6 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddDbContext<BettingContext>(options =>
     options.UseSqlite("Data Source=betting.db"));  // ← FIX: Ajoute SQLite
 
-builder.Services.AddScoped<OddsScraperService>();
 builder.Services.AddScoped<BetSettlementService>();
 builder.Services.AddScoped<TeamStatsSeedingService>();
 builder.Services.AddScoped<WinPredictionService>();

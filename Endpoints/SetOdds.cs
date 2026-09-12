@@ -19,8 +19,8 @@ public class SetOddsResponse
 }
 
 // Lets the user directly enter the real odds they see on their own
-// bookmaker for a bet/combo leg, instead of relying only on the Sofascore
-// scrape (often not published yet at decision time) or the confidence-
+// bookmaker for a bet/combo leg (there is no automatic scrape anymore -
+// odds are always hand-entered), instead of relying on the confidence-
 // derived estimate. Only while PENDING - once a bet is settled its payout
 // is already computed and fixed.
 public class SetOddsEndpoint : Endpoint<SetOddsRequest, SetOddsResponse>

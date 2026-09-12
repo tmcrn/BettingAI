@@ -4,9 +4,9 @@ using Microsoft.EntityFrameworkCore;
 
 namespace BettingAI.Services;
 
-// Learns a real average odds per bet type from actual odds seen (Sofascore
-// scrape resolved at decision time, or hand-entered by the user via
-// SetOddsEndpoint/ManualSettle) - replaces the old flat "2x" guess used for
+// Learns a real average odds per bet type from actual odds seen (hand-entered
+// by the user via SetOddsEndpoint/ManualSettle - no more automatic Sofascore
+// scrape) - replaces the old flat "2x" guess used for
 // combo legs with no real odds resolved, the same transparent, sample-gated
 // pattern as WinPredictionService: a plain running average per bet type,
 // never trusted until MinSample real observations exist.

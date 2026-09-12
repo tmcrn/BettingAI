@@ -40,15 +40,13 @@ public class AutoDecideBetsRequest
 public class AutoDecideBetsEndpoint : Endpoint<AutoDecideBetsRequest, AutoDecideResponse>
 {
     private readonly HttpClient _httpClient;
-    private readonly OddsScraperService _scraper;
     private readonly BettingContext _db;
     private readonly DiscordNotificationService _discord;
     private readonly CycleStatusService _cycleStatus;
 
-    public AutoDecideBetsEndpoint(HttpClient httpClient, OddsScraperService scraper, BettingContext db, DiscordNotificationService discord, CycleStatusService cycleStatus)
+    public AutoDecideBetsEndpoint(HttpClient httpClient, BettingContext db, DiscordNotificationService discord, CycleStatusService cycleStatus)
     {
         _httpClient = httpClient;
-        _scraper = scraper;
         _db = db;
         _discord = discord;
         _cycleStatus = cycleStatus;
@@ -132,11 +130,14 @@ public class AutoDecideBetsEndpoint : Endpoint<AutoDecideBetsRequest, AutoDecide
 
             Console.WriteLine($"✓ Found {upcomingMatches.Count} upcoming matches");
 
-            // 2️⃣ Pour chaque match, tente de scraper les cotes - mais garde le
-            // match même sans cotes réelles: DecideBets sait encore proposer
-            // des paris "stats seules" (BTTS, over/under) dessus à partir de
-            // TeamStats, sans avoir besoin de cotes 1X2. Exclure ces matchs
-            // ici les aurait empêché d'atteindre l'IA pour ce type de pari.
+            // 2️⃣ Plus de scraping automatique de cotes ici (l'ancien scrape
+            // Sofascore a été retiré - les cotes réelles sont désormais
+            // saisies à la main via /api/set-odds une fois le pari placé,
+            // voir SetOddsEndpoint). DecideBets propose ses paris purement à
+            // partir des stats (TeamStats/xG/form), sans jamais avoir eu
+            // besoin de cotes 1X2 pour décider - seulement pour le payout au
+            // règlement, qui retombe sur une estimation tant que la cote
+            // réelle n'a pas été saisie à la main.
             // Limite haute de sécurité, pas une vraie limite métier - avec un cycle
             // quotidien couvrant toute la journée sur 5 championnats, on peut
             // facilement avoir 15-25 matchs. À noter: Mistral tourne ici avec une
@@ -145,16 +146,10 @@ public class AutoDecideBetsEndpoint : Endpoint<AutoDecideBetsRequest, AutoDecide
             // par match) peut la dépasser et dégrader/tronquer la réponse. À surveiller
             // si des cycles à forte affluence de matchs produisent des réponses
             // visiblement incomplètes.
-            var matchesWithOdds = new List<dynamic>();
-            var matchesWithRealOdds = 0;
+            var matchesToAnalyze = new List<dynamic>();
             foreach (var match in upcomingMatches.Take(25))
             {
-                Console.WriteLine($"  Scraping odds for: {match.HomeTeam} vs {match.AwayTeam}");
-
-                var odds = await _scraper.GetSofascoreOdds(match.HomeTeam, match.AwayTeam);
-                if (odds != null) matchesWithRealOdds++;
-
-                matchesWithOdds.Add(new
+                matchesToAnalyze.Add(new
                 {
                     match.Id,
                     match.HomeTeam,
@@ -164,13 +159,11 @@ public class AutoDecideBetsEndpoint : Endpoint<AutoDecideBetsRequest, AutoDecide
                     match.AwayTeamShort,
                     match.HomeTeamCrest,
                     match.AwayTeamCrest,
-                    match.CompetitionCode,
-                    odds // null si pas encore publiées - DecideBets gère ce cas
+                    match.CompetitionCode
                 });
-                await Task.Delay(1000); // Rate limit respectueux
             }
 
-            Console.WriteLine($"✓ {matchesWithOdds.Count} matchs à analyser ({matchesWithRealOdds} avec cotes réelles)");
+            Console.WriteLine($"✓ {matchesToAnalyze.Count} matchs à analyser");
 
             // 3️⃣ Appelle decide-bets avec les matchs trouvés
             // Same formula as GetPortfolio: 10 + gains réglés - TOUTES les mises
@@ -186,7 +179,7 @@ public class AutoDecideBetsEndpoint : Endpoint<AutoDecideBetsRequest, AutoDecide
             var decideBetsPayload = new
             {
                 currentBalance = balance,
-                matches = matchesWithOdds.Select((m, index) => new  // ← index!
+                matches = matchesToAnalyze.Select((m, index) => new  // ← index!
                 {
                     id = index.ToString(),  // ← "0", "1", "2"... pour que l'IA le retrouve de façon fiable
                     realMatchId = (string)m.Id,  // ← vrai ID, conservé pour le règlement automatique
@@ -257,7 +250,7 @@ public class AutoDecideBetsEndpoint : Endpoint<AutoDecideBetsRequest, AutoDecide
 
                     // DecideBets now echoes back what it actually PERSISTED (real
                     // homeTeam/awayTeam included directly), not the AI's raw proposal
-                    // matched by index against matchesWithOdds - a bet rejected as a
+                    // matched by index against matchesToAnalyze - a bet rejected as a
                     // duplicate or over the balance floor simply isn't in this list at
                     // all anymore, instead of misreporting as placed.
                     var homeTeam = bet.TryGetProperty("homeTeam", out var htEl) ? htEl.GetString() : null;
@@ -288,16 +281,14 @@ public class AutoDecideBetsEndpoint : Endpoint<AutoDecideBetsRequest, AutoDecide
 
                 var reason = malformedResponse
                     ? "L'IA n'a pas répondu dans le format attendu (même après une relance) - aucune décision n'a donc pu être prise ce cycle, indépendamment des stats des matchs"
-                    : matchesWithRealOdds > 0
-                        ? "Matchs analysés (dont certains avec cotes réelles), mais aucun pari ne remplissait les critères de l'IA"
-                        : "Matchs analysés sur stats seules (aucune cote réelle publiée pour l'instant), mais aucun pari ne remplissait les critères de l'IA";
-                await _discord.NotifyNoActionAsync(reason, upcomingMatches.Count, matchesWithRealOdds);
+                    : "Matchs analysés sur stats seules, mais aucun pari ne remplissait les critères de l'IA";
+                await _discord.NotifyNoActionAsync(reason, upcomingMatches.Count);
                 _cycleStatus.Record(malformedResponse ? "ai_malformed_response" : "no_bets", upcomingMatches.Count, 0, reason);
             }
             else
             {
                 _cycleStatus.Record("bets_placed", upcomingMatches.Count, bets.Count, $"{bets.Count} pari(s) placé(s)");
-                await _discord.NotifyCycleSummaryAsync(upcomingMatches.Count, matchesWithRealOdds, bets.Count);
+                await _discord.NotifyCycleSummaryAsync(upcomingMatches.Count, bets.Count);
             }
 
             await Send.OkAsync(new AutoDecideResponse

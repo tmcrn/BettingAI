@@ -32,10 +32,12 @@ public class DecideBetsResponse
 public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse>
 {
     // The AI decides every bet type purely from TeamStats/xG/form - never
-    // gated on whether real odds exist. Real odds, when Sofascore has them,
-    // are used ONLY to compute the actual payout on settlement (a realistic
-    // portfolio number) - never to block or steer the decision itself.
-    // These are the types priceable from real scraped 1X2 odds (home/draw/away);
+    // gated on whether real odds exist. Real odds, hand-entered by the user
+    // via /api/set-odds once a bet is placed (no more automatic scraping -
+    // see SetOddsEndpoint), are used ONLY to compute the actual payout on
+    // settlement (a realistic portfolio number) - never to block or steer
+    // the decision itself.
+    // These are the types priceable from real 1X2 odds (home/draw/away);
     // everything else falls back to a flat 2x payout multiplier.
     private static readonly HashSet<string> OneXTwoFamilyTypes = new()
     {
@@ -287,30 +289,15 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
         var analysisInfo = string.Join("\n\n", analysisPerMatch.Select(kv =>
             $"{kv.Key}: {kv.Value}"));
 
-        // ⭐ RÉCUPÈRE LES VRAIES COTES 1X2 (les seules qu'on a réellement)
+        // ⭐ COTES 1X2: plus de scraping automatique (Sofascore a été retiré) -
+        // l'utilisateur saisit lui-même les vraies cotes après coup via
+        // /api/set-odds, une fois le pari placé (voir SetOddsEndpoint). Ces
+        // deux dictionnaires restent donc vides ici: chaque pari est décidé
+        // purement sur les stats, et pricé via EstimateOdds (moyenne apprise,
+        // sinon un multiplicateur plat 2x) jusqu'à ce que la cote réelle soit
+        // saisie à la main.
         var oddsPerMatch = new Dictionary<string, string>();
         var resolvedOdds = new Dictionary<string, (decimal home, decimal draw, decimal away)>();
-        foreach (var match in req.Matches)
-        {
-            try
-            {
-                var oddsHttpRequest = new HttpRequestMessage(System.Net.Http.HttpMethod.Post, "http://localhost:5255/api/fetch-odds")
-                {
-                    Content = JsonContent.Create(new { homeTeam = match.HomeTeam, awayTeam = match.AwayTeam })
-                };
-                OwnerAuth.AttachSelfCallToken(oddsHttpRequest);
-                var oddsResp = await _httpClient.SendAsync(oddsHttpRequest, ct);
-                var oddsText = await oddsResp.Content.ReadAsStringAsync();
-                oddsPerMatch[match.Id ?? "unknown"] = oddsText;
-
-                var parsed = ParseOneXTwoOdds(oddsText);
-                if (parsed != null && match.Id != null)
-                {
-                    resolvedOdds[match.Id] = parsed.Value;
-                }
-            }
-            catch { }
-        }
 
         // Learned real-odds averages per bet type (from Sofascore-resolved
         // odds and hand-entered corrections via SetOddsEndpoint/ManualSettle)
@@ -1045,27 +1032,6 @@ A same-match combo looks like:
 ]
 
 REMEMBER: Start with [ immediately. No preamble. No markdown. Just JSON.";
-    }
-
-    private static (decimal home, decimal draw, decimal away)? ParseOneXTwoOdds(string? oddsJson)
-    {
-        if (string.IsNullOrWhiteSpace(oddsJson)) return null;
-        try
-        {
-            using var doc = JsonDocument.Parse(oddsJson);
-            if (!doc.RootElement.TryGetProperty("success", out var successEl) || !successEl.GetBoolean()) return null;
-            if (!doc.RootElement.TryGetProperty("odds", out var odds)) return null;
-
-            return (
-                odds.GetProperty("homeWin").GetDecimal(),
-                odds.GetProperty("draw").GetDecimal(),
-                odds.GetProperty("awayWin").GetDecimal()
-            );
-        }
-        catch
-        {
-            return null;
-        }
     }
 
     private static decimal? ResolveLegOdds(string? betType, (decimal home, decimal draw, decimal away) odds)
