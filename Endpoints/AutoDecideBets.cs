@@ -140,14 +140,17 @@ public class AutoDecideBetsEndpoint : Endpoint<AutoDecideBetsRequest, AutoDecide
             // réelle n'a pas été saisie à la main.
             // Limite haute de sécurité, pas une vraie limite métier - avec un cycle
             // quotidien couvrant toute la journée sur 5 championnats, on peut
-            // facilement avoir 15-25 matchs. À noter: Mistral tourne ici avec une
-            // fenêtre de contexte de 4096 tokens (voir la config Ollama) - un trop
-            // grand nombre de matchs dans un seul prompt (analyse + cotes détaillées
-            // par match) peut la dépasser et dégrader/tronquer la réponse. À surveiller
-            // si des cycles à forte affluence de matchs produisent des réponses
-            // visiblement incomplètes.
+            // largement dépasser 25 matchs (déjà vu 28 en une seule journée, ce qui
+            // coupait silencieusement les derniers matchs de la soirée - typiquement
+            // les 21h - puisque upcomingMatches est trié par heure de coup d'envoi
+            // croissante). Relevée à 40 pour couvrir ces journées chargées. À noter:
+            // Mistral tourne ici avec une fenêtre de contexte de 4096 tokens (voir la
+            // config Ollama) - un trop grand nombre de matchs dans un seul prompt
+            // (analyse + cotes détaillées par match) peut la dépasser et dégrader/
+            // tronquer la réponse. À surveiller si des cycles à forte affluence de
+            // matchs produisent des réponses visiblement incomplètes.
             var matchesToAnalyze = new List<dynamic>();
-            foreach (var match in upcomingMatches.Take(25))
+            foreach (var match in upcomingMatches.Take(40))
             {
                 matchesToAnalyze.Add(new
                 {
