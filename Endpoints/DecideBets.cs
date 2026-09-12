@@ -595,7 +595,6 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
 
                     var effectiveOutcomeOdds = EffectiveOdds(outcomeBet);
                     combo.Legs.Add(ToLeg(outcomeBet, effectiveOutcomeOdds));
-                    combo.CombinedOdds *= effectiveOutcomeOdds;
                     combo.Confidence = CombineConfidence(combo.Confidence, outcomeBet.Confidence);
                     combo.Reasoning = $"{outcomeBet.Reasoning} | {combo.Reasoning}";
                     // The combo's stake doesn't grow just because it picked up
@@ -605,6 +604,12 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
                     // the rest of this cycle's remaining matches.
                     projectedBalance += outcomeBet.Stake;
                 }
+                // Recompute from every leg at once now that they're all
+                // added, rather than multiplying odds in incrementally -
+                // see ComboOddsCalculator for why a same-match pair isn't a
+                // plain product.
+                combo.CombinedOdds = ComboOddsCalculator.Calculate(
+                    combo.Legs.Select(l => (l.MatchId, l.BetType, l.Odds)));
                 debugLog.Add($"MERGED: {outcomeBets.Count} OUTCOME bet(s) folded into the GOALS combo for {outcomeBets[0].HomeTeam} vs {outcomeBets[0].AwayTeam}");
                 return;
             }
@@ -650,7 +655,8 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
                 Stake = allSingles.Min(b => b.Stake),
                 Confidence = allSingles.Select(b => b.Confidence).Aggregate(CombineConfidence),
                 Reasoning = string.Join(" | ", allSingles.Select(b => b.Reasoning)),
-                CombinedOdds = legOdds.Aggregate(1m, (acc, o) => acc * o),
+                CombinedOdds = ComboOddsCalculator.Calculate(
+                    allSingles.Zip(legOdds, (b, odds) => (b.MatchId, b.BetType, odds))),
                 Result = "PENDING",
                 Legs = allSingles.Zip(legOdds, ToLeg).ToList()
             };
@@ -1085,7 +1091,6 @@ REMEMBER: Start with [ immediately. No preamble. No markdown. Just JSON.";
         // never both happen) or redundant (HOME_WIN + HOME_WIN_OR_DRAW, the
         // second already covers the first).
         var legsByMatch = new Dictionary<string, HashSet<string>>();
-        var combinedOdds = 1m;
 
         foreach (var legDecision in bet.Legs!)
         {
@@ -1151,8 +1156,6 @@ REMEMBER: Start with [ immediately. No preamble. No markdown. Just JSON.";
             }
             var effectiveLegOdds = legOdds ?? EstimateOdds(legDecision.Type, learnedOdds);
 
-            combinedOdds *= effectiveLegOdds;
-
             // Only the whole combo's overall confidence is available per leg
             // here (the AI states one confidence for the whole COMBO
             // proposal, not one per leg) - see the comment on
@@ -1192,7 +1195,9 @@ REMEMBER: Start with [ immediately. No preamble. No markdown. Just JSON.";
             Stake = bet.Stake,
             Confidence = bet.Confidence ?? 0,
             Reasoning = bet.Reasoning,
-            CombinedOdds = combinedOdds,
+            // See ComboOddsCalculator for why this isn't a plain product of
+            // every leg's own odds once two legs share the same match.
+            CombinedOdds = ComboOddsCalculator.Calculate(legs.Select(l => (l.MatchId, l.BetType, l.Odds))),
             Result = "PENDING",
             Legs = legs
         };

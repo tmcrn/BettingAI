@@ -104,10 +104,13 @@ public class SetOddsEndpoint : Endpoint<SetOddsRequest, SetOddsResponse>
 
             // Recompute the combo's combined odds from every leg's current
             // value (real, manually entered, or still the flat estimate for
-            // whichever legs haven't been corrected yet).
+            // whichever legs haven't been corrected yet) - see
+            // ComboOddsCalculator for why this isn't a plain product once
+            // two legs share the same match.
             if (leg.BetCombo.Result == "PENDING")
             {
-                leg.BetCombo.CombinedOdds = leg.BetCombo.Legs.Aggregate(1m, (acc, l) => acc * l.Odds);
+                leg.BetCombo.CombinedOdds = ComboOddsCalculator.Calculate(
+                    leg.BetCombo.Legs.Select(l => (l.MatchId, l.BetType, l.Odds)));
             }
 
             await _context.SaveChangesAsync(ct);
