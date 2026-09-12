@@ -1186,18 +1186,22 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                 </div>
             </div>
 
-            <!-- One capture (or a whole PDF, one match per page/section) with
-                 several matches at once - see runBatchOddsImport. Matches
-                 each recognized match name against EVERY currently PENDING
-                 ticket (not just what's on screen right now), regardless of
-                 the filters/pagination above. -->
+            <!-- One or several captures (and/or a whole PDF, one match per
+                 page/section) with several matches at once - see
+                 runBatchOddsImport. Several files selected/pasted together
+                 are merged into ONE result table (e.g. one screenshot per
+                 scrolled section of a long ticket) instead of each new one
+                 replacing the last. Matches each recognized match name
+                 against EVERY currently PENDING ticket (not just what's on
+                 screen right now), regardless of the filters/pagination
+                 above. -->
             <div class="batch-odds-panel" id="batchOddsPanel" hidden>
                 <div class="odds-shot-dropzone" tabindex="0"
                      onclick="document.getElementById('batchOddsFile').click()"
                      onpaste="handleBatchOddsPaste(event)">
-                    📋 Colle une capture (⌘V), ou clique pour choisir une image/PDF avec plusieurs matchs
+                    📋 Colle une ou plusieurs captures (⌘V), ou clique pour choisir des images/PDF avec plusieurs matchs
                 </div>
-                <input type="file" accept="image/*,application/pdf" id="batchOddsFile" style="display:none" onchange="handleBatchOddsFile(this.files[0])">
+                <input type="file" accept="image/*,application/pdf" id="batchOddsFile" multiple style="display:none" onchange="handleBatchOddsFile(this.files)">
                 <div id="batchOddsBody"></div>
             </div>
 
@@ -2434,15 +2438,25 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             panel.hidden = !panel.hidden;
         }
 
-        function handleBatchOddsFile(file) {
-            if (file) runBatchOddsImport(file);
+        // Accepts several files at once (one per scrolled section of a long
+        // ticket, say) - each earlier import used to REPLACE the previous
+        // one's still-unconfirmed rows entirely, which was both surprising
+        // and impractical for anything needing more than one screenshot.
+        // Now every file selected/pasted together is merged into one
+        // confirmation table in a single pass - see runBatchOddsImport.
+        function handleBatchOddsFile(fileList) {
+            const files = [...(fileList || [])];
+            if (files.length) runBatchOddsImport(files);
         }
 
         function handleBatchOddsPaste(event) {
-            const item = [...(event.clipboardData?.items || [])].find(i => i.type.startsWith('image/'));
-            if (!item) return;
+            const files = [...(event.clipboardData?.items || [])]
+                .filter(i => i.type.startsWith('image/'))
+                .map(i => i.getAsFile())
+                .filter(Boolean);
+            if (files.length === 0) return;
             event.preventDefault();
-            runBatchOddsImport(item.getAsFile());
+            runBatchOddsImport(files);
         }
 
         // pdf.js, loaded lazily only the first time a PDF is actually
@@ -2502,20 +2516,21 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             return data;
         }
 
-        // Imports odds for MANY tickets at once from one capture or PDF
-        // (one match block per section, e.g. a personal multi built by
-        // combining several of this app's own single-match tickets into
-        // one bigger bet on the bookmaker's side - see the app's README).
-        // Ignores whatever overall "cote totale" such a cross-match slip
-        // itself shows (that number belongs to a bet this app never models
-        // as one ticket) and only reads each individual match's own price,
-        // which is exactly this app's own per-ticket CombinedOdds/Odds.
-        // Reading happens server-side (OcrBatchOddsEndpoint, a local Ollama
-        // vision model) - see runOddsShotOcr's comment for why that
-        // replaced the old client-side Tesseract.js approach.
-        async function runBatchOddsImport(file) {
+        // Imports odds for MANY tickets at once from one or several captures
+        // and/or PDFs together (one match block per section, e.g. a
+        // personal multi built by combining several of this app's own
+        // single-match tickets into one bigger bet on the bookmaker's side
+        // - see the app's README). Ignores whatever overall "cote totale"
+        // such a cross-match slip itself shows (that number belongs to a
+        // bet this app never models as one ticket) and only reads each
+        // individual match's own price, which is exactly this app's own
+        // per-ticket CombinedOdds/Odds. Reading happens server-side
+        // (OcrBatchOddsEndpoint, a local Ollama vision model) - see
+        // runOddsShotOcr's comment for why that replaced the old
+        // client-side Tesseract.js approach.
+        async function runBatchOddsImport(files) {
             const body = document.getElementById('batchOddsBody');
-            body.innerHTML = `<div class="odds-shot-result">⏳ Lecture du fichier (IA vision)…</div>`;
+            body.innerHTML = `<div class="odds-shot-result">⏳ Lecture du/des fichier(s) (IA vision)…</div>`;
 
             try {
                 // Every currently PENDING ticket, regardless of the
@@ -2534,8 +2549,19 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                 }
 
                 const matchNamesJson = JSON.stringify(pendingTickets.map(t => t.match));
-                const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '');
-                const images = isPdf ? await renderPdfPages(file) : [file];
+
+                // Flattens every input file into a plain list of images - a
+                // PDF expands into one image per page (renderPdfPages), a
+                // plain screenshot stays as-is - so several screenshots AND
+                // a PDF can all be dropped/pasted together in one go and
+                // read as a single combined batch instead of one file
+                // silently replacing whatever the previous one found.
+                const images = [];
+                for (const file of files) {
+                    const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '');
+                    if (isPdf) images.push(...await renderPdfPages(file));
+                    else images.push(file);
+                }
 
                 // One call per image/page - merges into oddsByIndex, first
                 // page to report a given ticket wins (a repeated mention on
