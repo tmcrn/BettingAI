@@ -2578,9 +2578,15 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                     const score = (p.predictedHomeScore != null && p.predictedAwayScore != null)
                         ? `${p.predictedHomeScore} - ${p.predictedAwayScore}`
                         : 'pas de prono';
-                    const reason = p.reasoning ? `<div style="color: var(--text-faint); font-size: 0.85em;">${p.reasoning}</div>` : '';
+                    // escapeHtml on both team names and the AI's free-text
+                    // reasoning - unescaped, a stray '<'/'>'/'&' in either
+                    // (plausible in a stats-comparison phrase like "attaque
+                    // > défense") silently breaks or truncates the display,
+                    // same risk already guarded against everywhere else
+                    // AI/user text reaches innerHTML in this file.
+                    const reason = p.reasoning ? `<div style="color: var(--text-faint); font-size: 0.85em;">${escapeHtml(p.reasoning)}</div>` : '';
                     return `<div style="padding: 8px 0; border-bottom: 1px solid var(--border);">
-                        <strong>${p.homeTeam} ${score} ${p.awayTeam}</strong>${reason}
+                        <strong>${escapeHtml(p.homeTeam)} ${score} ${escapeHtml(p.awayTeam)}</strong>${reason}
                     </div>`;
                 }).join('');
                 document.getElementById('pronosText').value = data.formattedText || '';
