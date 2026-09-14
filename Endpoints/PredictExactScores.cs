@@ -106,14 +106,25 @@ public class PredictExactScoresEndpoint : Endpoint<PredictExactScoresRequest, Pr
             var home = statsByTeam.GetValueOrDefault(m.HomeTeam ?? "");
             var away = statsByTeam.GetValueOrDefault(m.AwayTeam ?? "");
             return $"{i}: {m.HomeTeam} (domicile) vs {m.AwayTeam} (extérieur)\n" +
-                $"   {m.HomeTeam} - xG: {home?.xG.ToString() ?? "?"} | xGA: {home?.xGA.ToString() ?? "?"} | forme (5 derniers): {home?.FormLast5.ToString() ?? "?"}\n" +
-                $"   {m.AwayTeam} - xG: {away?.xG.ToString() ?? "?"} | xGA: {away?.xGA.ToString() ?? "?"} | forme (5 derniers): {away?.FormLast5.ToString() ?? "?"}";
+                $"   {m.HomeTeam} - xG: {StatOrNoHistory(home?.xG)} | xGA: {StatOrNoHistory(home?.xGA)} | forme (5 derniers): {StatOrNoHistory(home?.FormLast5)}\n" +
+                $"   {m.AwayTeam} - xG: {StatOrNoHistory(away?.xG)} | xGA: {StatOrNoHistory(away?.xGA)} | forme (5 derniers): {StatOrNoHistory(away?.FormLast5)}";
         }).ToList();
 
+        // Anchoring and "no signal to differentiate" were the two likely
+        // causes of every prono coming back as a same-magnitude 1-goal
+        // margin (2-1/1-0/1-1) regardless of how lopsided the actual xG/
+        // forme gap was: the old prompt's own JSON example was "2-1" (an LLM
+        // tends to echo the magnitude of whatever example it's shown,
+        // independent of the real input), and a team with no TeamStats row
+        // showed as a bare "?" - literally nothing to reason from instead of
+        // an explicit "no history" signal.
         var prompt = $@"Tu es un expert en pronostics de football. Voici {matches.Count} matchs à venir avec leurs vraies statistiques (xG = buts attendus en attaque, xGA = buts attendus encaissés en défense, forme = points moyens sur les 5 derniers matchs).
 
-Pour CHAQUE match ci-dessous, prédis un score exact plausible (ex: 2-1), cohérent avec ces chiffres - pas un score au hasard. Réponds UNIQUEMENT avec un tableau JSON, rien avant, rien après, un objet par match dans le MÊME ORDRE que la liste, avec index correspondant:
-[{{""index"": 0, ""homeScore"": 2, ""awayScore"": 1, ""reasoning"": ""phrase courte""}}, ...]
+Pour CHAQUE match ci-dessous, prédis un score exact cohérent avec l'ÉCART RÉEL entre les deux équipes - ne te contente PAS de toujours répondre un écart d'un seul but par réflexe. Si le xG/la forme d'une équipe est nettement supérieur à celui de l'adversaire, un score plus tranché (3-0, 3-1, 4-1...) est attendu et encouragé ; à l'inverse, un match entre deux équipes très proches en xG/forme peut tout à fait finir 0-0 ou 1-1. Chaque match doit être jugé sur ses propres chiffres, indépendamment des autres.
+Si une équipe est marquée ""(pas d'historique - probablement promue)"", elle n'a pas encore de statistiques dans cette compétition : base-toi uniquement sur les chiffres de son adversaire (une équipe sans historique face à une équipe installée et en forme justifie un score défavorable plus marqué, pas un score serré par défaut).
+
+Réponds UNIQUEMENT avec un tableau JSON, rien avant, rien après, un objet par match dans le MÊME ORDRE que la liste, avec index correspondant. Les chiffres de l'exemple ci-dessous (3 buts à 0) n'illustrent QUE le format JSON attendu, ce n'est PAS un score à reproduire - chaque match a son propre score, choisi librement de 0 à 6 buts par équipe selon SES stats à lui:
+[{{""index"": 0, ""homeScore"": 3, ""awayScore"": 0, ""reasoning"": ""phrase courte citant les chiffres utilisés""}}, ...]
 
 Matchs:
 {string.Join("\n\n", matchLines)}";
@@ -181,6 +192,12 @@ Matchs:
             FormattedText = formatted
         });
     }
+
+    // A bare "?" gave the model nothing to reason from and no reason not to
+    // just guess a generic close score - spelling out WHY the number is
+    // missing (see the prompt's own instruction on how to handle it) lets
+    // the model actually use that absence as a signal instead of ignoring it.
+    private static string StatOrNoHistory(decimal? value) => value?.ToString() ?? "(pas d'historique - probablement promue)";
 
     private static string CompetitionLabel(string code) => code.ToUpperInvariant() switch
     {
