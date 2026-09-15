@@ -2639,12 +2639,31 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             }
         }
 
-        // One button, two checks: settles every PENDING bet/leg whose match
-        // is really over (same pass a full AI cycle runs first), AND
-        // refreshes the live in-progress score for matches still being
-        // played (RefreshLiveScoresEndpoint - purely cosmetic, never
-        // touches Result/Winnings). Was two separate buttons; merged since
-        // there's no reason to check one without the other - except for a
+        // Shared by the manual "Vérifier les résultats" button and the
+        // silent page-load check below - settles every PENDING bet/leg
+        // whose match is really over, then refreshes the live in-progress
+        // score for matches still being played. Sequential, not
+        // Promise.all - SQLite only allows one writer at a time, and both
+        // endpoints can call SaveChangesAsync; firing them concurrently
+        // risked one hitting a "database is locked" error (and since that
+        // error response isn't valid JSON, the whole check broke rather
+        // than just one half of it). Returns the two endpoints' own status
+        // messages - callers decide whether/how to show them.
+        async function runResultsCheck() {
+            const messages = [];
+            if (!IS_GUEST) {
+                const settleRes = await mutatingFetch('/api/settle-pending-bets', { method: 'POST' });
+                const settleData = await settleRes.json();
+                messages.push(settleData.message);
+            }
+            const liveRes = await mutatingFetch('/api/refresh-live-scores', { method: 'POST' });
+            const liveData = await liveRes.json();
+            messages.push(liveData.message);
+            return messages.filter(Boolean);
+        }
+
+        // One button, two checks (was two separate buttons; merged since
+        // there's no reason to check one without the other) - except for a
         // guest, who only gets the live-score half (settle-pending-bets
         // actually changes Result/Winnings/training, so it stays owner-
         // only server-side too - see SettlePendingBetsEndpoint).
@@ -2654,23 +2673,9 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             btn.classList.add('spinning');
             btn.title = 'Vérification…';
             try {
-                // Sequential, not Promise.all - SQLite only allows one
-                // writer at a time, and both endpoints can call
-                // SaveChangesAsync. Firing them concurrently risked one
-                // hitting a "database is locked" error (and since that
-                // error response isn't valid JSON, the whole button broke
-                // rather than just one half of it).
-                const messages = [];
-                if (!IS_GUEST) {
-                    const settleRes = await mutatingFetch('/api/settle-pending-bets', { method: 'POST' });
-                    const settleData = await settleRes.json();
-                    messages.push(settleData.message);
-                }
-                const liveRes = await mutatingFetch('/api/refresh-live-scores', { method: 'POST' });
-                const liveData = await liveRes.json();
-                messages.push(liveData.message);
+                const messages = await runResultsCheck();
                 await refreshAll();
-                showAppAlert(messages.filter(Boolean).join('\n'));
+                showAppAlert(messages.join('\n'));
             } catch (e) {
                 showAppAlert('Erreur pendant la vérification: ' + e.message);
             } finally {
@@ -2715,8 +2720,19 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
 
         // No auto-refresh interval - it used to re-render the whole page
         // every 10s, which reset any odds/score input the user was mid-
-        // typing into. Manual only now, via the "🔄 Rafraîchir" button.
+        // typing into. Manual only now, via the "🔄 Rafraîchir" button
+        // (or reopening the page - see below).
         refreshAll();
+
+        // Runs the same check as the "Vérifier les résultats" button once,
+        // right when the page opens, but silently (no alert popup, no
+        // spinner) - so a match that finished since the last visit already
+        // shows as WIN/LOSS the moment the page loads, instead of needing a
+        // manual click first. Errors just go to the console: a failed
+        // opportunistic check on load shouldn't interrupt anyone with a
+        // popup - the manual button and the periodic AutoSettlementBackgroundService
+        // still cover it either way.
+        runResultsCheck().then(() => refreshAll()).catch(e => console.error('Vérification des résultats au chargement:', e));
     </script>
 </body>
 </html>
