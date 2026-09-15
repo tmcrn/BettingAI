@@ -696,10 +696,18 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
         // possible but now only within a single call's own bet-type family
         // (two goal-market legs, e.g. OVER_GOALS + BOTH_TEAMS_SCORE) since a
         // combo needs both legs visible in the same prompt.
-        foreach (var match in req.Matches)
+        for (var matchIdx = 0; matchIdx < req.Matches.Count; matchIdx++)
         {
+            var match = req.Matches[matchIdx];
             if (match.Id == null) continue;
             var shortMatchId = match.Id;
+            // Matches left to evaluate in this cycle AFTER this one - handed
+            // to the AI alongside the balance instead of code-computed stake
+            // tiers, so it sizes its own stake off both (see BuildOutcome/
+            // GoalsPrompt's "Stake" paragraph) rather than following a fixed
+            // 5/10/15%-of-balance formula that couldn't account for how much
+            // of the cycle is still ahead.
+            var matchesRemainingAfter = req.Matches.Count - matchIdx - 1;
 
             var matchLabel = $"{match.HomeTeam} vs {match.AwayTeam}";
             analysisPerMatch.TryGetValue(shortMatchId, out var matchAnalysis);
@@ -707,21 +715,18 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
             var effectiveAnalysis = matchAnalysis ?? "Pas de données statistiques disponibles pour ce match.";
             var effectiveOdds = matchOdds ?? "Pas de cotes réelles disponibles pour ce match.";
 
-            // Recomputed from projectedBalance (not the original req.CurrentBalance)
-            // before EACH of the two calls below - confirmed live gap: with several
-            // matches evaluated in sequence, later matches were still being shown
-            // the SAME starting balance even after earlier ones in this exact cycle
-            // had already committed stakes against it. A floor keeps this from
-            // collapsing to near-zero stakes while temporarily negative purely from
-            // other bets still being PENDING (they may still win and bring it back up).
-            var (lowStake, medStake, highStake) = StakeTiers(projectedBalance);
+            // projectedBalance (not the original req.CurrentBalance) is
+            // recomputed before EACH of the two calls below - confirmed live
+            // gap: with several matches evaluated in sequence, later matches
+            // were still being shown the SAME starting balance even after
+            // earlier ones in this exact cycle had already committed stakes
+            // against it.
             var header = BuildPromptHeader(currentTime, projectedBalance, learningNotebook, match, effectiveAnalysis, effectiveOdds);
-            var outcomePrompt = BuildOutcomePrompt(header, match, lowStake, medStake, highStake);
+            var outcomePrompt = BuildOutcomePrompt(header, match, matchesRemainingAfter);
             var (outcomeBets, outcomeCombos) = await ProcessPromptAsync(outcomePrompt, $"{matchLabel} / OUTCOME");
 
-            (lowStake, medStake, highStake) = StakeTiers(projectedBalance);
             header = BuildPromptHeader(currentTime, projectedBalance, learningNotebook, match, effectiveAnalysis, effectiveOdds);
-            var goalsPrompt = BuildGoalsPrompt(header, match, lowStake, medStake, highStake);
+            var goalsPrompt = BuildGoalsPrompt(header, match, matchesRemainingAfter);
             var (goalsBets, goalsCombos) = await ProcessPromptAsync(goalsPrompt, $"{matchLabel} / GOALS");
 
             // User asked for this explicitly: when both calls land a bet on
@@ -820,22 +825,22 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
         return (Math.Round((decimal)points / filtered.Count, 2), filtered.Count);
     }
 
-    // Stake sizing is tied to the real portfolio balance (already net of
-    // every other PENDING bet's stake, including ones just placed earlier in
-    // this very cycle) rather than fixed euro amounts, so it naturally
-    // shrinks when a lot is already committed and grows when the bankroll is
-    // healthy. A floor keeps this from collapsing to near-zero stakes while
-    // temporarily negative purely from other bets still being PENDING (they
-    // may still win and bring it back up).
-    private static (decimal low, decimal med, decimal high) StakeTiers(decimal balance)
-    {
-        var effectiveBankroll = Math.Max(balance, 2m);
-        return (
-            Math.Round(effectiveBankroll * 0.05m, 2),
-            Math.Round(effectiveBankroll * 0.10m, 2),
-            Math.Round(effectiveBankroll * 0.15m, 2)
-        );
-    }
+    // Used to hand the AI a fixed 5/10/15%-of-balance suggestion per
+    // confidence tier - replaced with StakeGuidance below (see its own
+    // comment) so the AI sizes its own stake off the real balance AND how
+    // much of the cycle is still ahead, instead of a rigid formula that
+    // couldn't see the rest of the cycle coming.
+    //
+    // Stake, sized off the CURRENT balance already shown earlier in the
+    // header (already net of every other PENDING bet's stake, including
+    // ones just placed earlier in this very cycle) and how many matches
+    // remain to be evaluated in this same cycle - both are needed for a
+    // sane stake: the same confidence deserves a bigger bite of a healthy
+    // balance than a thin one, and a bigger bite when few matches are left
+    // to spread risk across than when many still are. No fixed formula
+    // here on purpose (that's the whole point of removing the old rigid
+    // 5/10/15% tiers) - just clear qualitative anchors to reason from.
+    private static string StakeGuidance(int matchesRemainingAfter) => $@"Stake: decide it yourself from your CURRENT balance above and the fact that {(matchesRemainingAfter == 0 ? "this is the LAST match left to evaluate in this cycle" : $"{matchesRemainingAfter} more match(es) remain to be evaluated in this cycle after this one")} - don't stake so heavily on an early match that a bad run leaves nothing for the rest of the cycle, but don't stay so timid across the board that even your highest-confidence pick barely moves the balance either. As a rough anchor: a single bet generally shouldn't exceed about a quarter of your current balance, and should scale up with your stated confidence (low confidence = a small fraction of that quarter, high confidence = closer to all of it) - but you decide the actual number for THIS match, not a fixed lookup table. If the balance is low or negative right now, stay smaller and more selective regardless of confidence.";
 
     // Calls Ollama for a single prompt, retrying once if the response
     // contains no JSON array at all. Mistral occasionally derails completely
@@ -961,7 +966,7 @@ League standing (when present) is each team's current position/points/games play
     // the call site) so neither family of bet types has to compete for
     // attention with the other inside one long list.
     private static string BuildOutcomePrompt(
-        string header, FootballMatch match, decimal lowStake, decimal medStake, decimal highStake)
+        string header, FootballMatch match, int matchesRemainingAfter)
     {
         return header + $@"
 
@@ -972,7 +977,7 @@ BET TYPES YOU CAN USE - decide purely from the xG/form/stats data above. Odds (w
 
 This call is ONLY about who wins - goal totals (OVER_GOALS, BOTH_TEAMS_SCORE, etc.) are handled in a separate call for this same match, do not mention them here.
 
-Stake, sized off your CURRENT balance above (not a fixed amount): low confidence (0.35-0.5) ≈ {lowStake}€, medium (0.5-0.65) ≈ {medStake}€, high (0.65+) ≈ {highStake}€. If the balance is low or negative right now, stay smaller and more selective.
+{StakeGuidance(matchesRemainingAfter)}
 
 RESPONSE FORMAT - ONLY JSON ARRAY, NO TEXT. Zero entries ([]) if this match doesn't clear any threshold above; otherwise exactly one entry (never more than one - HOME_WIN, AWAY_WIN, DRAW, HOME_WIN_OR_DRAW and AWAY_WIN_OR_DRAW can never coexist on the same match, so pick the single best one). matchId in your response must always be exactly ""{match.Id}"" - never invent or borrow a different one.
 
@@ -999,7 +1004,7 @@ REMEMBER: Start with [ immediately. No preamble. No markdown. Just JSON. [] is a
     // live. Making this the ONLY thing asked about in its own call removes
     // the option to skip past it.
     private static string BuildGoalsPrompt(
-        string header, FootballMatch match, decimal lowStake, decimal medStake, decimal highStake)
+        string header, FootballMatch match, int matchesRemainingAfter)
     {
         return header + $@"
 
@@ -1011,7 +1016,7 @@ BET TYPES YOU CAN USE - this call is ONLY about total goals, not who wins (that'
 
 Compute combined xG and compare it to 2.5 right now using the Home xG and Away xG numbers in MATCH ANALYSIS above - if it clears the line, that's OVER_GOALS; if it's clearly under, that's UNDER_GOALS. Do the same per-team comparison against 1.5 for HOME_OVER_GOALS/AWAY_OVER_GOALS. These are real, valid bets just like a who-wins pick - propose one whenever the numbers support it, don't leave the array empty just because you're unsure which single type to prefer.
 
-Stake, sized off your CURRENT balance above (not a fixed amount): low confidence (0.35-0.5) ≈ {lowStake}€, medium (0.5-0.65) ≈ {medStake}€, high (0.65+) ≈ {highStake}€. If the balance is low or negative right now, stay smaller and more selective.
+{StakeGuidance(matchesRemainingAfter)}
 
 SAME-MATCH COMBO (optional): you can combine two DIFFERENT goal-total types on this match into one combo (e.g. OVER_GOALS + BOTH_TEAMS_SCORE) when both are genuinely supported by the stats - this pays better combined than either leg alone. Never combine a type with itself.
 
