@@ -35,6 +35,17 @@ public static class OllamaVisionService
     // Same OLLAMA_BASE_URL override as DecideBetsEndpoint - see its comment.
     private static readonly string BaseUrl = Environment.GetEnvironmentVariable("OLLAMA_BASE_URL") ?? "http://localhost:11434";
 
+    // Ollama's own default context window (4096 tokens) is easily blown
+    // past here - confirmed live: a single real photo (not even a batch of
+    // several) plus this endpoint's own prompt text hit "request (4331
+    // tokens) exceeds the available context size (4096 tokens)" - an image
+    // eats a lot of tokens on its own before the prompt text even starts,
+    // and a phone photo's own resolution/detail pushes that further than a
+    // clean desktop screenshot does. Passed as a per-request option (not a
+    // Modelfile edit) so it applies however Ollama itself is configured -
+    // overridable via OLLAMA_VISION_NUM_CTX if 8192 isn't enough either.
+    private static readonly int NumCtx = int.TryParse(Environment.GetEnvironmentVariable("OLLAMA_VISION_NUM_CTX"), out var n) ? n : 8192;
+
     public static async Task<string> ImageToBase64Async(IFormFile file, CancellationToken ct)
     {
         using var ms = new MemoryStream();
@@ -55,7 +66,7 @@ public static class OllamaVisionService
         {
             response = await client.PostAsJsonAsync(
                 $"{BaseUrl}/api/generate",
-                new { model = VisionModel, prompt, images = new[] { imageBase64 }, stream = false },
+                new { model = VisionModel, prompt, images = new[] { imageBase64 }, stream = false, options = new { num_ctx = NumCtx } },
                 cancellationToken: ct);
         }
         catch (HttpRequestException ex)
@@ -66,6 +77,17 @@ public static class OllamaVisionService
         var body = await response.Content.ReadAsStringAsync(ct);
         if (!response.IsSuccessStatusCode)
         {
+            // Distinguishes the two actually-different 400s that land here
+            // in practice: a genuinely missing model (fixed with one
+            // "ollama pull") vs. a context window still too small even at
+            // NumCtx (fixed by raising OLLAMA_VISION_NUM_CTX further) -
+            // conflating them under one generic "modèle indisponible"
+            // message pointed at the wrong fix for the second case.
+            if (body.Contains("exceed_context_size_error", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new Exception($"Image/prompt trop volumineux pour la fenêtre de contexte actuelle ({NumCtx} tokens) - relance avec OLLAMA_VISION_NUM_CTX réglé plus haut (ex: {NumCtx * 2}). Détail: {body}");
+            }
+
             // A vision model that was never pulled fails right here with a
             // clear "model not found" from Ollama itself - surfaced as-is
             // instead of a generic HTTP error, since fixing it needs one
