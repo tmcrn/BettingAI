@@ -63,6 +63,24 @@ public class OcrBatchOddsEndpoint : Endpoint<OcrBatchOddsRequest, OcrBatchOddsRe
             return;
         }
 
+        // An iPhone photo (as opposed to a screenshot) is HEIC by default -
+        // Safari's own file picker normally re-encodes it to JPEG before
+        // upload, but a raw .heic can still get through (e.g. picked via
+        // the Fichiers app instead of Photos, or "Conserver l'original" in
+        // Réglages > Appareil photo > Formats). Ollama's vision models
+        // can't decode HEIC and this app has no HEIC->JPEG conversion of
+        // its own, so this fails clearly up front instead of Ollama
+        // silently returning garbage off an image it couldn't read.
+        if (IsHeic(req.Image))
+        {
+            await Send.OkAsync(new OcrBatchOddsResponse
+            {
+                Success = false,
+                Message = "❌ Format HEIC non supporté - dans Réglages > Appareil photo > Formats, choisis \"Le plus compatible\" (ou renvoie la photo via Messages/Mail, qui la convertit automatiquement en JPEG)."
+            });
+            return;
+        }
+
         List<string>? matchNames;
         try
         {
@@ -102,6 +120,17 @@ public class OcrBatchOddsEndpoint : Endpoint<OcrBatchOddsRequest, OcrBatchOddsRe
             await Send.OkAsync(new OcrBatchOddsResponse { Success = false, Message = ex.Message });
         }
     }
+
+    // Checks both the browser-reported content type and the filename
+    // extension - a raw .heic picked via the Fichiers app can arrive with
+    // a generic "application/octet-stream" content type instead of a
+    // proper image/heic one, so the extension is the more reliable signal
+    // in practice.
+    private static bool IsHeic(IFormFile file) =>
+        file.ContentType.Contains("heic", StringComparison.OrdinalIgnoreCase) ||
+        file.ContentType.Contains("heif", StringComparison.OrdinalIgnoreCase) ||
+        file.FileName.EndsWith(".heic", StringComparison.OrdinalIgnoreCase) ||
+        file.FileName.EndsWith(".heif", StringComparison.OrdinalIgnoreCase);
 
     // Extracts the {index, odds} JSON array from the model's reply - same
     // "find the outermost [ ... ]" tolerance as CallOllamaWithRetryAsync in

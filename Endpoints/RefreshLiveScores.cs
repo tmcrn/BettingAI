@@ -20,9 +20,8 @@ public class RefreshLiveScoresResponse
 // precisely to wait until a match SHOULD be over before treating a score
 // as final; this is the opposite - a number that keeps changing until the
 // real settlement pass takes over). Deliberately NOT behind OwnerAuth,
-// unlike every other mutating endpoint - a guest watching a live match is
-// exactly the kind of thing a read-only visitor should be able to do, and
-// this never touches anything a settlement/reset actually protects.
+// unlike every other mutating endpoint - it never touches anything a
+// settlement/reset actually protects, so there's no reason to gate it.
 public class RefreshLiveScoresEndpoint : EndpointWithoutRequest<RefreshLiveScoresResponse>
 {
     private readonly BetSettlementService _settlementService;

@@ -11,7 +11,7 @@ namespace BettingAI.Endpoints;
 // Robert reasons from before placing a bet themselves, independent of the
 // AI cycle: real head-to-head history, each team's recent form, and their
 // stored TeamStats if already seeded. Read-only, so unguarded like the
-// other GET endpoints (guests can use it too).
+// other GET endpoints.
 public class GetMatchDetailsRequest
 {
     // Real football-data.org match id - required for GetHeadToHeadAsync,

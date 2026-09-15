@@ -3,11 +3,10 @@ using Microsoft.AspNetCore.Http;
 namespace BettingAI.Services;
 
 // Guards every mutating endpoint (anything that writes to the DB, calls
-// Mistral, or burns football-data.org/Sofascore quota) now that the app
-// can be reached by someone other than its owner - a guest link shared
-// over a tunnel (see the README/setup notes) gets read-only access to the
-// GET endpoints (portfolio, learning notebook, ...) but every POST/DELETE
-// endpoint requires this token.
+// Mistral, or burns football-data.org/Sofascore quota) - GET endpoints
+// (portfolio, learning notebook, ...) stay open, but every POST/DELETE
+// endpoint requires this token, in case the app is ever reached by anyone
+// other than its owner (e.g. through a tunnel - see the README/setup notes).
 //
 // Read from the OWNER_TOKEN environment variable rather than
 // appsettings.json - same "never committed" handling as the football-data
@@ -31,10 +30,10 @@ public static class OwnerAuth
     // very guard this class enforces. Deliberately NOT solved by trusting
     // the caller's remote IP being 127.0.0.1 instead: once this app is
     // reached through a tunnel (ngrok/Cloudflare Tunnel/...), the tunnel
-    // client itself connects to this app over loopback, so a genuine
-    // outside guest's request would ALSO arrive looking like it came from
-    // 127.0.0.1 - trusting loopback would silently defeat the whole guard
-    // the moment a tunnel is involved.
+    // client itself connects to this app over loopback, so an outside
+    // request would ALSO arrive looking like it came from 127.0.0.1 -
+    // trusting loopback would silently defeat the whole guard the moment a
+    // tunnel is involved.
     public static void AttachSelfCallToken(HttpRequestMessage request)
     {
         if (!string.IsNullOrEmpty(OwnerToken)) request.Headers.Add("X-Owner-Token", OwnerToken);

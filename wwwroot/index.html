@@ -151,21 +151,6 @@ body { padding-left: 240px; }
     font-size: 0.92em;
     white-space: nowrap;
 }
-/* Same twin-pill pattern as .wallet-pill, shown only for a guest link
-   (see IS_GUEST) - a plain color, not --accent, so it doesn't read as
-   another balance/stat. */
-.guest-pill {
-    background: var(--surface-2);
-    color: var(--text-faint);
-    border: 1px solid var(--border);
-    padding: 8px 14px;
-    border-radius: 999px;
-    font-weight: 700;
-    font-size: 0.85em;
-    white-space: nowrap;
-}
-.guest-pill[hidden] { display: none; }
-
 /* ---- Buttons ---- */
 .button-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 28px; }
 button {
@@ -964,7 +949,6 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             <span>Robert</span>
         </div>
         <div class="mobile-topbar-right">
-            <div class="guest-pill" id="guestPill" hidden title="Lecture seule - les actions sont désactivées">👁️ Invité</div>
             <button class="mobile-theme-btn" id="mobileThemeBtn" onclick="toggleTheme()" title="Mode sombre/clair">🌙</button>
             <div class="wallet-pill" id="walletPill">-</div>
         </div>
@@ -998,7 +982,6 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             </button>
         </div>
         <div class="sidebar-footer">
-            <div class="guest-pill" id="guestPillDesktop" hidden title="Lecture seule - les actions sont désactivées">👁️ Mode invité</div>
             <button class="desktop-theme-btn" id="desktopThemeBtn" onclick="toggleTheme()">🌙 Mode sombre</button>
             <div class="wallet-pill" id="walletPillDesktop">-</div>
         </div>
@@ -1187,7 +1170,16 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                      onpaste="handleBatchOddsPaste(event)">
                     📋 Colle une ou plusieurs captures (⌘V), ou clique pour choisir des images/PDF avec plusieurs matchs
                 </div>
-                <input type="file" accept="image/*,application/pdf" id="batchOddsFile" multiple style="display:none" onchange="handleBatchOddsFile(this.files)">
+                <!-- image/heic,image/heif spelled out explicitly alongside
+                     image/* - an iPhone photo (not a screenshot) is HEIC by
+                     default, and some mobile/PWA file pickers filter their
+                     photo library against the accept list literally rather
+                     than expanding the image/* wildcard, hiding HEIC shots
+                     entirely otherwise. Safari's own picker still typically
+                     re-encodes the actual upload to JPEG regardless of the
+                     original HEIC file, so the backend never has to decode
+                     HEIC itself. -->
+                <input type="file" accept="image/*,image/heic,image/heif,application/pdf" id="batchOddsFile" multiple style="display:none" onchange="handleBatchOddsFile(this.files)">
                 <div id="batchOddsBody"></div>
             </div>
 
@@ -1286,15 +1278,12 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
     </div>
 
     <script>
-        // Guest mode: opening this page's own URL with ?owner=<TOKEN> once
-        // (matching the OWNER_TOKEN environment variable the server was
-        // started with - see OwnerAuth.cs) saves it to localStorage and
-        // grants full control from then on, on this browser. Anyone else -
-        // a friend sent the plain link, or the URL with no/wrong token -
-        // is a guest: action buttons and manual-entry forms are hidden
-        // below (see IS_GUEST), and every mutating endpoint independently
-        // rejects the request server-side regardless of what the UI shows,
-        // so this is never just cosmetic.
+        // Opening this page's own URL with ?owner=<TOKEN> once (matching
+        // the OWNER_TOKEN environment variable the server was started with
+        // - see OwnerAuth.cs) saves it to localStorage so every mutating
+        // request from then on, on this browser, carries it automatically.
+        // No effect at all while OWNER_TOKEN is unset server-side (the
+        // default - see OwnerAuth.IsAuthorized).
         (function bootstrapOwnerToken() {
             const params = new URLSearchParams(window.location.search);
             const ownerParam = params.get('owner');
@@ -1310,10 +1299,9 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
         function getOwnerToken() {
             try { return localStorage.getItem('ownerToken') || ''; } catch { return ''; }
         }
-        const IS_GUEST = !getOwnerToken();
         // Drop-in replacement for fetch() on every endpoint that changes
         // data - attaches the owner token header (a no-op if there isn't
-        // one, which is exactly the guest case).
+        // one).
         function mutatingFetch(url, opts = {}) {
             return fetch(url, { ...opts, headers: { ...(opts.headers || {}), 'X-Owner-Token': getOwnerToken() } });
         }
@@ -1927,10 +1915,8 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                 // The match name and score are both already shown once, at
                 // the top of the ticket - nothing left to repeat here
                 // except, when a ticket is settled but still missing its
-                // score, the backfill form itself (never for a guest -
-                // there's nothing read-only to show in its place, so it's
-                // just omitted rather than shown disabled).
-                const matchLineHtml = (!knownScore && anySettled && !IS_GUEST) ? `
+                // score, the backfill form itself.
+                const matchLineHtml = (!knownScore && anySettled) ? `
                     <div class="leg-match-line" style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
                         <span>Score :</span>
                         <input type="number" min="0" step="1" id="score-home-group-${kind}-${groupIds}" placeholder="0" style="width:30px;">-<input type="number" min="0" step="1" id="score-away-group-${kind}-${groupIds}" placeholder="0" style="width:30px;">
@@ -2042,7 +2028,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                     <div class="ticket-footer">
                         <div class="footer-row cote">
                             <span class="label">${bet.isCombo ? 'Cote totale' : 'Cote'}</span>
-                            ${(bet.result === 'PENDING' && !IS_GUEST) ? `
+                            ${bet.result === 'PENDING' ? `
                             <span class="leg-odds-edit">
                                 <input type="number" min="1" step="0.01" id="odds-${bet.isCombo ? 'combo' : 'bet'}-${bet.id}" value="${bet.odds ? bet.odds.toFixed(2) : ''}"
                                        title="${bet.isCombo ? 'Cote totale réelle (ex: vue sur Winamax) - remplace le calcul automatique' : 'Cote réelle (ex: vue sur Winamax)'}"
@@ -2231,11 +2217,6 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
 
         async function refreshManualReview() {
             const section = document.getElementById('manualReviewSection');
-            // Nothing but an action form (settle a bet manually) - no
-            // read-only equivalent worth showing a guest, so the whole
-            // section is skipped rather than shown with a disabled form.
-            if (IS_GUEST) { section.style.display = 'none'; return; }
-
             const res = await fetch('/api/needs-manual-review');
             const data = await res.json();
             const container = document.getElementById('reviewContainer');
@@ -2651,22 +2632,17 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
         // messages - callers decide whether/how to show them.
         async function runResultsCheck() {
             const messages = [];
-            if (!IS_GUEST) {
-                const settleRes = await mutatingFetch('/api/settle-pending-bets', { method: 'POST' });
-                const settleData = await settleRes.json();
-                messages.push(settleData.message);
-            }
+            const settleRes = await mutatingFetch('/api/settle-pending-bets', { method: 'POST' });
+            const settleData = await settleRes.json();
+            messages.push(settleData.message);
             const liveRes = await mutatingFetch('/api/refresh-live-scores', { method: 'POST' });
             const liveData = await liveRes.json();
             messages.push(liveData.message);
             return messages.filter(Boolean);
         }
 
-        // One button, two checks (was two separate buttons; merged since
-        // there's no reason to check one without the other) - except for a
-        // guest, who only gets the live-score half (settle-pending-bets
-        // actually changes Result/Winnings/training, so it stays owner-
-        // only server-side too - see SettlePendingBetsEndpoint).
+        // One button, two checks - was two separate buttons; merged since
+        // there's no reason to check one without the other.
         async function checkResults() {
             const btn = document.getElementById('checkResultsBtn');
             btn.disabled = true;
@@ -2696,27 +2672,6 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                 showAppAlert('Erreur pendant le reset: ' + e.message);
             }
         }
-
-        // Static action buttons (the ticket-level manual-entry forms are
-        // handled inline in ticketCard/reviewCard/refreshManualReview
-        // instead, since those are rebuilt on every refresh) - disabled
-        // once here since they never disappear/reappear afterward.
-        function applyGuestRestrictions() {
-            if (!IS_GUEST) return;
-            const guestPill = document.getElementById('guestPill');
-            const guestPillDesktop = document.getElementById('guestPillDesktop');
-            if (guestPill) guestPill.hidden = false;
-            if (guestPillDesktop) guestPillDesktop.hidden = false;
-            // checkResultsBtn stays enabled - see the comment on
-            // checkResults() for why a guest can still use it.
-            for (const id of ['forceBtn', 'forceTomorrowBtn', 'pronosBtn', 'resetBtn']) {
-                const btn = document.getElementById(id);
-                if (!btn) continue;
-                btn.disabled = true;
-                btn.title = 'Désactivé en mode invité';
-            }
-        }
-        applyGuestRestrictions();
 
         // No auto-refresh interval - it used to re-render the whole page
         // every 10s, which reset any odds/score input the user was mid-
