@@ -1796,6 +1796,35 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             });
         }
 
+        // Mirrors AutoDecideBetsEndpoint.HoursUntilEndOfDayParis() (hours
+        // from right now until the next midnight, Paris time, rounded up) -
+        // needed client-side so forceCycle's confirmation dialog can preview
+        // the SAME match window the cycle itself is actually about to use,
+        // not a guess. Intl.DateTimeFormat reads the current Paris wall-clock
+        // time directly, so this stays correct across DST without manual
+        // offset math, same as parisDateLabel above.
+        function hoursUntilEndOfDayParis() {
+            const parts = new Intl.DateTimeFormat('en-GB', {
+                timeZone: 'Europe/Paris', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+            }).formatToParts(new Date());
+            const get = type => Number(parts.find(p => p.type === type).value);
+            const secondsSinceMidnight = get('hour') * 3600 + get('minute') * 60 + get('second');
+            const secondsUntilMidnight = 24 * 3600 - secondsSinceMidnight;
+            return Math.max(1, Math.ceil(secondsUntilMidnight / 3600));
+        }
+
+        // The exact {minHours, windowHours} pair /api/auto-decide-bets will
+        // use for a given forceCycle(forTomorrow) call - see its own
+        // ForTomorrow handling. Kept in one place so the confirmation
+        // dialog's match count preview can never drift from what the cycle
+        // itself actually queries.
+        function cycleWindow(forTomorrow) {
+            const endOfToday = hoursUntilEndOfDayParis();
+            return forTomorrow
+                ? { minHours: endOfToday, windowHours: endOfToday + 24 }
+                : { minHours: 0, windowHours: endOfToday };
+        }
+
         // Same fallback formula as BetSettlementService.EstimateOddsFromConfidence -
         // when there's no real market odds, this is what actually gets paid out
         // (and what the ticket should show), not a flat placeholder number.
@@ -2593,10 +2622,24 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
         async function forceCycle(forTomorrow) {
             // Confirms the actual date being analyzed (see parisDateLabel)
             // before firing - a cycle launched right before/after midnight
-            // Paris time is easy to mistake for "tomorrow" otherwise.
+            // Paris time is easy to mistake for "tomorrow" otherwise. Also
+            // previews how many matches actually fall in that window (same
+            // /api/matches/upcoming call, same {minHours, windowHours} the
+            // cycle itself will use - see cycleWindow) so "Lancer le cycle"
+            // isn't a blind commitment on a day with zero or 30 matches.
             const dateLabel = forTomorrow ? parisTomorrowDateLabel() : parisDateLabel();
+            let matchCountPhrase = '';
+            try {
+                const { minHours, windowHours } = cycleWindow(forTomorrow);
+                const previewRes = await fetch(`/api/matches/upcoming?windowHours=${windowHours}&minHours=${minHours}`);
+                const previewMatches = await previewRes.json();
+                matchCountPhrase = ` (${previewMatches.length} match${previewMatches.length !== 1 ? 's' : ''})`;
+            } catch {
+                // Preview is a nice-to-have, not a blocker - the cycle itself
+                // still runs its own fetch either way if this one fails.
+            }
             const dayPhrase = forTomorrow ? `la journée du ${dateLabel} (le lendemain)` : `les matchs restants de la journée du ${dateLabel}`;
-            const confirmed = await showAppConfirm(`Le cycle va analyser ${dayPhrase} (heure de Paris). Lancer ?`);
+            const confirmed = await showAppConfirm(`Le cycle va analyser ${dayPhrase}${matchCountPhrase} (heure de Paris). Lancer ?`);
             if (!confirmed) return;
 
             const btn = document.getElementById(forTomorrow ? 'forceTomorrowBtn' : 'forceBtn');
