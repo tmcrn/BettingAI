@@ -1000,9 +1000,9 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
 
                 <h2>Comment ça marche</h2>
                 <ol>
-                    <li>Récupère les matchs à venir sur 5 championnats via <code>football-data.org</code></li>
+                    <li>Récupère les matchs à venir sur 7 championnats via <code>football-data.org</code></li>
                     <li>Calcule les vraies stats de chaque équipe : xG, xGA, forme sur 5 matchs, momentum, fatigue, historique face-à-face</li>
-                    <li>Une IA locale (Ollama) analyse le match et décide un pari, seul ou en combiné — jamais influencée par la cote</li>
+                    <li>L'IA (Gemini) analyse le match et décide un pari, seul ou en combiné — jamais influencée par la cote</li>
                     <li>Les résultats réels sont récupérés automatiquement ; le modèle apprend en continu à chaque pari réglé</li>
                 </ol>
 
@@ -1020,7 +1020,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                 <h2>Sources de données</h2>
                 <ul>
                     <li><code>football-data.org</code> — calendriers, scores en direct, résultats officiels</li>
-                    <li><code>Ollama</code> (modèle local) — raisonnement et décision de l'IA</li>
+                    <li><code>Gemini</code> (API Google, gratuite) — raisonnement et décision de l'IA</li>
                     <li><code>WinPredictionService</code> — régression logistique entraînée sur chaque résultat réel réglé</li>
                     <li><code>OddsLearningService</code> — moyenne apprise des vraies cotes vues, par type de pari</li>
                 </ul>
@@ -2404,9 +2404,8 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
         // bet this app never models as one ticket) and only reads each
         // individual match's own price, which is exactly this app's own
         // per-ticket CombinedOdds/Odds. Reading happens server-side
-        // (OcrBatchOddsEndpoint, a local Ollama vision model - see
-        // OllamaVisionService for why that replaced the old client-side
-        // Tesseract.js approach).
+        // (OcrBatchOddsEndpoint, via the Gemini API - see GeminiService for
+        // why that replaced the old client-side Tesseract.js approach).
         async function runBatchOddsImport(files) {
             const body = document.getElementById('batchOddsBody');
             body.innerHTML = `<div class="odds-shot-result">⏳ Lecture du/des fichier(s) (IA vision)…</div>`;

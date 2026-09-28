@@ -72,7 +72,8 @@ public class FootballDataService
     // rate-limit wait) succeeded moments later with the exact same
     // parameters via a manual retry - a transient glitch on football-
     // data.org's side, not an actually malformed request, same category as
-    // the Ollama connection hiccups this project already retries through.
+    // the Gemini connection/rate-limit hiccups this project already retries
+    // through (see GeminiService).
     // Retries on ANY non-success status (covers 429/5xx too) rather than
     // requiring the caller to notice and retry by hand.
     private async Task<JsonDocument?> GetAsync(string url, CancellationToken ct = default)

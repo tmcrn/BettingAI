@@ -58,21 +58,6 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
         "OVER_GOALS", "UNDER_GOALS", "HOME_OVER_GOALS", "AWAY_OVER_GOALS"
     };
 
-    // Configurable via env var so switching the local Ollama model (e.g. to
-    // try a different 7B-class model) is a deploy-time change, not a
-    // recompile - set OLLAMA_MODEL to any tag already pulled locally
-    // ("ollama pull <tag>" first, this doesn't pull automatically).
-    // Defaults to "mistral" (unset = current behavior, unchanged).
-    private static readonly string OllamaModel = Environment.GetEnvironmentVariable("OLLAMA_MODEL") ?? "mistral";
-
-    // Same idea, for WHERE Ollama itself runs - defaults to this same
-    // machine, but can point at another one on the network (e.g. a
-    // Tailscale address) so the heavy inference work runs somewhere else
-    // while this app + its SQLite DB stay on a lighter always-on box. Set
-    // OLLAMA_HOST=0.0.0.0 on the machine actually running Ollama first, or
-    // it only listens on its own localhost regardless of this setting.
-    private static readonly string OllamaBaseUrl = Environment.GetEnvironmentVariable("OLLAMA_BASE_URL") ?? "http://localhost:11434";
-
     private readonly BettingContext _context;
     private readonly HttpClient _httpClient;
     private readonly DiscordNotificationService _discord;
@@ -345,7 +330,7 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
         const decimal hardBalanceFloor = -20m;
         var projectedBalance = req.CurrentBalance;
 
-        // Handles one Ollama call's worth of proposed bets end-to-end (retry,
+        // Handles one Gemini call's worth of proposed bets end-to-end (retry,
         // JSON extraction, per-bet dedup/floor checks, saving). A local
         // function (not a separate method) so it can share existingKeys/
         // projectedBalance/savedBets/savedCombos/debugLog with the loop below
@@ -363,7 +348,7 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
             string? responseText;
             try
             {
-                responseText = await CallOllamaWithRetryAsync(prompt, focusLabel, debugLog, rawResponses, ct);
+                responseText = await CallAiWithRetryAsync(prompt, focusLabel, debugLog, rawResponses, ct);
             }
             catch (Exception ex)
             {
@@ -678,14 +663,16 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
             debugLog.Add($"MERGED: {allSingles.Count} single bets combined into one combo ticket for {allSingles[0].HomeTeam} vs {allSingles[0].AwayTeam}");
         }
 
-        // TWO focused Ollama calls per match (OUTCOME, then GOALS) instead of
-        // one call covering every bet type - confirmed live that even with a
-        // "MANDATORY CHECK" instruction, Mistral kept defaulting to only a
-        // who-wins pick and never once reached for OVER_GOALS/UNDER_GOALS/
-        // BOTH_TEAMS_SCORE/HOME_OVER_GOALS/AWAY_OVER_GOALS across 8 matches in
-        // a row - a buried bullet point in a long list is easy to skip. Giving
-        // goal-total markets their own dedicated prompt, where they're the
-        // ONLY thing being asked about, makes them impossible to skip past.
+        // TWO focused AI calls per match (OUTCOME, then GOALS) instead of one
+        // call covering every bet type - confirmed live (back when this ran
+        // on a local Mistral model) that even with a "MANDATORY CHECK"
+        // instruction, the model kept defaulting to only a who-wins pick and
+        // never once reached for OVER_GOALS/UNDER_GOALS/BOTH_TEAMS_SCORE/
+        // HOME_OVER_GOALS/AWAY_OVER_GOALS across 8 matches in a row - a
+        // buried bullet point in a long list is easy to skip regardless of
+        // model. Giving goal-total markets their own dedicated prompt, where
+        // they're the ONLY thing being asked about, makes them impossible to
+        // skip past.
         // This also means the balance shown to the GOALS call already
         // reflects whatever the OUTCOME call just staked on the SAME match,
         // not just across different matches.
@@ -842,69 +829,41 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
     // 5/10/15% tiers) - just clear qualitative anchors to reason from.
     private static string StakeGuidance(int matchesRemainingAfter) => $@"Stake: decide it yourself from your CURRENT balance above and the fact that {(matchesRemainingAfter == 0 ? "this is the LAST match left to evaluate in this cycle" : $"{matchesRemainingAfter} more match(es) remain to be evaluated in this cycle after this one")} - don't stake so heavily on an early match that a bad run leaves nothing for the rest of the cycle, but don't stay so timid across the board that even your highest-confidence pick barely moves the balance either. As a rough anchor: a single bet generally shouldn't exceed about a quarter of your current balance, and should scale up with your stated confidence (low confidence = a small fraction of that quarter, high confidence = closer to all of it) - but you decide the actual number for THIS match, not a fixed lookup table. If the balance is low or negative right now, stay smaller and more selective regardless of confidence.";
 
-    // Calls Ollama for a single prompt, retrying once if the response
-    // contains no JSON array at all. Mistral occasionally derails completely
-    // and returns prose instead of the requested JSON (e.g. "Understood,
-    // here's a summary of the rules...") - confirmed live. That used to be
+    // Calls Gemini for a single prompt, retrying once if the response
+    // contains no JSON array at all - Gemini's own JSON mode (see
+    // GeminiService) makes this rare, but a model can still wrap a JSON
+    // array in prose despite being asked not to, and that used to be
     // swallowed silently with zero indication of why; now a snippet of the
     // actual response text is logged when it fails so this is diagnosable
     // from AnalysisUsed directly instead of requiring journalctl archaeology.
     // Returns the extracted, trimmed response text once it contains a JSON
     // array, or null if both attempts failed to produce one.
-    private static async Task<string?> CallOllamaWithRetryAsync(
+    private static async Task<string?> CallAiWithRetryAsync(
         string prompt, string focusLabel, List<string> debugLog, List<string> rawResponses, CancellationToken ct)
     {
         const int maxAttempts = 2;
-        // Confirmed live: Ollama got OOM-killed mid-cycle by the WSL memory
-        // cap (its own prompt-cache growing across many distinct per-match
-        // prompts), and took ~8s to restart - every call to it during that
-        // window failed with "Connection refused", silently losing that
-        // match's decision for the rest of the cycle since a bare connection
-        // failure wasn't retried at all. Wait it out and retry instead of
-        // giving up on the first refused connection.
-        const int maxConnectionRetries = 3;
-        var connectionRetryDelay = TimeSpan.FromSeconds(10);
-        // Default HttpClient.Timeout (100s) was already close to being hit by
-        // a single qwen2.5:32b-instruct call alone (confirmed live at up to
-        // ~47s) - under real load (bigger prompt, concurrent GC) that margin
-        // isn't safe. 5 minutes covers a single call with real headroom; the
-        // 60-minute budget in AutoDecideBetsEndpoint is what actually bounds
-        // the whole cycle across many calls.
-        var client = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
         var responseText = "";
 
         for (var attempt = 1; attempt <= maxAttempts; attempt++)
         {
-            HttpResponseMessage response;
-            for (var connAttempt = 1; ; connAttempt++)
+            // GeminiService.AskAsync already retries a 429/connection failure
+            // internally (the free tier's 15/minute cap is the real headroom
+            // concern across a whole cycle's worth of per-match calls) - a
+            // failure that reaches here has already exhausted that, so it's
+            // logged and this call is simply retried like a malformed
+            // response would be, rather than aborting the whole match.
+            try
             {
-                try
-                {
-                    response = await client.PostAsJsonAsync(
-                        $"{OllamaBaseUrl}/api/generate",
-                        new { model = OllamaModel, prompt = prompt, stream = false },
-                        cancellationToken: ct
-                    );
-                    break;
-                }
-                catch (HttpRequestException ex) when (connAttempt < maxConnectionRetries)
-                {
-                    debugLog.Add($"[{focusLabel}] CONNECTION ERROR (retry {connAttempt}/{maxConnectionRetries}): {ex.Message}");
-                    await Task.Delay(connectionRetryDelay, ct);
-                }
+                responseText = await GeminiService.AskAsync(prompt, ct);
+            }
+            catch (Exception ex)
+            {
+                debugLog.Add($"[{focusLabel}] GEMINI ERROR (attempt {attempt}/{maxAttempts}): {ex.Message}");
+                continue;
             }
 
-            var jsonResponse = await response.Content.ReadAsStringAsync();
-            rawResponses.Add(jsonResponse);
-            debugLog.Add($"[{focusLabel}] GOT RESPONSE (attempt {attempt}/{maxAttempts})");
-
-            var doc = JsonDocument.Parse(jsonResponse);
-            responseText = doc.RootElement.GetProperty("response").GetString() ?? "";
-            debugLog.Add($"[{focusLabel}] RAW LENGTH: {responseText.Length}");
-
-            responseText = responseText.Trim();
-            responseText = System.Text.RegularExpressions.Regex.Unescape(responseText);
-            responseText = responseText.Replace("\\n", "").Replace("  ", "");
+            rawResponses.Add(responseText);
+            debugLog.Add($"[{focusLabel}] GOT RESPONSE (attempt {attempt}/{maxAttempts}), RAW LENGTH: {responseText.Length}");
 
             if (responseText.Contains('[') && responseText.LastIndexOf(']') > responseText.IndexOf('['))
             {

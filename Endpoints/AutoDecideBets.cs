@@ -80,20 +80,21 @@ public class AutoDecideBetsEndpoint : Endpoint<AutoDecideBetsRequest, AutoDecide
             Console.WriteLine("🤖 AUTO-DECIDE-BETS STARTED");
 
             // The default HttpClient.Timeout (100s) used to be plenty for the old
-            // one-call-per-match design. Now that decide-bets makes TWO Ollama
-            // calls per match (OUTCOME + GOALS), a batch of 8-9 matches routinely
-            // takes well over 100s end to end - confirmed live: "The request was
+            // one-call-per-match design. Now that decide-bets makes TWO AI calls
+            // per match (OUTCOME + GOALS), a batch of 8-9 matches routinely takes
+            // well over 100s end to end - confirmed live: "The request was
             // canceled due to the configured HttpClient.Timeout of 100 seconds
             // elapsing" on a real cycle, silently killing the whole batch instead
             // of just one slow call. Must be set before this client makes its
             // first request this instance (HttpClient throws if changed after).
             //
-            // Raised from 10 to 60 minutes after switching the default local
-            // model to qwen2.5:32b-instruct - confirmed live at ~35-47s per
-            // Ollama call (vs ~7s for the 7B model), two calls per match. A
-            // full daily cycle can see 15-25 matches (30-50 calls), which at
-            // worst-case ~45s/call is ~35-40 minutes - 10 minutes was no
-            // longer enough margin.
+            // Kept generous at 60 minutes even after moving off a local Ollama
+            // model (which was the original reason for raising it - a slow 32B
+            // model plus 15-25 matches per cycle) onto the Gemini API (see
+            // GeminiService), which is normally much faster per call - real
+            // margin for GeminiService's own rate-limit retry backoff (the free
+            // tier's 15/minute cap) across a full cycle's worth of calls, not
+            // just the raw inference time.
             _httpClient.Timeout = TimeSpan.FromMinutes(60);
 
             // 0️⃣ Règle d'abord les paris d'hier (ou de plus tôt aujourd'hui) avant de
@@ -162,16 +163,16 @@ public class AutoDecideBetsEndpoint : Endpoint<AutoDecideBetsRequest, AutoDecide
             // règlement, qui retombe sur une estimation tant que la cote
             // réelle n'a pas été saisie à la main.
             // Limite haute de sécurité, pas une vraie limite métier - avec un cycle
-            // quotidien couvrant toute la journée sur 5 championnats, on peut
+            // quotidien couvrant toute la journée sur 7 championnats, on peut
             // largement dépasser 25 matchs (déjà vu 28 en une seule journée, ce qui
             // coupait silencieusement les derniers matchs de la soirée - typiquement
             // les 21h - puisque upcomingMatches est trié par heure de coup d'envoi
-            // croissante). Relevée à 40 pour couvrir ces journées chargées. À noter:
-            // Mistral tourne ici avec une fenêtre de contexte de 4096 tokens (voir la
-            // config Ollama) - un trop grand nombre de matchs dans un seul prompt
-            // (analyse + cotes détaillées par match) peut la dépasser et dégrader/
-            // tronquer la réponse. À surveiller si des cycles à forte affluence de
-            // matchs produisent des réponses visiblement incomplètes.
+            // croissante). Relevée à 40 pour couvrir ces journées chargées. Chaque
+            // match a de toute façon son propre appel Gemini isolé (voir
+            // DecideBetsEndpoint - un prompt par match, jamais tous combinés), donc
+            // pas de risque de dépassement de fenêtre de contexte ici comme avec
+            // l'ancien modèle Ollama local (4096 tokens) - la vraie limite à 40 est
+            // juste la durée totale du cycle (voir le timeout de 60 min plus haut).
             var matchesToAnalyze = new List<dynamic>();
             foreach (var match in upcomingMatches.Take(40))
             {
@@ -296,9 +297,11 @@ public class AutoDecideBetsEndpoint : Endpoint<AutoDecideBetsRequest, AutoDecide
             if (bets.Count == 0)
             {
                 // decide-bets' AnalysisUsed carries its debugLog, including "NO JSON
-                // ARRAY IN RESPONSE" when Mistral derailed entirely (returned prose
+                // ARRAY IN RESPONSE" when the model derailed entirely (returned prose
                 // instead of the requested JSON, even after a retry) rather than
-                // actually evaluating the matches - confirmed live. The reason text
+                // actually evaluating the matches - confirmed live (back on the old
+                // local Mistral model; Gemini's own JSON mode makes this rarer, but
+                // the same fallback still applies if it ever happens). The reason text
                 // below used to always claim "no bet met the AI's criteria" regardless
                 // of which of these actually happened, which is a real explanation
                 // fabricated for a failure that has nothing to do with the stats.

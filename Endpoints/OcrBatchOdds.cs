@@ -37,9 +37,9 @@ public class OcrBatchOddsResponse
 // Reads odds for MANY tickets at once off one uploaded image (one page of a
 // capture/PDF - the frontend still renders a PDF's pages to images with
 // pdf.js, that part always worked fine, and calls this endpoint once per
-// page) via a local Ollama vision model. Replaces the old client-side
-// Tesseract.js batch import (runBatchOddsImport in wwwroot/index.html) -
-// see OllamaVisionService for why.
+// page) via the Gemini API. Replaces the old client-side Tesseract.js batch
+// import (runBatchOddsImport in wwwroot/index.html) - see GeminiService for
+// why.
 public class OcrBatchOddsEndpoint : Endpoint<OcrBatchOddsRequest, OcrBatchOddsResponse>
 {
     public override void Configure()
@@ -63,23 +63,10 @@ public class OcrBatchOddsEndpoint : Endpoint<OcrBatchOddsRequest, OcrBatchOddsRe
             return;
         }
 
-        // An iPhone photo (as opposed to a screenshot) is HEIC by default -
-        // Safari's own file picker normally re-encodes it to JPEG before
-        // upload, but a raw .heic can still get through (e.g. picked via
-        // the Fichiers app instead of Photos, or "Conserver l'original" in
-        // Réglages > Appareil photo > Formats). Ollama's vision models
-        // can't decode HEIC and this app has no HEIC->JPEG conversion of
-        // its own, so this fails clearly up front instead of Ollama
-        // silently returning garbage off an image it couldn't read.
-        if (IsHeic(req.Image))
-        {
-            await Send.OkAsync(new OcrBatchOddsResponse
-            {
-                Success = false,
-                Message = "❌ Format HEIC non supporté - dans Réglages > Appareil photo > Formats, choisis \"Le plus compatible\" (ou renvoie la photo via Messages/Mail, qui la convertit automatiquement en JPEG)."
-            });
-            return;
-        }
+        // No HEIC guard needed here (unlike the old Ollama-based version) -
+        // Gemini decodes image/heic and image/heif natively, so a raw
+        // iPhone photo (picked via the Fichiers app instead of Photos, say)
+        // just works instead of needing a format-conversion workaround.
 
         List<string>? matchNames;
         try
@@ -98,7 +85,15 @@ public class OcrBatchOddsEndpoint : Endpoint<OcrBatchOddsRequest, OcrBatchOddsRe
 
         try
         {
-            var base64 = await OllamaVisionService.ImageToBase64Async(req.Image, ct);
+            var base64 = await GeminiService.ImageToBase64Async(req.Image, ct);
+            // A generic/missing content type (some upload paths report
+            // "application/octet-stream" for a raw .heic, say) falls back to
+            // JPEG - the most common real case (a photo, not a PNG
+            // screenshot) - rather than sending Gemini a wrong/empty MIME
+            // type it might reject outright.
+            var mimeType = string.IsNullOrWhiteSpace(req.Image.ContentType) || req.Image.ContentType == "application/octet-stream"
+                ? "image/jpeg"
+                : req.Image.ContentType;
             var numberedList = string.Join("\n", matchNames.Select((m, i) => $"{i}: {m}"));
             var prompt =
                 "Tu vois une capture d'écran (ou une page) d'un ou plusieurs tickets de pari sportif (application de bookmaker type Winamax). " +
@@ -110,7 +105,7 @@ public class OcrBatchOddsEndpoint : Endpoint<OcrBatchOddsRequest, OcrBatchOddsRe
                 "sans aucun texte avant ou après. N'inclus que les matchs identifiés avec certitude. " +
                 "Si aucun match de la liste n'apparaît dans l'image, réponds : []";
 
-            var raw = await OllamaVisionService.AskAsync(prompt, base64, ct);
+            var raw = await GeminiService.AskAsync(prompt, ct, base64, mimeType);
             var results = ParseBatchResults(raw, matchNames.Count);
 
             await Send.OkAsync(new OcrBatchOddsResponse { Success = true, Results = results, RawText = raw });
@@ -121,20 +116,9 @@ public class OcrBatchOddsEndpoint : Endpoint<OcrBatchOddsRequest, OcrBatchOddsRe
         }
     }
 
-    // Checks both the browser-reported content type and the filename
-    // extension - a raw .heic picked via the Fichiers app can arrive with
-    // a generic "application/octet-stream" content type instead of a
-    // proper image/heic one, so the extension is the more reliable signal
-    // in practice.
-    private static bool IsHeic(IFormFile file) =>
-        file.ContentType.Contains("heic", StringComparison.OrdinalIgnoreCase) ||
-        file.ContentType.Contains("heif", StringComparison.OrdinalIgnoreCase) ||
-        file.FileName.EndsWith(".heic", StringComparison.OrdinalIgnoreCase) ||
-        file.FileName.EndsWith(".heif", StringComparison.OrdinalIgnoreCase);
-
     // Extracts the {index, odds} JSON array from the model's reply - same
-    // "find the outermost [ ... ]" tolerance as CallOllamaWithRetryAsync in
-    // DecideBets.cs, since a vision model can still wrap its JSON in prose
+    // "find the outermost [ ... ]" tolerance as CallAiWithRetryAsync in
+    // DecideBets.cs, since the model can still wrap its JSON in prose
     // despite being told not to. Drops any entry with an out-of-range index
     // or an implausible odds value rather than failing the whole batch over
     // one bad entry.

@@ -70,20 +70,15 @@ app.UseFastEndpoints();
 
 Console.WriteLine("✅ Robert API started");
 Console.WriteLine("🤖 Auto-bets managed by CRON script");
-// Printed once at boot so switching OLLAMA_MODEL is directly visible in the
-// console right away, instead of only discoverable by digging through a
-// cycle's raw JSON response afterwards.
-Console.WriteLine($"🧠 Ollama model: {Environment.GetEnvironmentVariable("OLLAMA_MODEL") ?? "mistral"}");
-// Same reasoning, for the separate multimodal model the screenshot-odds-
-// import feature calls (OllamaVisionService) - a text-only model like the
-// one above can't see images at all, so this one needs its own tag pulled
-// locally ("ollama pull qwen2.5vl") before that feature works.
-Console.WriteLine($"👁️ Ollama vision model: {Environment.GetEnvironmentVariable("OLLAMA_VISION_MODEL") ?? "qwen2.5vl"}");
-// Where Ollama itself is actually called - defaults to this same machine,
-// but can point at another one on the network (e.g. over Tailscale) so
-// this app + its SQLite DB stay on a light always-on box while the heavy
-// inference runs elsewhere. Printed so a misconfigured/unreachable address
-// shows up here first, not as a mysterious connection error mid-cycle.
-Console.WriteLine($"🌐 Ollama base URL: {Environment.GetEnvironmentVariable("OLLAMA_BASE_URL") ?? "http://localhost:11434"}");
+// Printed once at boot - not the key itself (never log a secret), just
+// whether one is actually configured, since a missing GEMINI_API_KEY is
+// the #1 way this fails and it's much easier to notice here than as a
+// mysterious error mid-cycle. Same idea as the old OLLAMA_MODEL line this
+// replaces (GeminiService now handles every AI call - decisions, pronos,
+// screenshot OCR - that used to be split across a local Ollama text model
+// and a separate vision model).
+Console.WriteLine(string.IsNullOrEmpty(Environment.GetEnvironmentVariable("GEMINI_API_KEY"))
+    ? "❌ GEMINI_API_KEY non configurée - crée une clé gratuite sur https://aistudio.google.com/apikey"
+    : $"🧠 Gemini model: {Environment.GetEnvironmentVariable("GEMINI_MODEL") ?? "gemini-flash-latest"}");
 
 app.Run();

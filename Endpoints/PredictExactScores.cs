@@ -3,7 +3,6 @@ using BettingAI.Models;
 using BettingAI.Services;
 using FastEndpoints;
 using Microsoft.EntityFrameworkCore;
-using System.Net.Http.Json;
 using System.Text.Json;
 
 namespace BettingAI.Endpoints;
@@ -12,7 +11,7 @@ namespace BettingAI.Endpoints;
 // score-guessing pools ask for an exact scoreline per match, not a bet type/
 // stake/confidence, and don't touch Bets/BetCombos or the bankroll at all;
 // this never writes to the database, it only reads TeamStats/matches and
-// asks Ollama for a plausible score per match.
+// asks Gemini for a plausible score per match.
 public class PredictExactScoresRequest
 {
     // football-data.org competition code - defaults to Ligue 1. See
@@ -51,11 +50,6 @@ public class PredictExactScoresResponse
 public class PredictExactScoresEndpoint : Endpoint<PredictExactScoresRequest, PredictExactScoresResponse>
 {
     private const string DefaultCompetition = "FL1"; // Ligue 1
-
-    private static readonly string OllamaModel = Environment.GetEnvironmentVariable("OLLAMA_MODEL") ?? "mistral";
-
-    // Same OLLAMA_BASE_URL override as DecideBetsEndpoint - see its comment.
-    private static readonly string OllamaBaseUrl = Environment.GetEnvironmentVariable("OLLAMA_BASE_URL") ?? "http://localhost:11434";
 
     private readonly FootballDataService _footballData;
     private readonly BettingContext _context;
@@ -129,7 +123,7 @@ Réponds UNIQUEMENT avec un tableau JSON, rien avant, rien après, un objet par 
 Matchs:
 {string.Join("\n\n", matchLines)}";
 
-        var responseText = await CallOllamaForScoresAsync(prompt, ct);
+        var responseText = await CallAiForScoresAsync(prompt, ct);
 
         var predictions = matches.Select(m => new ScorePrediction
         {
@@ -144,7 +138,7 @@ Matchs:
             await Send.OkAsync(new PredictExactScoresResponse
             {
                 Success = false,
-                Message = "Ollama n'a pas répondu (est-il démarré ? bouton 'Ollama' du dashboard) ou n'a pas produit de JSON exploitable après 2 tentatives.",
+                Message = "Gemini n'a pas répondu ou n'a pas produit de JSON exploitable après 2 tentatives.",
                 Predictions = predictions
             });
             return;
@@ -168,7 +162,7 @@ Matchs:
             await Send.OkAsync(new PredictExactScoresResponse
             {
                 Success = false,
-                Message = "Réponse d'Ollama pas exploitable (JSON malformé) - réessaie.",
+                Message = "Réponse de Gemini pas exploitable (JSON malformé) - réessaie.",
                 Predictions = predictions
             });
             return;
@@ -209,45 +203,27 @@ Matchs:
         _ => code
     };
 
-    // Simplified sibling of DecideBets' CallOllamaWithRetryAsync - same
-    // "retry once if no JSON array, retry the connection if Ollama is
-    // mid-restart" discipline, but this feature never touches Bets/the
-    // bankroll so it stays fully self-contained rather than sharing that
-    // method (kept private/static on a different endpoint class).
-    private static async Task<string?> CallOllamaForScoresAsync(string prompt, CancellationToken ct)
+    // Simplified sibling of DecideBets' CallAiWithRetryAsync - same "retry
+    // once if no JSON array" discipline (GeminiService.AskAsync already
+    // retries a 429/connection failure internally), but this feature never
+    // touches Bets/the bankroll so it stays fully self-contained rather
+    // than sharing that method (kept private/static on a different
+    // endpoint class).
+    private static async Task<string?> CallAiForScoresAsync(string prompt, CancellationToken ct)
     {
         const int maxAttempts = 2;
-        const int maxConnectionRetries = 3;
-        var connectionRetryDelay = TimeSpan.FromSeconds(10);
-        var client = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
 
         for (var attempt = 1; attempt <= maxAttempts; attempt++)
         {
-            HttpResponseMessage response;
-            for (var connAttempt = 1; ; connAttempt++)
+            string responseText;
+            try
             {
-                try
-                {
-                    response = await client.PostAsJsonAsync(
-                        $"{OllamaBaseUrl}/api/generate",
-                        new { model = OllamaModel, prompt, stream = false },
-                        cancellationToken: ct
-                    );
-                    break;
-                }
-                catch (HttpRequestException) when (connAttempt < maxConnectionRetries)
-                {
-                    await Task.Delay(connectionRetryDelay, ct);
-                }
-                catch (HttpRequestException)
-                {
-                    return null;
-                }
+                responseText = (await GeminiService.AskAsync(prompt, ct)).Trim();
             }
-
-            var jsonResponse = await response.Content.ReadAsStringAsync(ct);
-            using var doc = JsonDocument.Parse(jsonResponse);
-            var responseText = (doc.RootElement.GetProperty("response").GetString() ?? "").Trim();
+            catch (Exception)
+            {
+                continue;
+            }
 
             var start = responseText.IndexOf('[');
             var end = responseText.LastIndexOf(']');
