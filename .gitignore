@@ -1,0 +1,10 @@
+# Real secrets live here (see .env.example for the keys this app reads) -
+# never committed. Loaded by Program.cs's LoadDotEnv() at boot.
+.env
+.env.local
+
+# Standard .NET build output - not currently fully untracked (existing
+# bin/obj files were already committed before this file existed), but this
+# stops any NEW build output from being added by accident going forward.
+bin/
+obj/

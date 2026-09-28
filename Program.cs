@@ -3,6 +3,16 @@ using BettingAI.Services;
 using FastEndpoints;
 using Microsoft.EntityFrameworkCore;
 
+// Must run BEFORE WebApplication.CreateBuilder(args) below - that's the
+// moment ASP.NET Core's configuration system snapshots the process's
+// environment variables, so anything .env sets after that point would be
+// too late for FootballData__ApiKey/Discord__WebhookUrl (read via
+// IConfiguration) to pick up, though GEMINI_API_KEY/OWNER_TOKEN (read
+// directly via Environment.GetEnvironmentVariable at first use) wouldn't
+// actually care about the ordering - kept first regardless, for one
+// obvious rule instead of two.
+LoadDotEnv();
+
 var builder = WebApplication.CreateBuilder(args);
 
 // 📦 SERVICES
@@ -82,3 +92,41 @@ Console.WriteLine(string.IsNullOrEmpty(Environment.GetEnvironmentVariable("GEMIN
     : $"🧠 Gemini model: {Environment.GetEnvironmentVariable("GEMINI_MODEL") ?? "gemini-flash-latest"}");
 
 app.Run();
+
+// Reads a plain KEY=value .env file (if present) into this process's own
+// environment variables - lets every secret this app needs (GEMINI_API_KEY,
+// FootballData__ApiKey, Discord__WebhookUrl, OWNER_TOKEN, ...) live in one
+// plain-text file inside the project (see .env.example for the full list)
+// instead of scattered across shell profiles/systemd units/launch scripts
+// that are easy to lose track of - exactly the "je sais jamais où c'est"
+// problem this replaces. .env itself is gitignored, never committed.
+//
+// Looks in the current working directory first (where `dotnet run`/the
+// published exe is actually launched from) and falls back to the build
+// output folder, since those differ during local development. A variable
+// already present in the real OS environment is left alone - lets a real
+// deploy still set secrets the usual way instead, if ever preferred over
+// this file.
+static void LoadDotEnv()
+{
+    var path = new[] { Directory.GetCurrentDirectory(), AppContext.BaseDirectory }
+        .Select(dir => Path.Combine(dir, ".env"))
+        .FirstOrDefault(File.Exists);
+    if (path == null) return;
+
+    foreach (var line in File.ReadAllLines(path))
+    {
+        var trimmed = line.Trim();
+        if (trimmed.Length == 0 || trimmed.StartsWith('#')) continue;
+
+        var separatorIndex = trimmed.IndexOf('=');
+        if (separatorIndex <= 0) continue;
+
+        var key = trimmed[..separatorIndex].Trim();
+        var value = trimmed[(separatorIndex + 1)..].Trim().Trim('"');
+        if (Environment.GetEnvironmentVariable(key) == null)
+        {
+            Environment.SetEnvironmentVariable(key, value);
+        }
+    }
+}
