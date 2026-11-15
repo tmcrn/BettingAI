@@ -27,6 +27,8 @@ builder.Services.AddSingleton<CycleStatusService>();
 builder.Services.AddHttpClient();
 builder.Services.AddHttpClient<FootballDataService>();
 builder.Services.AddHttpClient<DiscordNotificationService>();
+builder.Services.AddHttpClient<OddsApiService>();
+builder.Services.AddScoped<ClosingLineService>();
 
 // 🎯 Le règlement des paris PENDING (vérifie le score réel, marque WIN/LOSS,
 // met à jour le LearningNotebook) ne tourne plus en continu toutes les 15min
@@ -90,6 +92,11 @@ Console.WriteLine("🤖 Auto-bets managed by CRON script");
 Console.WriteLine(string.IsNullOrEmpty(Environment.GetEnvironmentVariable("GEMINI_API_KEY"))
     ? "❌ GEMINI_API_KEY non configurée - crée une clé gratuite sur https://aistudio.google.com/apikey"
     : $"🧠 Gemini model: {Environment.GetEnvironmentVariable("GEMINI_MODEL") ?? "gemini-flash-latest"}");
+// Same idea for the odds source - without it the value-bet engine can't
+// place anything at all (see DecideBetsEndpoint).
+Console.WriteLine(OddsApiService.IsConfigured
+    ? $"💶 Cotes: The Odds API ({OddsApiService.BetBookmaker}, référence {OddsApiService.SharpBookmaker})"
+    : "❌ THE_ODDS_API_KEY non configurée - crée une clé gratuite sur https://the-odds-api.com (aucun pari possible sans)");
 
 app.Run();
 

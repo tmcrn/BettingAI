@@ -154,14 +154,10 @@ public class AutoDecideBetsEndpoint : Endpoint<AutoDecideBetsRequest, AutoDecide
 
             Console.WriteLine($"✓ Found {upcomingMatches.Count} upcoming matches");
 
-            // 2️⃣ Plus de scraping automatique de cotes ici (l'ancien scrape
-            // Sofascore a été retiré - les cotes réelles sont désormais
-            // saisies à la main via /api/set-odds une fois le pari placé,
-            // voir SetOddsEndpoint). DecideBets propose ses paris purement à
-            // partir des stats (TeamStats/xG/form), sans jamais avoir eu
-            // besoin de cotes 1X2 pour décider - seulement pour le payout au
-            // règlement, qui retombe sur une estimation tant que la cote
-            // réelle n'a pas été saisie à la main.
+            // 2️⃣ Les cotes réelles sont récupérées par DecideBets lui-même
+            // (The Odds API, un appel par championnat présent dans le cycle) -
+            // elles sont au cœur de la décision (méthode value bet), voir
+            // DecideBetsEndpoint.
             // Limite haute de sécurité, pas une vraie limite métier - avec un cycle
             // quotidien couvrant toute la journée sur 7 championnats, on peut
             // largement dépasser 25 matchs (déjà vu 28 en une seule journée, ce qui
@@ -306,13 +302,16 @@ public class AutoDecideBetsEndpoint : Endpoint<AutoDecideBetsRequest, AutoDecide
                 // of which of these actually happened, which is a real explanation
                 // fabricated for a failure that has nothing to do with the stats.
                 var analysisUsed = doc.RootElement.TryGetProperty("analysisUsed", out var auEl) ? auEl.GetString() ?? "" : "";
-                var malformedResponse = analysisUsed.Contains("NO JSON ARRAY IN RESPONSE");
+                var noOddsSource = analysisUsed.Contains("NO ODDS SOURCE");
+                var oddsError = analysisUsed.Contains("ODDS ERROR");
 
-                var reason = malformedResponse
-                    ? "L'IA n'a pas répondu dans le format attendu (même après une relance) - aucune décision n'a donc pu être prise ce cycle, indépendamment des stats des matchs"
-                    : "Matchs analysés sur stats seules, mais aucun pari ne remplissait les critères de l'IA";
+                var reason = noOddsSource
+                    ? "THE_ODDS_API_KEY manquante dans .env - sans cotes réelles, aucun pari value n'est possible"
+                    : oddsError
+                        ? "Erreur en récupérant les cotes (The Odds API) - voir les logs du serveur"
+                        : "Cotes et modèle comparés sur chaque match : aucune cote ne battait notre probabilité d'au moins le seuil de value - pas de pari, c'est normal certains jours";
                 await _discord.NotifyNoActionAsync(reason, upcomingMatches.Count);
-                _cycleStatus.Record(malformedResponse ? "ai_malformed_response" : "no_bets", upcomingMatches.Count, 0, reason);
+                _cycleStatus.Record(noOddsSource || oddsError ? "odds_unavailable" : "no_bets", upcomingMatches.Count, 0, reason);
             }
             else
             {

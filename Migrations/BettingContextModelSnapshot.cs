@@ -40,6 +40,15 @@ namespace BettingAI.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("Bookmaker")
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal?>("ClosingOdds")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ClosingOddsAt")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("CompetitionCode")
                         .HasColumnType("TEXT");
 
@@ -53,6 +62,9 @@ namespace BettingAI.Migrations
                         .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<decimal?>("EdgeAlignmentFeature")
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal?>("ExpectedValue")
                         .HasColumnType("TEXT");
 
                     b.Property<decimal?>("FormAlignmentFeature")
@@ -71,6 +83,9 @@ namespace BettingAI.Migrations
                     b.Property<string>("HomeTeamShort")
                         .HasColumnType("TEXT");
 
+                    b.Property<decimal?>("MarketProbability")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("MatchId")
                         .IsRequired()
                         .HasColumnType("TEXT");
@@ -78,10 +93,19 @@ namespace BettingAI.Migrations
                     b.Property<DateTime?>("MatchUtcDate")
                         .HasColumnType("TEXT");
 
+                    b.Property<decimal?>("ModelProbability")
+                        .HasColumnType("TEXT");
+
                     b.Property<decimal?>("MomentumAlignmentFeature")
                         .HasColumnType("TEXT");
 
                     b.Property<decimal?>("Odds")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("OddsEventId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal?>("PoissonProbability")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Reasoning")
@@ -160,14 +184,14 @@ namespace BettingAI.Migrations
                     b.Property<string>("AwayTeam")
                         .HasColumnType("TEXT");
 
-                    b.Property<int>("BetComboId")
-                        .HasColumnType("INTEGER");
-
                     b.Property<string>("AwayTeamCrest")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("AwayTeamShort")
                         .HasColumnType("TEXT");
+
+                    b.Property<int>("BetComboId")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("BetType")
                         .IsRequired()

@@ -996,14 +996,17 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                      doesn't mean anything. -->
                 <button type="button" class="readme-close-btn" onclick="closeReadmeModal()" title="Fermer" aria-label="Fermer">✕</button>
                 <h1>⚔️ Robert</h1>
-                <p class="tagline">Un système de paris IA qui décide à partir de vraies statistiques — jamais des cotes.</p>
+                <p class="tagline">Un système de paris « à la pro » : il ne parie que quand la cote est meilleure que la vraie probabilité.</p>
 
                 <h2>Comment ça marche</h2>
                 <ol>
                     <li>Récupère les matchs à venir sur 7 championnats via <code>football-data.org</code></li>
-                    <li>Calcule les vraies stats de chaque équipe : xG, xGA, forme sur 5 matchs, momentum, fatigue, historique face-à-face</li>
-                    <li>L'IA (Gemini) analyse le match et décide un pari, seul ou en combiné — jamais influencée par la cote</li>
-                    <li>Les résultats réels sont récupérés automatiquement ; le modèle apprend en continu à chaque pari réglé</li>
+                    <li>Récupère les vraies cotes avant de décider (<code>The Odds API</code> : Winamax pour le prix, Pinnacle comme référence du marché)</li>
+                    <li>Un modèle de Poisson (Dixon-Coles) calcule la probabilité de chaque issue à partir de l'attaque et de la défense des deux équipes</li>
+                    <li>Probabilité du modèle mélangée à celle du marché (marge retirée) ; pari seulement si <strong>probabilité × cote − 1 ≥ 3 %</strong></li>
+                    <li>Mise = ¼ de Kelly, plafonnée à 5 % de la bankroll par pari et 25 % par cycle — paris simples uniquement, jamais de combiné</li>
+                    <li>Gemini explique le pari et signale un risque éventuel — il ne décide plus</li>
+                    <li>Suivi de la CLV (cote prise vs cote de clôture) et de la calibration pour savoir si l'avantage est réel</li>
                 </ol>
 
                 <h2>Championnats suivis</h2>
@@ -1020,13 +1023,12 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                 <h2>Sources de données</h2>
                 <ul>
                     <li><code>football-data.org</code> — calendriers, scores en direct, résultats officiels</li>
-                    <li><code>Gemini</code> (API Google, gratuite) — raisonnement et décision de l'IA</li>
-                    <li><code>WinPredictionService</code> — régression logistique entraînée sur chaque résultat réel réglé</li>
-                    <li><code>OddsLearningService</code> — moyenne apprise des vraies cotes vues, par type de pari</li>
+                    <li><code>The Odds API</code> (gratuite, 500 crédits/mois) — cotes 1N2 et plus/moins de Winamax et Pinnacle</li>
+                    <li><code>Gemini</code> (API Google, gratuite) — explication des paris et signalement des risques</li>
                 </ul>
 
                 <h2>Principe non négociable</h2>
-                <div class="callout">Les cotes ne bloquent <strong>jamais</strong> une décision. L'IA parie sur ce qu'elle croit vrai statistiquement — les cotes ne servent qu'à calculer le gain une fois le pari déjà placé.</div>
+                <div class="callout">On ne parie pas sur qui va gagner, on parie quand <strong>le prix est faux</strong>. Pas de value = pas de pari, même s'il n'y a aucun pari certains jours. Et c'est la CLV, pas les gains d'une semaine, qui dit si ça marche.</div>
             </div>
         </div>
 
@@ -1200,6 +1202,11 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
                  narrower, where "closing" doesn't mean anything. -->
             <div class="learning-modal-card">
                 <button type="button" class="readme-close-btn" onclick="closeLearningModal()" title="Fermer" aria-label="Fermer">✕</button>
+                <div class="section-title">📐 Méthode pro : CLV &amp; calibration</div>
+                <div class="button-row" style="margin-bottom:8px">
+                    <button onclick="refreshClosingOdds()" id="closingOddsBtn" title="Relit la cote actuelle des paris qui commencent dans les 3h (2 crédits par championnat)">📌 Relever les cotes de clôture</button>
+                </div>
+                <div class="learning-notebook" id="calibrationPanel">Chargement…</div>
                 <div class="section-title">🧠 Mémoire d'apprentissage</div>
                 <div class="learning-notebook" id="learningNotebook">Chargement…</div>
             </div>
@@ -2560,9 +2567,52 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
             document.getElementById('learningNotebook').textContent = l.formattedLearning || 'Pas encore de données d\'apprentissage.';
         }
 
+        function pct(v, digits = 1) {
+            return v === null || v === undefined ? '—' : (v * 100).toFixed(digits).replace('.', ',') + ' %';
+        }
+
+        async function refreshCalibration() {
+            const panel = document.getElementById('calibrationPanel');
+            try {
+                const res = await fetch('/api/model-calibration');
+                const c = await res.json();
+                const lines = [
+                    `Paris value placés : ${c.betsPlaced} (réglés : ${c.betsSettled}, gagnés : ${c.wins})`,
+                    `Value moyenne au moment du pari : ${pct(c.averageExpectedValue)}`,
+                    `CLV moyenne : ${pct(c.averageClv)} sur ${c.clvSample} pari(s)` + (c.clvPositiveShare !== null && c.clvPositiveShare !== undefined ? ` — ${pct(c.clvPositiveShare, 0)} battent la cote de clôture` : ''),
+                    `ROI : ${pct(c.roi)} (profit ${(c.profit ?? 0).toFixed(2).replace('.', ',')} € sur ${(c.staked ?? 0).toFixed(2).replace('.', ',')} € misés)`,
+                    `Score de Brier : modèle ${c.brierModel ?? '—'} / marché ${c.brierMarket ?? '—'} (plus bas = mieux)`
+                ];
+                if (c.buckets && c.buckets.length) {
+                    lines.push('', 'Calibration (probabilité annoncée → taux réel) :');
+                    for (const b of c.buckets) lines.push(`  ${b.range} : ${pct(b.predictedRate, 0)} → ${pct(b.actualRate, 0)} (${b.count} paris)`);
+                }
+                if (c.oddsQuota) lines.push('', `The Odds API : ${c.oddsQuota}`);
+                lines.push('', c.verdict || '');
+                panel.textContent = lines.join('\n');
+            } catch (e) {
+                panel.textContent = 'Indisponible : ' + e.message;
+            }
+        }
+
+        async function refreshClosingOdds() {
+            const btn = document.getElementById('closingOddsBtn');
+            btn.disabled = true;
+            try {
+                const res = await mutatingFetch('/api/refresh-closing-odds?withinHours=3', { method: 'POST' });
+                const r = await res.json();
+                showAppAlert(r.message || 'Terminé');
+                await refreshCalibration();
+            } catch (e) {
+                showAppAlert('Erreur: ' + e.message);
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
         async function refreshAll() {
             try {
-                await Promise.all([refreshPortfolio(), refreshLearning(), refreshManualReview()]);
+                await Promise.all([refreshPortfolio(), refreshLearning(), refreshManualReview(), refreshCalibration()]);
             } catch (error) {
                 console.error('Erreur de chargement:', error);
             }

@@ -51,4 +51,28 @@ public class Bet
     public decimal? EdgeAlignmentFeature { get; set; }
     public decimal? FormAlignmentFeature { get; set; }
     public decimal? MomentumAlignmentFeature { get; set; }
+
+    // ── Pro-style decision data (null for bets placed before the value-bet
+    // engine existed) ──
+    // Probability of THIS selection winning according to the Poisson model
+    // alone, the market's fair probability (sharp bookmaker, margin
+    // removed), and the blend of both actually used to decide.
+    public decimal? PoissonProbability { get; set; }
+    public decimal? MarketProbability { get; set; }
+    public decimal? ModelProbability { get; set; }
+
+    // Expected value at decision time: ModelProbability × Odds − 1.
+    public decimal? ExpectedValue { get; set; }
+
+    // Bookmaker whose price was taken (e.g. "winamax_fr") and The Odds API
+    // event id, used to re-read the price right before kickoff.
+    public string? Bookmaker { get; set; }
+    public string? OddsEventId { get; set; }
+
+    // Last price seen before kickoff (≈ closing line) and when. CLV =
+    // Odds / ClosingOdds − 1: consistently beating the closing price is the
+    // most reliable early sign of a real edge, long before win/loss
+    // results are statistically meaningful.
+    public decimal? ClosingOdds { get; set; }
+    public DateTime? ClosingOddsAt { get; set; }
 }
