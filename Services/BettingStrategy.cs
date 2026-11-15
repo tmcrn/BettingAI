@@ -39,6 +39,12 @@ public static class BettingStrategy
     // Smallest stake the bookmaker accepts / worth placing.
     public static decimal MinStake => Env("BETTING_MIN_STAKE", 0.10m);
 
+    // Starting balance of the app's own simulated portfolio (dashboard
+    // "solde", and what Kelly sizes from when BETTING_BANKROLL is unset).
+    // Raise it (e.g. 100) for paper trading: stakes then follow the
+    // simulated balance automatically as it grows or shrinks.
+    public static decimal StartingBalance => Env("BETTING_START_BALANCE", 10m);
+
     // The real money you put aside for betting on the bookmaker. When set,
     // Kelly sizes from this; otherwise it falls back to the app's own
     // simulated balance (starts at 10€).

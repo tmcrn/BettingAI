@@ -193,7 +193,7 @@ public class GetPortfolioEndpoint : Endpoint<GetPortfolioRequest, GetPortfolioRe
         var totalStaked = bets.Sum(b => b.Stake) + combos.Sum(c => c.Stake);
         var totalWinnings = bets.Where(b => b.Result == "WIN").Sum(b => b.Winnings ?? 0)
             + combos.Where(c => c.Result == "WIN").Sum(c => c.Winnings ?? 0);
-        var currentBalance = 10 + totalWinnings - totalStaked;
+        var currentBalance = BettingAI.Services.BettingStrategy.StartingBalance + totalWinnings - totalStaked;
 
         var wonCount = bets.Count(b => b.Result == "WIN") + combos.Count(c => c.Result == "WIN");
         var lostCount = bets.Count(b => b.Result == "LOSS") + combos.Count(c => c.Result == "LOSS");

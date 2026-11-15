@@ -2754,7 +2754,7 @@ footer { text-align: center; color: var(--text-faint); font-size: 0.78em; paddin
         }
 
         async function resetSystem() {
-            if (!confirm('Supprimer tout l\'historique de paris (portefeuille remis à 10€) ? Les stats d\'équipes ne sont pas touchées.')) return;
+            if (!confirm('Supprimer tout l\'historique de paris (portefeuille remis au solde de départ) ? Les stats d\'équipes ne sont pas touchées.')) return;
             try {
                 const res = await mutatingFetch('/api/reset-system', { method: 'DELETE' });
                 const data = await res.json();
