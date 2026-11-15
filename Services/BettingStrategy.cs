@@ -36,7 +36,8 @@ public static class BettingStrategy
     public static decimal MinOdds => Env("BETTING_MIN_ODDS", 1.40m);
     public static decimal MaxOdds => Env("BETTING_MAX_ODDS", 4.00m);
 
-    // Smallest stake the bookmaker accepts / worth placing.
+    // Minimum stake of every bet placed (smaller Kelly stakes are raised to
+    // it - see KellyStake).
     public static decimal MinStake => Env("BETTING_MIN_STAKE", 0.10m);
 
     // Starting balance of the app's own simulated portfolio (dashboard
@@ -59,18 +60,20 @@ public static class BettingStrategy
 
     // Kelly criterion: f* = (p·o − 1) / (o − 1), the bankroll share that
     // maximises long-run growth. Returns the actual stake after the Kelly
-    // fraction, the per-bet cap and rounding to 10 cents; 0 when not worth
-    // betting.
+    // fraction and the per-bet cap, rounded down to 10 cents. MinStake is a
+    // FLOOR: a value bet whose Kelly stake is smaller is raised to MinStake
+    // rather than skipped (the owner's choice - e.g. 5€ minimum per bet),
+    // and the per-bet cap never goes below that floor. 0 = no bet (no value,
+    // or the balance can't cover the minimum).
     public static decimal KellyStake(decimal probability, decimal odds, decimal bankroll)
     {
-        if (bankroll <= 0 || odds <= 1) return 0;
+        if (bankroll < MinStake || odds <= 1) return 0;
         var fullKelly = (probability * odds - 1) / (odds - 1);
         if (fullKelly <= 0) return 0;
 
-        var stake = bankroll * fullKelly * KellyFraction;
-        stake = Math.Min(stake, bankroll * MaxStakeShare);
-        stake = Math.Floor(stake * 10) / 10; // round DOWN to 0.10
-        return stake >= MinStake ? stake : 0;
+        var cap = Math.Max(bankroll * MaxStakeShare, MinStake);
+        var stake = Math.Clamp(bankroll * fullKelly * KellyFraction, MinStake, cap);
+        return Math.Floor(stake * 10) / 10; // round DOWN to 0.10
     }
 
     // Removes the bookmaker margin: the implied probabilities 1/odds of all

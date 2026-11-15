@@ -189,7 +189,7 @@ public class DecideBetsEndpoint : Endpoint<DecideBetsRequest, DecideBetsResponse
             var stake = BettingStrategy.KellyStake(best.FinalProbability, best.Odds, bankroll);
             if (stake <= 0)
             {
-                statsLines.Add($"{label}: {modelSummary} | {bestSummary} => value mais mise Kelly < {BettingStrategy.MinStake}€");
+                statsLines.Add($"{label}: {modelSummary} | {bestSummary} => value mais solde < mise minimum {BettingStrategy.MinStake}€");
                 continue;
             }
 
