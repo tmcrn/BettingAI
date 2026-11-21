@@ -2,267 +2,224 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Béruges Moto Club — depuis 2010</title>
-  <meta name="description" content="Béruges Moto Club (BMC) : sorties, événements, partenaires et vie du club depuis 2010.">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#000000">
+  <title>Béruges Moto Club</title>
+  <meta name="description" content="Béruges Moto Club (BMC) : sorties, galerie, partenaires et espace membres. Depuis 2010.">
+  <link rel="icon" href="assets/logo-bmc.jpeg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Permanent+Marker&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-
-  <p class="maquette">Maquette : les textes, dates et noms sont des exemples à remplacer.</p>
+<div class="app">
 
   <header class="top">
-    <a class="brand" href="#haut" aria-label="Béruges Moto Club, accueil">
-      <img src="assets/logo-bmc.jpeg" alt="" width="44" height="44">
-      <span>BMC</span>
+    <a class="brand" href="#accueil" aria-label="Béruges Moto Club, accueil">
+      <span class="ring"><img src="assets/logo-bmc.jpeg" alt="" width="34" height="34"></span>
+      <span class="brand-name">BMC</span>
     </a>
-    <button class="burger" aria-expanded="false" aria-controls="menu">Menu</button>
-    <nav id="menu" aria-label="Navigation principale">
-      <a href="#club">Le club</a>
-      <a href="#sorties">Sorties</a>
-      <a href="#avantages">Remises</a>
-      <a href="#galerie">Galerie</a>
-      <a href="#braderie">Braderie</a>
-      <a href="#membres" class="menu-members">Espace membres</a>
-    </nav>
+    <button class="burger" id="burger" aria-expanded="false" aria-controls="sheet" aria-label="Ouvrir le menu">
+      <svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    </button>
   </header>
 
-  <main id="haut">
+  <nav class="sheet" id="sheet" aria-label="Menu" hidden>
+    <a href="#partenaires">Partenaires et remises</a>
+    <a href="#braderie">Braderie</a>
+    <a href="#rejoindre">Rejoindre le club</a>
+    <a href="#securite">Rouler en sécurité</a>
+    <a href="#" class="ext">Chaîne YouTube</a>
+  </nav>
 
-    <!-- HERO -->
-    <section class="hero">
-      <div class="hero-text">
-        <h1>Des motos, des copains, <span class="marker">depuis 2010.</span></h1>
-        <p class="lead">Le Béruges Moto Club réunit des motards de tous âges pour rouler ensemble, se retrouver et faire vivre le village.</p>
-        <div class="actions">
-          <a class="btn btn-primary" href="#rejoindre">Rejoindre le club</a>
-          <a class="btn btn-ghost" href="#sorties">Voir les prochaines sorties</a>
-        </div>
+  <main id="contenu">
+
+    <!-- ACCUEIL -->
+    <section class="screen" id="accueil" data-title="Accueil">
+      <div class="hero">
+        <p class="hero-note">Photo du club à ajouter</p>
+        <h1>Béruges Moto Club</h1>
+        <p class="hero-sub">Depuis 2010, on roule ensemble.</p>
+        <a class="btn" href="#sorties">Voir la prochaine sortie</a>
       </div>
-      <img class="hero-logo" src="assets/logo-bmc.jpeg" alt="Logo du Béruges Moto Club : casque rétro, lunettes et grande barbe devant des drapeaux à damier" width="520" height="520">
-    </section>
+      <div class="flag" aria-hidden="true"></div>
 
-    <div class="flag" aria-hidden="true"></div>
+      <div class="pad">
+        <h2>Prochaine sortie</h2>
+        <article class="event" data-event="printemps">
+          <time datetime="2027-03-14"><b>14</b>mars</time>
+          <div class="event-body">
+            <h3>Sortie de printemps</h3>
+            <p>Boucle d’une journée. Départ 9 h 30, devant la mairie.</p>
+          </div>
+          <button class="btn btn-full rsvp" type="button" aria-pressed="false">Je viens</button>
+        </article>
 
-    <!-- LE CLUB -->
-    <section id="club" class="section">
-      <div class="wrap two-col">
-        <div>
-          <h2>Le club</h2>
-          <p>Né en 2010 à Béruges, le BMC est une association de passionnés. On roule le week-end, on organise des événements dans le village et on se serre les coudes quand une moto reste au garage.</p>
-          <p>Pas besoin d'une grosse cylindrée ni d'un blouson de cuir : il faut aimer la route et la bonne ambiance.</p>
-        </div>
-        <ul class="facts">
-          <li><strong>2010</strong><span>année de création</span></li>
-          <li><strong>3</strong><span>personnes au bureau : président, secrétaire, trésorier</span></li>
-          <li><strong>1</strong><span>braderie annuelle, ouverte à tous</span></li>
-        </ul>
-      </div>
+        <h2>Dernier album</h2>
+        <a class="album a1" href="#galerie"><span class="album-title">Braderie 2026</span><span class="album-meta">24 photos</span></a>
 
-      <div class="wrap bureau">
-        <h3>Le bureau</h3>
-        <div class="bureau-grid">
-          <article><span class="role">Président</span><p>Prénom Nom</p></article>
-          <article><span class="role">Secrétaire</span><p>Prénom Nom</p></article>
-          <article><span class="role">Trésorier</span><p>Prénom Nom</p></article>
-        </div>
+        <h2>Le club</h2>
+        <p>Né en 2010 à Béruges, le BMC réunit des motards de tous âges. On roule le week-end, on organise la braderie et on se serre les coudes quand une moto reste au garage.</p>
+        <a class="btn btn-line btn-full" href="#rejoindre">Rejoindre le club</a>
       </div>
     </section>
 
     <!-- SORTIES -->
-    <section id="sorties" class="section alt">
-      <div class="wrap">
-        <h2>Prochaines sorties</h2>
-        <p class="section-intro">Chaque membre confirme sa présence depuis l'espace membres, pour que l'organisateur sache combien on sera.</p>
-        <ul class="events">
-          <li>
-            <time datetime="2027-03-14"><b>14</b> mars</time>
-            <div><h3>Sortie de printemps</h3><p>Boucle d'une journée, pause déjeuner en route. Départ 9 h 30 devant la mairie.</p></div>
-            <span class="tag">Tous niveaux</span>
-          </li>
-          <li>
-            <time datetime="2027-05-08"><b>08</b> mai</time>
-            <div><h3>Balade du pont de mai</h3><p>Route à travers la campagne, arrêt photo et pique-nique.</p></div>
-            <span class="tag">Tous niveaux</span>
-          </li>
-          <li>
-            <time datetime="2027-06-20"><b>20</b> juin</time>
-            <div><h3>Journée circuit</h3><p>Pour ceux qui veulent rouler plus vite, en toute sécurité.</p></div>
-            <span class="tag tag-hot">Inscription requise</span>
-          </li>
-        </ul>
+    <section class="screen" id="sorties" data-title="Sorties" hidden>
+      <div class="pad">
+        <h1 class="page-title">Prochaines sorties</h1>
+        <p class="muted">Dis-nous si tu viens, ça aide à s’organiser.</p>
+        <article class="event" data-event="printemps">
+          <time datetime="2027-03-14"><b>14</b>mars</time>
+          <div class="event-body"><h3>Sortie de printemps</h3><p>Boucle d’une journée, pause déjeuner en route. Départ 9 h 30.</p></div>
+          <button class="btn btn-full rsvp" type="button" aria-pressed="false">Je viens</button>
+        </article>
+        <article class="event" data-event="mai">
+          <time datetime="2027-05-08"><b>08</b>mai</time>
+          <div class="event-body"><h3>Balade du pont de mai</h3><p>Campagne, arrêt photo et pique-nique.</p></div>
+          <button class="btn btn-full rsvp" type="button" aria-pressed="false">Je viens</button>
+        </article>
+        <article class="event" data-event="circuit">
+          <time datetime="2027-06-20"><b>20</b>juin</time>
+          <div class="event-body"><h3>Journée circuit</h3><p>Pour rouler plus vite, en sécurité.</p></div>
+          <button class="btn btn-full rsvp" type="button" aria-pressed="false" data-on="Inscrit" data-off="Je m’inscris">Je m’inscris</button>
+        </article>
+        <p class="note">Les dates sont des exemples.</p>
       </div>
     </section>
 
-    <div class="flag" aria-hidden="true"></div>
-
-    <!-- AVANTAGES -->
-    <section id="avantages" class="section">
-      <div class="wrap">
-        <h2>Remises chez nos commerçants</h2>
-        <p class="section-intro">Présente ta carte d'adhérent chez nos partenaires et profite d'une remise.</p>
-        <div class="deals">
-          <article><h3>Garage du Bourg</h3><p class="deal">−10 %</p><p>sur les pièces et l'entretien</p></article>
-          <article><h3>Équipement Moto Sud</h3><p class="deal">−15 %</p><p>sur casques et gants</p></article>
-          <article><h3>Café de la Place</h3><p class="deal">1 café offert</p><p>pour chaque sortie du club</p></article>
-        </div>
-
-        <h3 class="sub">Nos partenaires</h3>
-        <ul class="sponsors" aria-label="Partenaires et sponsors">
-          <li>Logo partenaire</li><li>Logo partenaire</li><li>Logo partenaire</li><li>Logo partenaire</li>
-        </ul>
-        <p class="note">Un commerce veut soutenir le club ? <a href="#rejoindre">Écrivez-nous</a>.</p>
+    <!-- GALERIE -->
+    <section class="screen" id="galerie" data-title="Galerie" hidden>
+      <div class="pad">
+        <h1 class="page-title">Galerie</h1>
+        <p class="muted">Les albums du club, classés par année.</p>
+        <a class="album a1" href="#galerie"><span class="album-title">Braderie 2026</span><span class="album-meta">24 photos</span></a>
+        <a class="album a2" href="#galerie"><span class="album-title">Sortie de printemps 2026</span><span class="album-meta">18 photos</span></a>
+        <a class="album a3" href="#galerie"><span class="album-title">Soirée du club 2025</span><span class="album-meta">31 photos</span></a>
+        <p class="note">Les photos remplaceront ces emplacements.</p>
       </div>
     </section>
 
-    <!-- GALERIE + YOUTUBE -->
-    <section id="galerie" class="section alt">
-      <div class="wrap">
-        <h2>Galerie</h2>
-        <div class="gallery">
-          <figure class="g1"><figcaption>Sortie de printemps</figcaption></figure>
-          <figure class="g2"><figcaption>Braderie</figcaption></figure>
-          <figure class="g3"><figcaption>Soirée du club</figcaption></figure>
-          <figure class="g4"><figcaption>Journée circuit</figcaption></figure>
-          <figure class="g5"><figcaption>Balade de mai</figcaption></figure>
-        </div>
-        <p class="note">Les photos remplaceront ces vignettes.</p>
+    <!-- MEMBRES -->
+    <section class="screen" id="membres" data-title="Membres" hidden>
+      <div class="pad">
+        <h1 class="page-title">Espace membres</h1>
+        <p class="muted">Aperçu : la connexion sera ajoutée plus tard.</p>
 
-        <div class="video">
-          <div>
-            <h3>Nos vidéos</h3>
-            <p>Retrouvez les sorties filmées et les moments forts de l'année.</p>
-            <a class="btn btn-primary" href="#">Voir la chaîne YouTube</a>
+        <div class="seg" role="tablist" aria-label="Rubriques membres">
+          <button role="tab" aria-selected="true" aria-controls="m-annuaire" id="mt-annuaire">Annuaire</button>
+          <button role="tab" aria-selected="false" aria-controls="m-carte" id="mt-carte">Ma carte</button>
+          <button role="tab" aria-selected="false" aria-controls="m-infos" id="mt-infos">Communiqués</button>
+        </div>
+
+        <div id="m-annuaire" role="tabpanel" aria-labelledby="mt-annuaire">
+          <label class="search"><span class="sr">Rechercher un membre</span>
+            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M21 21l-4.3-4.3M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <input type="search" id="q" placeholder="Rechercher un membre" autocomplete="off">
+          </label>
+          <ul class="people" id="people"></ul>
+          <p class="note">Touche le téléphone pour appeler. Ces noms sont des exemples.</p>
+        </div>
+
+        <div id="m-carte" role="tabpanel" aria-labelledby="mt-carte" hidden>
+          <div class="card">
+            <span class="ring big"><img src="assets/logo-bmc.jpeg" alt="" width="80" height="80"></span>
+            <div>
+              <p class="card-club">Béruges Moto Club</p>
+              <p class="card-name">Prénom Nom</p>
+              <p class="card-meta">Adhérent n° 0042</p>
+              <p class="card-meta">Valable jusqu’au 31/12</p>
+            </div>
           </div>
-          <div class="video-frame" role="img" aria-label="Emplacement de la vidéo YouTube du club"><span>▶</span></div>
+          <p class="muted">Montre-la chez nos commerçants partenaires pour avoir ta remise.</p>
+          <h2>Remises</h2>
+          <ul class="deals">
+            <li><span>Garage du Bourg</span><b>−10 %</b></li>
+            <li><span>Équipement Moto Sud</span><b>−15 %</b></li>
+            <li><span>Café de la Place</span><b>1 café offert</b></li>
+          </ul>
+        </div>
+
+        <div id="m-infos" role="tabpanel" aria-labelledby="mt-infos" hidden>
+          <ul class="news">
+            <li><time>12 nov.</time><div><h3>Assemblée générale</h3><p>Convocation et ordre du jour à télécharger.</p></div></li>
+            <li><time>28 oct.</time><div><h3>Inventaire du matériel de course</h3><p>Merci de rapporter le matériel prêté avant fin novembre.</p></div></li>
+          </ul>
+          <p class="note">Le bureau (président, secrétaire, trésorier) publiera ici les communiqués.</p>
         </div>
       </div>
     </section>
 
-    <div class="flag" aria-hidden="true"></div>
+    <!-- PARTENAIRES -->
+    <section class="screen" id="partenaires" data-title="Partenaires" hidden>
+      <div class="pad">
+        <h1 class="page-title">Partenaires et remises</h1>
+        <p class="muted">Présente ta carte d’adhérent chez nos partenaires.</p>
+        <ul class="deals">
+          <li><span>Garage du Bourg</span><b>−10 %</b></li>
+          <li><span>Équipement Moto Sud</span><b>−15 %</b></li>
+          <li><span>Café de la Place</span><b>1 café offert</b></li>
+        </ul>
+        <h2>Ils nous soutiennent</h2>
+        <ul class="sponsors"><li>Logo partenaire</li><li>Logo partenaire</li><li>Logo partenaire</li><li>Logo partenaire</li></ul>
+        <p class="note">Un commerce veut soutenir le club ? <a href="#rejoindre">Écris-nous</a>.</p>
+      </div>
+    </section>
 
     <!-- BRADERIE -->
-    <section id="braderie" class="section">
-      <div class="wrap two-col">
-        <div>
-          <h2>La braderie du BMC</h2>
-          <p>Une fois par an, le club ouvre sa braderie : pièces, équipements, vêtements et bonnes affaires pour motards. Exposants et visiteurs sont les bienvenus.</p>
-          <a class="btn btn-primary" href="#rejoindre">Réserver un emplacement</a>
-        </div>
+    <section class="screen" id="braderie" data-title="Braderie" hidden>
+      <div class="pad">
+        <h1 class="page-title">La braderie du BMC</h1>
+        <p>Une fois par an, pièces, équipements, vêtements et bonnes affaires pour motards. Exposants et visiteurs sont les bienvenus.</p>
         <dl class="infos">
           <div><dt>Date</dt><dd>À confirmer</dd></div>
           <div><dt>Lieu</dt><dd>Béruges</dd></div>
           <div><dt>Entrée</dt><dd>Gratuite</dd></div>
         </dl>
-      </div>
-    </section>
-
-    <!-- SECURITE / LIBERTY RIDER -->
-    <section class="section alt">
-      <div class="wrap two-col">
-        <div>
-          <h2>Rouler en sécurité</h2>
-          <p>Le club recommande l'appli Liberty Rider : en cas de chute, elle prévient automatiquement tes proches et les secours. On l'installe ensemble avant la première sortie.</p>
-        </div>
-        <ul class="checks">
-          <li>Alerte automatique après une chute</li>
-          <li>Partage de ta position avec ton contact</li>
-          <li>Installation et réglages avec un ancien du club</li>
-        </ul>
+        <a class="btn btn-full" href="#rejoindre">Réserver un emplacement</a>
       </div>
     </section>
 
     <!-- REJOINDRE -->
-    <section id="rejoindre" class="section join">
-      <div class="wrap two-col">
-        <div>
-          <h2>Rejoindre le club</h2>
-          <p>Remplis le formulaire : le bureau te recontacte. Un membre t'a parlé du BMC ? Indique son nom, il te parraine.</p>
-        </div>
-        <form class="form" onsubmit="event.preventDefault(); this.querySelector('.ok').hidden = false;">
+    <section class="screen" id="rejoindre" data-title="Rejoindre" hidden>
+      <div class="pad">
+        <h1 class="page-title">Rejoindre le club</h1>
+        <p class="muted">Le bureau te recontacte. Un membre t’a parlé du BMC ? Indique son nom, il te parraine.</p>
+        <form class="form" id="form" novalidate>
           <label>Prénom et nom<input type="text" name="nom" autocomplete="name" required></label>
           <label>E-mail<input type="email" name="email" autocomplete="email" required></label>
           <label>Téléphone<input type="tel" name="tel" autocomplete="tel"></label>
           <label>Parrainé par <span class="opt">(facultatif)</span><input type="text" name="parrain"></label>
-          <button class="btn btn-primary" type="submit">Envoyer ma demande</button>
-          <p class="ok" hidden>Demande envoyée. Le bureau te répond rapidement.</p>
+          <button class="btn btn-full" type="submit">Envoyer ma demande</button>
+          <p class="ok" id="ok" hidden role="status">Demande prête. L’envoi réel sera branché à la mise en ligne.</p>
         </form>
       </div>
     </section>
 
-    <!-- ESPACE MEMBRES -->
-    <section id="membres" class="section members">
-      <div class="wrap">
-        <h2>Espace membres</h2>
-        <p class="section-intro">Réservé aux adhérents. Aperçu de ce que chacun y retrouve après connexion.</p>
-
-        <div class="app" role="region" aria-label="Aperçu de l'espace membres">
-          <div class="tabs" role="tablist">
-            <button role="tab" aria-selected="true" aria-controls="p-annuaire" id="t-annuaire">Annuaire</button>
-            <button role="tab" aria-selected="false" aria-controls="p-presences" id="t-presences">Présences</button>
-            <button role="tab" aria-selected="false" aria-controls="p-carte" id="t-carte">Ma carte</button>
-            <button role="tab" aria-selected="false" aria-controls="p-infos" id="t-infos">Communiqués</button>
-          </div>
-
-          <div class="panel" id="p-annuaire" role="tabpanel" aria-labelledby="t-annuaire">
-            <table>
-              <thead><tr><th>Membre</th><th>Rôle</th><th>Téléphone</th></tr></thead>
-              <tbody>
-                <tr><td>Prénom N.</td><td>Président</td><td>06 •• •• •• 12</td></tr>
-                <tr><td>Prénom N.</td><td>Secrétaire</td><td>06 •• •• •• 48</td></tr>
-                <tr><td>Prénom N.</td><td>Trésorier</td><td>07 •• •• •• 05</td></tr>
-                <tr><td>Prénom N.</td><td>Membre</td><td>06 •• •• •• 77</td></tr>
-              </tbody>
-            </table>
-            <p class="note">Les numéros ne sont visibles que par les membres connectés.</p>
-          </div>
-
-          <div class="panel" id="p-presences" role="tabpanel" aria-labelledby="t-presences" hidden>
-            <ul class="rsvp">
-              <li><div><h3>Sortie de printemps</h3><p>14 mars : 18 présents</p></div><div class="choice"><button class="on">Je viens</button><button>Je ne viens pas</button></div></li>
-              <li><div><h3>Balade du pont de mai</h3><p>8 mai : 9 présents</p></div><div class="choice"><button>Je viens</button><button>Je ne viens pas</button></div></li>
-            </ul>
-          </div>
-
-          <div class="panel" id="p-carte" role="tabpanel" aria-labelledby="t-carte" hidden>
-            <div class="card">
-              <img src="assets/logo-bmc.jpeg" alt="" width="96" height="96">
-              <div>
-                <p class="card-club">Béruges Moto Club</p>
-                <p class="card-name">Prénom Nom</p>
-                <p class="card-meta">Adhérent n° 0042 · valable jusqu'au 31/12</p>
-              </div>
-            </div>
-            <p class="note">À présenter chez les commerçants partenaires pour obtenir ta remise.</p>
-          </div>
-
-          <div class="panel" id="p-infos" role="tabpanel" aria-labelledby="t-infos" hidden>
-            <ul class="news">
-              <li><time>12 nov.</time><div><h3>Assemblée générale</h3><p>Convocation et ordre du jour à télécharger.</p></div></li>
-              <li><time>28 oct.</time><div><h3>Inventaire du matériel de course</h3><p>Merci de rapporter le matériel prêté avant fin novembre.</p></div></li>
-            </ul>
-          </div>
-        </div>
-
-        <p class="note">Les membres du bureau (président, secrétaire, trésorier) disposent en plus d'un accès administrateur : adhésions, communiqués, inventaire.</p>
+    <!-- SECURITE -->
+    <section class="screen" id="securite" data-title="Sécurité" hidden>
+      <div class="pad">
+        <h1 class="page-title">Rouler en sécurité</h1>
+        <p>Le club recommande l’appli Liberty Rider : en cas de chute, elle prévient tes proches et les secours. On l’installe ensemble avant la première sortie.</p>
+        <ul class="checks">
+          <li>Alerte automatique après une chute</li>
+          <li>Partage de ta position avec ton contact</li>
+          <li>Installation avec un ancien du club</li>
+        </ul>
       </div>
     </section>
 
   </main>
 
-  <div class="flag" aria-hidden="true"></div>
+  <nav class="tabbar" aria-label="Navigation principale">
+    <a href="#accueil" data-tab="accueil"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l9-8 9 8v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/></svg><span>Accueil</span></a>
+    <a href="#sorties" data-tab="sorties"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM3 10h18M8 3v4M16 3v4"/></svg><span>Sorties</span></a>
+    <a href="#galerie" data-tab="galerie"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM3 16l5-5 5 5 3-3 5 5M9 8.5h.01"/></svg><span>Galerie</span></a>
+    <a href="#membres" data-tab="membres"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"/></svg><span>Membres</span></a>
+  </nav>
 
-  <footer class="foot">
-    <img src="assets/logo-bmc.jpeg" alt="" width="64" height="64">
-    <div>
-      <p><strong>Béruges Moto Club</strong>, association fondée en 2010</p>
-      <p><a href="https://www.intramuros.org/beruges/associations/62458">Fiche du club sur Intramuros</a></p>
-    </div>
-  </footer>
-
-  <script src="script.js"></script>
+</div>
+<script src="script.js"></script>
 </body>
 </html>
