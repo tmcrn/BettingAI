@@ -104,9 +104,9 @@ const addYear = iso => { const [y, m, d] = iso.split('-'); const base = iso < to
 let toastTimer;
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, 3500); }
 
-function field(label, control, hint) { return h('label', {}, label, hint ? h('span', { class: 'opt' }, ' ' + hint) : null, control); }
-const input = (name, o = {}) => h('input', { name, type: o.type || 'text', required: o.req, autocomplete: o.auto || 'off', placeholder: o.ph, value: o.value, inputmode: o.mode, min: o.min, max: o.max });
-const textarea = (name, o = {}) => h('textarea', { name, rows: o.rows || 4, required: o.req, placeholder: o.ph });
+function field(label, control, hint) { return h('label', {}, h('span', { class: 'lbl' }, label, hint ? h('span', { class: 'opt' }, ' ' + hint) : null), control); }
+const input = (name, o = {}) => h('input', { name, type: o.type || 'text', required: o.req, autocomplete: o.auto || 'off', placeholder: o.ph || ' ', value: o.value, inputmode: o.mode, min: o.min, max: o.max });
+const textarea = (name, o = {}) => h('textarea', { name, rows: o.rows || 4, required: o.req, placeholder: o.ph || ' ' });
 const select = (name, options, value) => h('select', { name }, options.map(o => { const [v, l] = Array.isArray(o) ? o : [o, o]; return h('option', { value: v, selected: v === value }, l); }));
 const btn = (label, onclick, cls = '', type = 'button') => h('button', { type, class: 'btn ' + cls, onclick }, label);
 const pageTitle = (t, sub) => [h('h1', { class: 'page-title' }, t), sub ? h('p', { class: 'muted' }, sub) : null];
@@ -115,7 +115,7 @@ function form(children, onSubmit, submitLabel = 'Enregistrer') {
   const f = h('form', { class: 'form', novalidate: true }, children, btn(submitLabel, null, 'btn-full', 'submit'));
   f.addEventListener('submit', e => {
     e.preventDefault();
-    if (!f.checkValidity()) { f.reportValidity(); return; }
+    if (!f.checkValidity()) { f.classList.add('shake'); f.addEventListener('animationend', () => f.classList.remove('shake'), { once: true }); f.reportValidity(); return; }
     const data = Object.fromEntries(new FormData(f).entries());
     if (onSubmit(data) !== false) f.reset();
   });
@@ -133,7 +133,7 @@ function eventCard(ev) {
   const mine = m && (db.rsvp[ev.id] || []).includes(m.id);
   const on = ev.inscription ? 'Inscrit' : 'Je viens ✓', off = ev.inscription ? 'Je m’inscris' : 'Je viens';
   const action = m
-    ? h('button', { type: 'button', class: 'btn btn-full', 'aria-pressed': String(!!mine), onclick: () => toggleRsvp(ev.id) }, mine ? on : off)
+    ? h('button', { type: 'button', class: 'btn btn-full' + (popId === ev.id && mine ? ' pop' : ''), 'aria-pressed': String(!!mine), onclick: () => toggleRsvp(ev.id) }, mine ? on : off)
     : h('a', { class: 'btn btn-line btn-full', href: '#connexion' }, 'Se connecter pour répondre');
   return h('article', { class: 'event' },
     h('time', { datetime: ev.date }, h('b', {}, p.d), p.m),
@@ -145,7 +145,7 @@ function toggleRsvp(id) {
   const m = me(); if (!m) return;
   const list = new Set(db.rsvp[id] || []);
   list.has(m.id) ? list.delete(m.id) : list.add(m.id);
-  db.rsvp[id] = [...list]; save(); render();
+  db.rsvp[id] = [...list]; popId = id; save(); render();
 }
 function albumTile(a, large) {
   return h('a', { class: 'album a' + ((a.couleur || 1) % 4 || 1), href: '#album-' + a.id },
@@ -447,6 +447,7 @@ function admReglages() {
 
 /* ---------- Routeur ---------- */
 const sheet = $('#sheet'), burger = $('#burger'), view = $('#view');
+view.tabIndex = -1;
 const TABS = { accueil: 'accueil', sorties: 'sorties', galerie: 'galerie', membres: 'membres', connexion: 'membres', admin: 'membres' };
 function route() {
   const name = (location.hash || '#accueil').slice(1);
@@ -455,9 +456,22 @@ function route() {
   const fn = map[name] || viewAccueil;
   return { tab: TABS[name] || (map[name] ? '' : 'accueil'), title: name, node: fn };
 }
+let lastRoute = null, popId = null;
+function stagger() {
+  const root = view.querySelector('.pad');
+  if (root) [...root.children].slice(0, 10).forEach((c, i) => c.style.setProperty('--i', i));
+  view.querySelectorAll('.hero > *').forEach((c, i) => c.style.setProperty('--i', i));
+}
 function render() {
-  const r = route();
+  const r = route(), key = location.hash || '#accueil', changed = key !== lastRoute;
+  lastRoute = key;
   view.replaceChildren(...[r.node()].flat());
+  popId = null;
+  if (changed) {
+    stagger(); view.classList.remove('enter'); void view.offsetWidth; view.classList.add('enter');
+    view.focus({ preventScroll: true });
+    const t = $('h1', view); document.title = (t ? t.textContent + ' · ' : '') + 'Béruges Moto Club';
+  }
   document.querySelectorAll('.tabbar a').forEach(a => a.dataset.tab === r.tab ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current'));
   buildSheet();
 }
