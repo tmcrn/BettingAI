@@ -137,7 +137,8 @@ function eventCard(ev) {
     : h('a', { class: 'btn btn-line btn-full', href: '#connexion' }, 'Se connecter pour répondre');
   return h('article', { class: 'event' },
     h('time', { datetime: ev.date }, h('b', {}, p.d), p.m),
-    h('div', { class: 'event-body' }, h('h3', {}, ev.titre), h('p', {}, ev.desc), going ? h('p', { class: 'going' }, going + (going > 1 ? ' membres viennent' : ' membre vient')) : null),
+    h('div', { class: 'event-body' }, h('h3', {}, ev.titre), h('p', {}, ev.desc),
+      ev.lien ? h('a', { class: 'route', href: ev.lien, target: '_blank', rel: 'noopener' }, 'Itinéraire sur 68°') : null, going ? h('p', { class: 'going' }, going + (going > 1 ? ' membres viennent' : ' membre vient')) : null),
     action);
 }
 function toggleRsvp(id) {
@@ -396,8 +397,8 @@ function admSorties() {
   return h('div', { class: 'panel', role: 'tabpanel' },
     h('ul', { class: 'rows' }, [...db.events].sort((a, b) => a.date.localeCompare(b.date)).map(ev => row(h('div', {}, h('b', {}, ev.titre), h('span', { class: 'tag' }, fmtLong(ev.date))), del('Supprimer « ' + ev.titre + ' » ?', () => { db.events = db.events.filter(x => x.id !== ev.id); })))),
     h('h2', {}, 'Ajouter une sortie'),
-    form([field('Titre', input('titre', { req: true })), field('Date', input('date', { type: 'date', req: true })), field('Description', textarea('desc', { rows: 3 })), h('label', { class: 'check' }, h('input', { type: 'checkbox', name: 'inscription' }), 'Inscription obligatoire')],
-      persist(d => db.events.push({ id: uid(), titre: d.titre, date: d.date, desc: d.desc || '', inscription: !!d.inscription })), 'Ajouter'));
+    form([field('Titre', input('titre', { req: true })), field('Date', input('date', { type: 'date', req: true })), field('Description', textarea('desc', { rows: 3 })), field('Lien de l’itinéraire 68°', input('lien', { type: 'url', ph: 'https://…' }), '(facultatif)'), h('label', { class: 'check' }, h('input', { type: 'checkbox', name: 'inscription' }), 'Inscription obligatoire')],
+      persist(d => db.events.push({ id: uid(), titre: d.titre, date: d.date, desc: d.desc || '', lien: /^https:\/\//.test(d.lien || '') ? d.lien : '', inscription: !!d.inscription })), 'Ajouter'));
 }
 function admInfos() {
   return h('div', { class: 'panel', role: 'tabpanel' },

@@ -203,3 +203,4 @@ fieldset.point legend { font-weight: 700; padding: 0 6px; }
 .toast[hidden] { display: none; }
 .sheet button { background: none; border: 0; border-top: 1px solid #2a2a2a; color: var(--blanc); font: 600 1rem var(--corps); text-align: left; padding: 14px 20px; cursor: pointer; }
 .sheet button:hover, .sheet button:focus-visible { background: #1a1a1a; color: var(--jaune); outline-offset: -3px; }
+.route { display: inline-block; margin-top: 6px; font-weight: 700; }
