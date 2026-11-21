@@ -29,7 +29,9 @@
 
   <main id="view"></main>
 
-  <p class="toast" id="toast" role="status" hidden></p>
+  <p class="toast" id="toast" aria-hidden="true" hidden></p>
+  <p class="sr" id="live" role="status" aria-live="polite"></p>
+  <noscript><p class="pad">Cette appli a besoin de JavaScript. Active-le dans ton navigateur pour voir le site du Béruges Moto Club.</p></noscript>
 
   <nav class="tabbar" aria-label="Navigation principale">
     <a href="#accueil" data-tab="accueil"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l9-8 9 8v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/></svg><span>Accueil</span></a>

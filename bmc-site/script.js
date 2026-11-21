@@ -39,12 +39,24 @@ function seed() {
       { id: 'c1', date: '2026-11-12', titre: 'Assemblée générale', texte: 'L’assemblée générale aura lieu en début d’année. La convocation et l’ordre du jour seront publiés ici.' },
       { id: 'c2', date: '2026-10-28', titre: 'Inventaire du matériel de course', texte: 'Merci de rapporter le matériel prêté avant fin novembre.' }
     ],
-    inventaire: [
-      { id: 'i1', nom: 'Chronomètres', qte: 2, etat: 'Bon', pretA: '' },
-      { id: 'i2', nom: 'Drapeaux à damier', qte: 4, etat: 'Bon', pretA: '' },
-      { id: 'i3', nom: 'Plots de piste', qte: 30, etat: 'À remplacer', pretA: '' },
-      { id: 'i4', nom: 'Talkies-walkies', qte: 6, etat: 'Bon', pretA: 'm4' }
-    ],
+    // Une fiche par événement : ce qui a été acheté et sorti, pour préparer l'édition suivante. Quantités d'exemple.
+    fiches: [{
+      id: 'f1', titre: 'Journée huîtres', date: '2026-10-18', items: [
+        { id: 'fi1', nom: 'Huîtres', categorie: 'Nourriture', qte: 30, unite: 'douzaines', prix: '' },
+        { id: 'fi2', nom: 'Charcuterie', categorie: 'Nourriture', qte: 8, unite: 'kg', prix: '' },
+        { id: 'fi3', nom: 'Pain', categorie: 'Nourriture', qte: 25, unite: 'baguettes', prix: '' },
+        { id: 'fi4', nom: 'Beurre', categorie: 'Nourriture', qte: 3, unite: 'kg', prix: '' },
+        { id: 'fi5', nom: 'Citrons', categorie: 'Nourriture', qte: 6, unite: 'kg', prix: '' },
+        { id: 'fi6', nom: 'Vin blanc', categorie: 'Boissons', qte: 36, unite: 'bouteilles', prix: '' },
+        { id: 'fi7', nom: 'Bières', categorie: 'Boissons', qte: 8, unite: 'caisses', prix: '' },
+        { id: 'fi8', nom: 'Boissons sans alcool', categorie: 'Boissons', qte: 6, unite: 'caisses', prix: '' },
+        { id: 'fi9', nom: 'Tivolis', categorie: 'Matériel', qte: 4, unite: 'pièces', prix: '' },
+        { id: 'fi10', nom: 'Tables', categorie: 'Matériel', qte: 12, unite: 'pièces', prix: '' },
+        { id: 'fi11', nom: 'Vaisselle', categorie: 'Matériel', qte: 150, unite: 'pièces', prix: '' },
+        { id: 'fi12', nom: 'Gobelets', categorie: 'Matériel', qte: 300, unite: 'pièces', prix: '' },
+        { id: 'fi13', nom: 'Sacs poubelle', categorie: 'Autre', qte: 2, unite: 'rouleaux', prix: '' }
+      ]
+    }],
     partenaires: [
       { id: 'p1', nom: 'Garage du Bourg', remise: '−10 %' },
       { id: 'p2', nom: 'Équipement Moto Sud', remise: '−15 %' },
@@ -62,8 +74,10 @@ function seed() {
 let db, sessionId = null, persistent = true;
 function load() {
   try { db = JSON.parse(localStorage.getItem(KEY)); } catch { db = null; persistent = false; }
-  if (!db || !Array.isArray(db.members)) db = seed();
-  db.settings = { ...seed().settings, ...db.settings };
+  if (!db || typeof db !== 'object' || !Array.isArray(db.members)) db = seed();
+  const base = seed();
+  for (const k of Object.keys(base)) if (db[k] == null) db[k] = base[k];          // migration : clés ajoutées plus tard
+  db.settings = { ...base.settings, ...db.settings };
   try { sessionId = localStorage.getItem(SKEY); } catch { /* session non conservée */ }
 }
 function save() {
@@ -74,6 +88,27 @@ function setSession(id) {
   sessionId = id;
   try { id ? localStorage.setItem(SKEY, id) : localStorage.removeItem(SKEY); } catch { /* ignore */ }
 }
+/* Photos : IndexedDB (hors du JSON principal, qui reste léger). Repli en mémoire si indisponible. */
+const photoStore = (() => {
+  const mem = new Map(); let opened = null;
+  const open = () => opened || (opened = new Promise(res => {
+    try { const r = indexedDB.open('bmc-photos', 1); r.onupgradeneeded = () => r.result.createObjectStore('p'); r.onsuccess = () => res(r.result); r.onerror = () => res(null); r.onblocked = () => res(null); }
+    catch { res(null); }
+  }));
+  const run = async (mode, fn) => {
+    const d = await open(); if (!d) return null;
+    return new Promise(res => { try { const t = d.transaction('p', mode), req = fn(t.objectStore('p')); t.oncomplete = () => res(req && 'result' in req ? req.result : true); t.onerror = t.onabort = () => res(null); } catch { res(null); } });
+  };
+  return {
+    async put(id, data) { mem.set(id, data); await run('readwrite', s => s.put(data, id)); },
+    async get(id) { if (mem.has(id)) return mem.get(id); const r = await run('readonly', s => s.get(id)); return typeof r === 'string' ? r : null; },
+    async del(id) { mem.delete(id); await run('readwrite', s => s.delete(id)); },
+    async clear() { mem.clear(); await run('readwrite', s => s.clear()); }
+  };
+})();
+const photoSrc = entry => entry.startsWith('data:') ? Promise.resolve(entry) : photoStore.get(entry);   // anciennes photos : data: en ligne
+const dropPhotos = album => album.photos.forEach(e => { if (!e.startsWith('data:')) photoStore.del(e); });
+
 const me = () => db.members.find(m => m.id === sessionId) || null;
 const isAdmin = () => { const m = me(); return !!m && BUREAU.includes(m.role); };
 const byId = (list, id) => list.find(x => x.id === id);
@@ -93,21 +128,36 @@ function h(tag, attrs, ...kids) {
   return e;
 }
 const $ = (s, r = document) => r.querySelector(s);
-const today = () => new Date().toISOString().slice(0, 10);
+const isoLocal = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const today = () => isoLocal(new Date());
 const dparts = iso => { const [y, m, d] = iso.split('-').map(Number); return { y, d: String(d).padStart(2, '0'), m: MOIS[m - 1] }; };
 const fmtLong = iso => { const p = dparts(iso); return `${Number(p.d)} ${p.m} ${p.y}`; };
 const telHref = t => 'tel:' + String(t).replace(/[^0-9+]/g, '');
 const initials = n => n.split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
 const isValid = m => m.expire >= today();
 const nextNumero = () => String(Math.max(0, ...db.members.map(m => parseInt(m.numero, 10) || 0)) + 1).padStart(4, '0');
-const addYear = iso => { const [y, m, d] = iso.split('-'); const base = iso < today() ? today().split('-')[0] : y; return `${Number(base) + 1}-${m}-${d}`; };
+const addYear = iso => {
+  const [y, m, d] = iso.split('-'), ny = (iso < today() ? Number(today().slice(0, 4)) : Number(y)) + 1;
+  const leap = (ny % 4 === 0 && ny % 100 !== 0) || ny % 400 === 0;
+  return `${ny}-${m}-${m === '02' && d === '29' && !leap ? '28' : d}`;
+};
+const norm = t => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+const emailTaken = (email, exceptId) => db.members.some(m => m.id !== exceptId && norm(m.email) === norm(email));
+const bureauCount = () => db.members.filter(m => BUREAU.includes(m.role)).length;
 let toastTimer;
-function toast(msg) { const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, 3500); }
+function toast(msg) { const t = $('#toast'); $('#live').textContent = ''; setTimeout(() => { $('#live').textContent = msg; }, 50); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, 3500); }
 
+function askConfirm(message, okLabel = 'Supprimer') {
+  return new Promise(resolve => {
+    const d = h('dialog', { class: 'confirm', 'aria-label': message }, h('p', {}, message),
+      h('div', { class: 'acts' }, btn('Annuler', () => d.close('no'), 'btn-line btn-sm'), btn(okLabel, () => d.close('yes'), 'btn-danger btn-sm')));
+    d.addEventListener('close', () => { d.remove(); resolve(d.returnValue === 'yes'); });
+    document.body.append(d); d.showModal();
+  });
+}
 function field(label, control, hint) { return h('label', {}, h('span', { class: 'lbl' }, label, hint ? h('span', { class: 'opt' }, ' ' + hint) : null), control); }
-const input = (name, o = {}) => h('input', { name, type: o.type || 'text', required: o.req, autocomplete: o.auto || 'off', placeholder: o.ph || ' ', value: o.value, inputmode: o.mode, min: o.min, max: o.max });
+const input = (name, o = {}) => h('input', { name, type: o.type || 'text', required: o.req, autocomplete: o.auto || 'off', placeholder: o.ph || ' ', value: o.value, inputmode: o.mode, min: o.min, max: o.max, pattern: o.pattern, title: o.title });
 const textarea = (name, o = {}) => h('textarea', { name, rows: o.rows || 4, required: o.req, placeholder: o.ph || ' ' });
-const select = (name, options, value) => h('select', { name }, options.map(o => { const [v, l] = Array.isArray(o) ? o : [o, o]; return h('option', { value: v, selected: v === value }, l); }));
 const btn = (label, onclick, cls = '', type = 'button') => h('button', { type, class: 'btn ' + cls, onclick }, label);
 const pageTitle = (t, sub) => [h('h1', { class: 'page-title' }, t), sub ? h('p', { class: 'muted' }, sub) : null];
 
@@ -125,7 +175,7 @@ function form(children, onSubmit, submitLabel = 'Enregistrer') {
 /* ---------- Écrans publics ---------- */
 function nextEvent() {
   const sorted = [...db.events].sort((a, b) => a.date.localeCompare(b.date));
-  return sorted.find(e => e.date >= today()) || sorted[sorted.length - 1] || null;
+  return sorted.find(e => e.date >= today()) || null;
 }
 function eventCard(ev) {
   const p = dparts(ev.date), m = me();
@@ -147,7 +197,7 @@ function toggleRsvp(id) {
   list.has(m.id) ? list.delete(m.id) : list.add(m.id);
   db.rsvp[id] = [...list]; popId = id; save(); render();
 }
-function albumTile(a, large) {
+function albumTile(a) {
   return h('a', { class: 'album a' + ((a.couleur || 1) % 4 || 1), href: '#album-' + a.id },
     h('span', { class: 'album-title' }, a.titre),
     h('span', { class: 'album-meta' }, a.photos.length ? a.photos.length + (a.photos.length > 1 ? ' photos' : ' photo') : 'Aucune photo pour l’instant'));
@@ -170,7 +220,7 @@ function viewAccueil() {
       h('a', { class: 'btn', href: '#sorties' }, 'Voir la prochaine sortie')),
     h('div', { class: 'flag', 'aria-hidden': 'true' }),
     h('div', { class: 'pad' },
-      ev ? [h('h2', {}, 'Prochaine sortie'), eventCard(ev)] : null,
+      h('h2', {}, 'Prochaine sortie'), ev ? eventCard(ev) : h('p', { class: 'empty' }, 'Aucune sortie prévue pour le moment. Reviens bientôt.'),
       alb ? [h('h2', {}, 'Dernier album'), albumTile(alb)] : null,
       h('h2', {}, 'Le club'),
       h('p', {}, 'Né en 2010 à Béruges, le BMC réunit des motards de tous âges. On roule le week-end, on organise la braderie et on se serre les coudes quand une moto reste au garage.'),
@@ -199,7 +249,12 @@ function viewAlbum(id) {
   const a = byId(db.albums, id);
   if (!a) return h('div', { class: 'pad' }, h('p', { class: 'empty' }, 'Cet album n’existe pas. '), h('a', { class: 'btn', href: '#galerie' }, 'Retour à la galerie'));
   const grid = a.photos.length
-    ? h('div', { class: 'photos' }, a.photos.map((src, i) => h('button', { type: 'button', class: 'photo', 'aria-label': `Agrandir la photo ${i + 1}`, onclick: () => openPhoto(src) }, h('img', { src, alt: `${a.titre}, photo ${i + 1}`, loading: 'lazy' }))))
+    ? h('div', { class: 'photos' }, a.photos.map((entry, i) => {
+      const img = h('img', { alt: `${a.titre}, photo ${i + 1}`, loading: 'lazy' });
+      const b = h('button', { type: 'button', class: 'photo', 'aria-label': `Agrandir la photo ${i + 1}`, disabled: true }, img);
+      photoSrc(entry).then(src => { if (!src) { b.classList.add('missing'); b.setAttribute('aria-label', `Photo ${i + 1} indisponible`); return; } img.src = src; b.disabled = false; b.onclick = () => openPhoto(src); });
+      return b;
+    }))
     : h('p', { class: 'empty' }, isAdmin() ? 'Aucune photo. Ajoute les premières ci-dessous.' : 'Les photos arrivent bientôt.');
   const add = isAdmin() ? h('label', { class: 'btn btn-full upload' }, 'Ajouter des photos',
     h('input', { type: 'file', accept: 'image/*', multiple: true, class: 'sr', onchange: e => addPhotos(a, e.target.files) })) : null;
@@ -230,10 +285,10 @@ async function addPhotos(album, files) {
   let n = 0;
   for (const f of files) {
     if (!f.type.startsWith('image/')) continue;
-    try { album.photos.push(await shrink(f)); n++; } catch { toast('Une image n’a pas pu être lue.'); }
+    try { const id = uid(); await photoStore.put(id, await shrink(f)); album.photos.push(id); n++; } catch { toast('Une image n’a pas pu être lue.'); }
   }
   if (n && save()) toast(n + (n > 1 ? ' photos ajoutées' : ' photo ajoutée'));
-  else if (n) album.photos.length -= n;
+  else if (n) { album.photos.splice(-n).forEach(id => photoStore.del(id)); }
   render();
 }
 
@@ -273,6 +328,7 @@ function viewSecurite() {
 
 /* ---------- Connexion et espace membres ---------- */
 function viewConnexion() {
+  if (me()) return viewMembres();
   const f = form([field('E-mail', input('email', { type: 'email', req: true, auto: 'username' })), field('Code personnel', input('code', { type: 'password', req: true, auto: 'current-password', mode: 'numeric' }))],
     d => {
       const m = db.members.find(x => x.email.toLowerCase() === d.email.trim().toLowerCase() && x.code === d.code.trim());
@@ -294,12 +350,18 @@ function viewMembres() {
   return h('div', { class: 'pad' },
     h('div', { class: 'who-bar' }, h('span', {}, 'Connecté : ', h('b', {}, m.nom), ' (', m.role, ')'), btn('Se déconnecter', () => { setSession(null); location.hash = '#accueil'; render(); toast('Déconnecté.'); }, 'btn-sm btn-line')),
     isAdmin() ? h('a', { class: 'btn btn-full', href: '#admin' }, 'Accès administrateur du bureau') : null,
-    segment(tabs, memTab, k => { memTab = k; render(); }),
-    panels[memTab]());
+    segment(tabs, memTab, k => { memTab = k; render(); }, 'mem'),
+    asPanel(panels[memTab](), 'mem', memTab));
 }
-function segment(tabs, current, onPick) {
-  return h('div', { class: 'seg', role: 'tablist' }, tabs.map(([k, l]) => h('button', { type: 'button', role: 'tab', 'aria-selected': String(k === current), onclick: () => onPick(k) }, l)));
+function segment(tabs, current, onPick, prefix, extra = '') {
+  const go = k => { onPick(k); const t = document.getElementById(`${prefix}-tab-${k}`); if (t) t.focus(); };
+  return h('div', { class: 'seg ' + extra, role: 'tablist' }, tabs.map(([k, l], i) => h('button', {
+    type: 'button', role: 'tab', id: `${prefix}-tab-${k}`, 'aria-controls': `${prefix}-panel`, 'aria-selected': String(k === current), tabindex: k === current ? '0' : '-1',
+    onclick: () => go(k),
+    onkeydown: e => { const d = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key]; if (d) { e.preventDefault(); go(tabs[(i + d + tabs.length) % tabs.length][0]); } }
+  }, l)));
 }
+const asPanel = (node, prefix, current) => { node.id = `${prefix}-panel`; node.setAttribute('role', 'tabpanel'); node.setAttribute('aria-labelledby', `${prefix}-tab-${current}`); return node; };
 
 let query = '';
 function panelAnnuaire() {
@@ -331,9 +393,31 @@ function panelInfos() {
   return h('div', { role: 'tabpanel', class: 'panel' }, list.length ? h('ul', { class: 'news' }, list.map(c => h('li', {}, h('time', {}, fmtLong(c.date)), h('div', {}, h('h3', {}, c.titre), h('p', {}, c.texte)))))
     : h('p', { class: 'empty' }, 'Aucun communiqué pour le moment.'));
 }
+const CATS = ['Nourriture', 'Boissons', 'Matériel', 'Autre'];
+const euro = n => new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(n);
+const fichesSorted = () => [...db.fiches].sort((a, b) => b.date.localeCompare(a.date));
+let ficheId = null;
+const currentFiche = () => byId(db.fiches, ficheId) || fichesSorted()[0] || null;
+const ficheTotal = f => f.items.reduce((sum, i) => sum + (Number(i.prix) || 0), 0);
+const qtyText = i => `${i.qte}${i.unite ? ' ' + i.unite : ''}`;
+function fichePicker() {
+  return h('label', { class: 'pick' }, h('span', { class: 'lbl' }, 'Événement'),
+    h('select', { 'aria-label': 'Choisir l’événement', onchange: e => { ficheId = e.target.value; render(); } },
+      fichesSorted().map(f => h('option', { value: f.id, selected: f.id === currentFiche().id }, `${f.titre} · ${fmtLong(f.date)}`))));
+}
 function panelInventaire() {
-  return h('div', { role: 'tabpanel', class: 'panel' }, h('p', { class: 'muted' }, 'Matériel de course du club et qui l’a en prêt.'),
-    h('ul', { class: 'stock' }, db.inventaire.map(i => { const p = byId(db.members, i.pretA); return h('li', {}, h('div', {}, h('b', {}, i.nom), h('span', {}, ' × ' + i.qte)), h('span', { class: 'tag' }, i.etat), p ? h('span', { class: 'muted' }, 'Prêté à ' + p.nom) : null); })));
+  const f = currentFiche();
+  if (!f) return h('div', { role: 'tabpanel', class: 'panel' }, h('p', { class: 'empty' }, 'Aucune fiche d’événement pour le moment.'));
+  const groups = CATS.map(c => [c, f.items.filter(i => i.categorie === c)]).filter(([, l]) => l.length);
+  const total = ficheTotal(f);
+  return h('div', { role: 'tabpanel', class: 'panel' },
+    h('p', { class: 'muted' }, 'Ce qu’on a acheté et sorti pour chaque événement, pour préparer le suivant.'),
+    fichePicker(),
+    groups.length ? groups.map(([c, l]) => h('section', { class: 'cat' }, h('h3', {}, c),
+      h('ul', { class: 'stock' }, l.map(i => h('li', {}, h('b', {}, i.nom), h('span', { class: 'qty' }, qtyText(i)), i.prix !== '' && i.prix != null ? h('span', { class: 'muted' }, euro(Number(i.prix))) : null)))))
+      : h('p', { class: 'empty' }, 'Cette fiche est vide. Le bureau peut y ajouter ce qu’on achète.'),
+    total > 0 ? h('p', { class: 'badge ok' }, 'Total acheté : ' + euro(total)) : null,
+    h('p', { class: 'note' }, 'Les quantités de la fiche de démonstration sont des exemples.'));
 }
 
 /* ---------- Administration (bureau) ---------- */
@@ -345,13 +429,18 @@ function viewAdmin() {
   const tabs = [['demandes', 'Demandes' + (nb ? ` (${nb})` : '')], ['membres', 'Membres'], ['pointage', 'Pointage'], ['sorties', 'Sorties'], ['infos', 'Communiqués'], ['stock', 'Inventaire'], ['partenaires', 'Partenaires'], ['albums', 'Albums'], ['reglages', 'Réglages']];
   const panels = { demandes: admDemandes, membres: admMembres, pointage: admPointage, sorties: admSorties, infos: admInfos, stock: admStock, partenaires: admPartenaires, albums: admAlbums, reglages: admReglages };
   return h('div', { class: 'pad' }, h('a', { class: 'back', href: '#membres' }, '‹ Espace membres'), pageTitle('Administration', 'Réservé au bureau : ' + me().role + '.'),
-    h('div', { class: 'seg wrap', role: 'tablist' }, tabs.map(([k, l]) => h('button', { type: 'button', role: 'tab', 'aria-selected': String(k === admTab), onclick: () => { admTab = k; render(); } }, l))),
-    panels[admTab]());
+    segment(tabs, admTab, k => { admTab = k; render(); }, 'adm', 'wrap'),
+    asPanel(panels[admTab](), 'adm', admTab));
 }
-const del = (label, fn) => btn('Supprimer', () => { if (confirm(label)) { fn(); save(); render(); } }, 'btn-sm btn-danger');
+const del = (label, fn) => btn('Supprimer', async () => { if (await askConfirm(label)) { fn(); save(); render(); } }, 'btn-sm btn-danger');
 const row = (...kids) => h('li', { class: 'row' }, ...kids);
-const persist = fn => d => { fn(d); if (!save()) return false; render(); return false; };
+const persist = fn => d => { if (fn(d) === false) return false; if (!save()) return false; render(); return false; };
 
+function matchParrain(name) {
+  const t = norm(name); if (t.length < 3) return null;
+  const exact = db.members.filter(m => norm(m.nom) === t); if (exact.length === 1) return exact[0];
+  const part = db.members.filter(m => norm(m.nom).includes(t)); return part.length === 1 ? part[0] : null;
+}
 function admDemandes() {
   const list = [...db.demandes].reverse();
   return h('div', { class: 'panel', role: 'tabpanel' }, list.length ? h('ul', { class: 'rows' }, list.map(d => row(
@@ -359,16 +448,32 @@ function admDemandes() {
     h('p', { class: 'muted' }, [d.email, d.tel].filter(Boolean).join(' · ')),
     d.parrain ? h('p', { class: 'muted' }, 'Parrain indiqué : ' + d.parrain) : null, d.note ? h('p', { class: 'muted' }, d.note) : null,
     d.statut === 'nouvelle' ? h('div', { class: 'acts' },
-      d.type === 'adhesion' ? btn('Accepter', () => acceptDemande(d), 'btn-sm') : btn('Marquer traitée', () => { d.statut = 'traitée'; save(); render(); }, 'btn-sm'),
+      d.type === 'adhesion' ? (() => {
+        const guess = matchParrain(d.parrain), sel = h('select', { 'aria-label': 'Parrain de ' + d.nom }, h('option', { value: '' }, 'Aucun parrain'), db.members.map(m => h('option', { value: m.id, selected: guess && m.id === guess.id }, m.nom)));
+        return [h('label', { class: 'mini' }, 'Parrain', sel), btn('Accepter', () => acceptDemande(d, sel.value), 'btn-sm')];
+      })() : btn('Marquer traitée', () => { d.statut = 'traitée'; save(); render(); }, 'btn-sm'),
       d.type === 'adhesion' ? btn('Refuser', () => { d.statut = 'refusée'; save(); render(); }, 'btn-sm btn-line') : null) : null)))
     : h('p', { class: 'empty' }, 'Aucune demande pour le moment.'));
 }
-function acceptDemande(d) {
+function acceptDemande(d, parrainId) {
+  if (emailTaken(d.email)) { toast('Cet e-mail est déjà utilisé par un membre. Refuse la demande ou corrige le membre existant.'); return; }
   const code = String(Math.floor(1000 + Math.random() * 9000));
-  const parrain = d.parrain && db.members.find(m => m.nom.toLowerCase().includes(d.parrain.trim().toLowerCase()));
-  db.members.push({ id: uid(), nom: d.nom, role: 'Membre', tel: d.tel || '', email: d.email, numero: nextNumero(), expire: addYear(today()), code, parrainId: parrain ? parrain.id : null });
+  db.members.push({ id: uid(), nom: d.nom, role: 'Membre', tel: d.tel || '', email: norm(d.email), numero: nextNumero(), expire: addYear(today()), code, parrainId: parrainId || null });
   d.statut = 'acceptée'; save(); render();
   toast(`Membre créé. Code de connexion à lui transmettre : ${code}`);
+}
+function changeRole(m, next) {
+  if (BUREAU.includes(m.role) && !BUREAU.includes(next)) {
+    if (m.id === sessionId) { toast('Tu ne peux pas retirer ton propre rôle : demande à un autre membre du bureau.'); render(); return; }
+    if (bureauCount() <= 1) { toast('Il faut au moins un membre du bureau.'); render(); return; }
+  }
+  m.role = next; save(); render();
+}
+function removeMember(id) {
+  db.members = db.members.filter(x => x.id !== id);
+  db.members.forEach(x => { if (x.parrainId === id) x.parrainId = null; });
+  Object.keys(db.rsvp).forEach(k => { db.rsvp[k] = db.rsvp[k].filter(x => x !== id); });
+  Object.keys(db.pointage).forEach(k => { db.pointage[k] = db.pointage[k].filter(x => x !== id); });
 }
 function admMembres() {
   return h('div', { class: 'panel', role: 'tabpanel' },
@@ -376,12 +481,16 @@ function admMembres() {
       h('div', {}, h('b', {}, m.nom), h('span', { class: 'tag' }, 'n° ' + m.numero), h('span', { class: 'tag ' + (isValid(m) ? '' : 'hot') }, isValid(m) ? 'à jour' : 'expirée')),
       h('p', { class: 'muted' }, `${m.email} · ${m.tel} · valable jusqu’au ${fmtLong(m.expire)} · code ${m.code}`),
       h('div', { class: 'acts' },
-        h('select', { 'aria-label': 'Rôle de ' + m.nom, onchange: e => { m.role = e.target.value; save(); render(); } }, ROLES.map(r => h('option', { value: r, selected: r === m.role }, r))),
+        h('select', { 'aria-label': 'Rôle de ' + m.nom, onchange: e => changeRole(m, e.target.value) }, ROLES.map(r => h('option', { value: r, selected: r === m.role }, r))),
         btn('Renouveler 1 an', () => { m.expire = addYear(m.expire); save(); render(); toast('Cotisation renouvelée.'); }, 'btn-sm'),
-        m.id !== sessionId ? del('Supprimer ' + m.nom + ' ?', () => { db.members = db.members.filter(x => x.id !== m.id); }) : null)))),
+        m.id !== sessionId && !(BUREAU.includes(m.role) && bureauCount() <= 1) ? del('Supprimer ' + m.nom + ' ?', () => removeMember(m.id)) : null)))),
     h('h2', {}, 'Ajouter un membre'),
-    form([field('Prénom et nom', input('nom', { req: true })), field('E-mail', input('email', { type: 'email', req: true })), field('Téléphone', input('tel', { type: 'tel' })), field('Code personnel (4 chiffres)', input('code', { req: true, mode: 'numeric', ph: '1234' }))],
-      persist(d => db.members.push({ id: uid(), nom: d.nom, role: 'Membre', tel: d.tel, email: d.email, numero: nextNumero(), expire: addYear(today()), code: d.code, parrainId: null })), 'Ajouter'));
+    form([field('Prénom et nom', input('nom', { req: true })), field('E-mail', input('email', { type: 'email', req: true })), field('Téléphone', input('tel', { type: 'tel' })), field('Code personnel (4 chiffres)', input('code', { req: true, mode: 'numeric', ph: '1234', pattern: '[0-9]{4}', title: '4 chiffres' }))],
+      persist(d => {
+        if (!/^\d{4}$/.test(d.code.trim())) { toast('Le code doit comporter exactement 4 chiffres.'); return false; }
+        if (emailTaken(d.email)) { toast('Cet e-mail est déjà utilisé par un membre.'); return false; }
+        db.members.push({ id: uid(), nom: d.nom, role: 'Membre', tel: d.tel, email: norm(d.email), numero: nextNumero(), expire: addYear(today()), code: d.code.trim(), parrainId: null });
+      }), 'Ajouter'));
 }
 function admPointage() {
   const evs = [...db.events].sort((a, b) => b.date.localeCompare(a.date));
@@ -408,17 +517,37 @@ function admInfos() {
       persist(d => db.communiques.push({ id: uid(), date: today(), titre: d.titre, texte: d.texte })), 'Publier'));
 }
 function admStock() {
-  return h('div', { class: 'panel', role: 'tabpanel' },
-    h('ul', { class: 'rows' }, db.inventaire.map(i => row(
-      h('div', {}, h('b', {}, i.nom)),
-      h('div', { class: 'acts' },
-        h('label', { class: 'mini' }, 'Quantité', h('input', { type: 'number', min: '0', value: i.qte, onchange: e => { i.qte = Math.max(0, Number(e.target.value) || 0); save(); } })),
-        h('label', { class: 'mini' }, 'État', h('select', { onchange: e => { i.etat = e.target.value; save(); } }, ['Bon', 'À réparer', 'À remplacer'].map(s => h('option', { selected: s === i.etat }, s)))),
-        h('label', { class: 'mini' }, 'Prêté à', h('select', { onchange: e => { i.pretA = e.target.value; save(); } }, h('option', { value: '' }, 'Personne'), db.members.map(m => h('option', { value: m.id, selected: m.id === i.pretA }, m.nom)))),
-        del('Supprimer ' + i.nom + ' ?', () => { db.inventaire = db.inventaire.filter(x => x.id !== i.id); }))))),
-    h('h2', {}, 'Ajouter du matériel'),
-    form([field('Nom', input('nom', { req: true })), field('Quantité', input('qte', { type: 'number', req: true, min: '0', value: '1' }))],
-      persist(d => db.inventaire.push({ id: uid(), nom: d.nom, qte: Number(d.qte) || 0, etat: 'Bon', pretA: '' })), 'Ajouter'));
+  const f = currentFiche();
+  const newFiche = form([field('Nom de l’événement', input('titre', { req: true, ph: 'Journée huîtres' })), field('Date', input('date', { type: 'date', req: true }))],
+    persist(d => { const nf = { id: uid(), titre: d.titre.trim(), date: d.date, items: [] }; db.fiches.push(nf); ficheId = nf.id; toast('Fiche créée : ajoute ce que vous achetez.'); }), 'Créer la fiche');
+  if (!f) return h('div', { class: 'panel', role: 'tabpanel' }, h('p', { class: 'empty' }, 'Aucune fiche. Crée la première.'), h('h2', {}, 'Nouvelle fiche'), newFiche);
+  const numField = (i, key, label, min) => h('label', { class: 'mini' }, label, h('input', { type: 'number', min, step: key === 'prix' ? '0.01' : 'any', value: i[key], onchange: e => {
+    const v = e.target.value === '' && key === 'prix' ? '' : Number(e.target.value);
+    if (v !== '' && (!Number.isFinite(v) || v < 0)) { toast(label + ' invalide : un nombre positif ou zéro.'); e.target.value = i[key]; return; }
+    i[key] = v; save(); } }));
+  return h('div', { class: 'panel', role: 'tabpanel' }, fichePicker(),
+    h('ul', { class: 'rows' }, f.items.map(i => row(
+      h('div', {}, h('b', {}, i.nom), h('span', { class: 'tag' }, i.categorie)),
+      h('div', { class: 'acts' }, numField(i, 'qte', 'Quantité', '0'),
+        h('label', { class: 'mini' }, 'Unité', h('input', { type: 'text', value: i.unite, onchange: e => { i.unite = e.target.value.trim(); save(); } })),
+        numField(i, 'prix', 'Prix payé (€)', '0'),
+        del('Retirer ' + i.nom + ' de la fiche ?', () => { f.items = f.items.filter(x => x.id !== i.id); }))))),
+    h('h2', {}, 'Ajouter à la fiche'),
+    form([field('Article', input('nom', { req: true, ph: 'Vin blanc' })),
+      field('Catégorie', h('select', { name: 'categorie' }, CATS.map(c => h('option', { value: c }, c)))),
+      field('Quantité', input('qte', { type: 'number', req: true, min: '0', value: '1' })), field('Unité', input('unite', { ph: 'bouteilles' }), '(facultatif)'),
+      field('Prix payé en €', input('prix', { type: 'number', min: '0' }), '(facultatif)')],
+      persist(d => {
+        const qte = Number(d.qte), prix = d.prix === '' ? '' : Number(d.prix);
+        if (!Number.isFinite(qte) || qte < 0 || (prix !== '' && (!Number.isFinite(prix) || prix < 0))) { toast('Quantité et prix doivent être positifs.'); return false; }
+        f.items.push({ id: uid(), nom: d.nom.trim(), categorie: CATS.includes(d.categorie) ? d.categorie : 'Autre', qte, unite: (d.unite || '').trim(), prix });
+      }), 'Ajouter'),
+    h('h2', {}, 'Préparer la prochaine édition'),
+    h('p', { class: 'note' }, 'Copie cette fiche avec les mêmes articles et quantités, à ajuster.'),
+    form([field('Nom de la nouvelle fiche', input('titre', { req: true, value: f.titre })), field('Date', input('date', { type: 'date', req: true }))],
+      persist(d => { const nf = { id: uid(), titre: d.titre.trim(), date: d.date, items: f.items.map(i => ({ ...i, id: uid(), prix: '' })) }; db.fiches.push(nf); ficheId = nf.id; toast('Fiche copiée : ajuste les quantités.'); }), 'Copier la fiche'),
+    h('h2', {}, 'Nouvelle fiche vide'), newFiche,
+    del('Supprimer toute la fiche « ' + f.titre + ' » ?', () => { db.fiches = db.fiches.filter(x => x.id !== f.id); ficheId = null; }));
 }
 function admPartenaires() {
   return h('div', { class: 'panel', role: 'tabpanel' },
@@ -429,7 +558,7 @@ function admPartenaires() {
 }
 function admAlbums() {
   return h('div', { class: 'panel', role: 'tabpanel' }, h('p', { class: 'muted' }, 'Pour ajouter des photos, ouvre l’album depuis la galerie.'),
-    h('ul', { class: 'rows' }, db.albums.map(a => row(h('div', {}, h('b', {}, a.titre), h('span', { class: 'tag' }, a.photos.length + ' photo(s)')), h('div', { class: 'acts' }, h('a', { class: 'btn btn-sm', href: '#album-' + a.id }, 'Ouvrir'), del('Supprimer l’album « ' + a.titre + ' » et ses photos ?', () => { db.albums = db.albums.filter(x => x.id !== a.id); }))))),
+    h('ul', { class: 'rows' }, db.albums.map(a => row(h('div', {}, h('b', {}, a.titre), h('span', { class: 'tag' }, a.photos.length + ' photo(s)')), h('div', { class: 'acts' }, h('a', { class: 'btn btn-sm', href: '#album-' + a.id }, 'Ouvrir'), del('Supprimer l’album « ' + a.titre + ' » et ses photos ?', () => { dropPhotos(a); db.albums = db.albums.filter(x => x.id !== a.id); }))))),
     h('h2', {}, 'Créer un album'),
     form([field('Titre', input('titre', { req: true, ph: 'Sortie de printemps 2027' })), field('Année', input('annee', { type: 'number', req: true, value: String(new Date().getFullYear()) }))],
       persist(d => db.albums.unshift({ id: uid(), titre: d.titre, annee: Number(d.annee), couleur: (db.albums.length % 3) + 1, photos: [] })), 'Créer'));
@@ -441,7 +570,7 @@ function admReglages() {
       d => { if (d.youtube && !/^https:\/\//.test(d.youtube)) { toast('Le lien doit commencer par https://'); return false; } Object.assign(s, d); save(); render(); toast('Réglages enregistrés.'); return false; }),
     h('h2', {}, 'Données de démonstration'),
     h('p', { class: 'note' }, 'Remet tout à zéro : membres, sorties, photos et demandes d’exemple.'),
-    btn('Réinitialiser la démo', () => { if (confirm('Tout effacer et recharger les données d’exemple ?')) { db = seed(); setSession(null); save(); location.hash = '#accueil'; render(); } }, 'btn-danger btn-full'),
+    btn('Réinitialiser la démo', async () => { if (await askConfirm('Tout effacer et recharger les données d’exemple ?', 'Tout effacer')) { db = seed(); setSession(null); photoStore.clear(); save(); location.hash = '#accueil'; render(); } }, 'btn-danger btn-full'),
     persistent ? null : h('p', { class: 'note' }, 'Stockage indisponible : les changements disparaissent à la fermeture.'));
 }
 
@@ -465,10 +594,12 @@ function stagger() {
 function render() {
   const r = route(), key = location.hash || '#accueil', changed = key !== lastRoute;
   lastRoute = key;
+  view.classList.remove('enter');                      // l'entrée ne rejoue pas lors d'un simple re-rendu
+  if (changed) query = '';
   view.replaceChildren(...[r.node()].flat());
   popId = null;
   if (changed) {
-    stagger(); view.classList.remove('enter'); void view.offsetWidth; view.classList.add('enter');
+    stagger(); void view.offsetWidth; view.classList.add('enter');
     view.focus({ preventScroll: true });
     const t = $('h1', view); document.title = (t ? t.textContent + ' · ' : '') + 'Béruges Moto Club';
   }

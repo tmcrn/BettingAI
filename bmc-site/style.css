@@ -255,3 +255,21 @@ fieldset.point legend { font-weight: 700; padding: 0 6px; }
 .contacts p { margin: 0; }
 .bureau a { font-weight: 600; }
 .form textarea:invalid:not(:placeholder-shown):not(:focus) { border-color: #b3261e; }
+
+/* Boîte de confirmation et photos indisponibles */
+.confirm { width: min(92vw, 420px); padding: 20px; border: 4px solid var(--noir); background: var(--blanc); box-shadow: 6px 6px 0 var(--jaune); }
+.confirm::backdrop { background: rgba(0,0,0,.6); }
+.confirm p { margin: 0 0 14px; font-weight: 600; }
+.confirm[open] { animation: zoom .2s cubic-bezier(.2, .8, .2, 1); }
+.photo:disabled { cursor: default; }
+.photo.missing { background: repeating-linear-gradient(45deg, var(--gris-clair) 0 8px, #fff 8px 16px); }
+.photo.missing img { display: none; }
+
+/* Inventaire par événement */
+.pick { display: grid; gap: 4px; font-weight: 600; font-size: .95rem; }
+.pick select { min-height: 48px; padding: 8px 10px; border: 3px solid var(--noir); border-radius: 6px; font: 1rem var(--corps); background: var(--blanc); }
+.cat { display: grid; gap: 6px; }
+.cat h3 { margin: 6px 0 0; font-family: var(--display); font-weight: 400; font-size: 1.25rem; color: var(--bleu); }
+.stock li { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; }
+.stock .qty { font-weight: 700; }
+.mini input[type="text"] { width: 110px; }
