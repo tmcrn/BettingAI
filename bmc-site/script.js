@@ -15,7 +15,12 @@ const BUREAU = ['Président', 'Secrétaire', 'Trésorier'];
 
 function seed() {
   return {
-    settings: { youtube: '', braderieDate: 'À confirmer', braderieLieu: 'Béruges' },
+    settings: {
+      youtube: '', braderieDate: 'À confirmer', braderieLieu: 'Béruges',
+      // Contacts publiés par le club sur Intramuros (fiche « Béruges Moto Club (BMC) »). Rôles non précisés dans cette source.
+      email: 'berugesmotoclub86@gmail.com',
+      contacts: [{ nom: 'Nicolas Ribardiere', tel: '06 74 93 08 62' }, { nom: 'Guy Périssat', tel: '06 37 96 43 03' }]
+    },
     members: [
       { id: 'm1', nom: 'Prénom Président', role: 'Président', tel: '0600000001', email: 'president@bmc.test', numero: '0001', expire: '2027-12-31', code: '1111', parrainId: null },
       { id: 'm2', nom: 'Prénom Secrétaire', role: 'Secrétaire', tel: '0600000002', email: 'secretaire@bmc.test', numero: '0002', expire: '2027-12-31', code: '2222', parrainId: null },
@@ -58,6 +63,7 @@ let db, sessionId = null, persistent = true;
 function load() {
   try { db = JSON.parse(localStorage.getItem(KEY)); } catch { db = null; persistent = false; }
   if (!db || !Array.isArray(db.members)) db = seed();
+  db.settings = { ...seed().settings, ...db.settings };
   try { sessionId = localStorage.getItem(SKEY); } catch { /* session non conservée */ }
 }
 function save() {
@@ -146,9 +152,15 @@ function albumTile(a, large) {
     h('span', { class: 'album-meta' }, a.photos.length ? a.photos.length + (a.photos.length > 1 ? ' photos' : ' photo') : 'Aucune photo pour l’instant'));
 }
 
+function contactsBlock() {
+  const st = db.settings;
+  return h('div', { class: 'contacts' }, h('h3', {}, 'Contacts du club'),
+    h('ul', { class: 'bureau' }, st.contacts.map(c => h('li', {}, h('b', {}, c.nom), h('a', { href: telHref(c.tel) }, c.tel)))),
+    st.email ? h('p', {}, 'E-mail : ', h('a', { href: 'mailto:' + st.email }, st.email)) : null);
+}
+
 function viewAccueil() {
   const ev = nextEvent(), alb = db.albums[0];
-  const bureau = db.members.filter(m => BUREAU.includes(m.role)).sort((a, b) => BUREAU.indexOf(a.role) - BUREAU.indexOf(b.role));
   return [
     h('div', { class: 'hero' },
       h('p', { class: 'hero-note' }, 'Photo du club à ajouter'),
@@ -161,7 +173,7 @@ function viewAccueil() {
       alb ? [h('h2', {}, 'Dernier album'), albumTile(alb)] : null,
       h('h2', {}, 'Le club'),
       h('p', {}, 'Né en 2010 à Béruges, le BMC réunit des motards de tous âges. On roule le week-end, on organise la braderie et on se serre les coudes quand une moto reste au garage.'),
-      h('ul', { class: 'bureau' }, bureau.map(b => h('li', {}, h('b', {}, b.role), h('span', {}, b.nom)))),
+      contactsBlock(),
       h('a', { class: 'btn btn-line btn-full', href: '#rejoindre' }, 'Rejoindre le club'),
       h('div', { class: 'links' },
         db.settings.youtube ? h('a', { class: 'btn btn-line btn-full', href: db.settings.youtube, target: '_blank', rel: 'noopener' }, 'Voir nos vidéos sur YouTube') : null,
@@ -247,7 +259,7 @@ function viewBraderie() {
 }
 
 function viewRejoindre() {
-  return h('div', { class: 'pad' }, pageTitle('Rejoindre le club', 'Le bureau te recontacte. Un membre t’a parlé du BMC ? Indique son nom, il te parraine.'),
+  return h('div', { class: 'pad' }, pageTitle('Rejoindre le club', 'Le bureau te recontacte. Un membre t’a parlé du BMC ? Indique son nom, il te parraine.'), contactsBlock(),
     form([field('Prénom et nom', input('nom', { req: true, auto: 'name' })), field('E-mail', input('email', { type: 'email', req: true, auto: 'email' })), field('Téléphone', input('tel', { type: 'tel', req: true, auto: 'tel' })), field('Parrainé par', input('parrain', { ph: 'Nom du membre' }), '(facultatif)')],
       d => { db.demandes.push({ id: uid(), type: 'adhesion', ...d, date: today(), statut: 'nouvelle' }); if (!save()) { db.demandes.pop(); return false; } toast('Demande envoyée. Le bureau te répond rapidement.'); }, 'Envoyer ma demande'));
 }
